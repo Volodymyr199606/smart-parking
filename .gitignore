@@ -1,37 +1,38 @@
-
-# Ignore Maven target directory
+# === Build output ===
 /target/
+*.class
+*.jar
+*.war
+*.ear
 
-# Ignore IntelliJ IDEA project files
-/.idea/
-/*.iml
+# === IntelliJ IDEA ===
+.idea/
+*.iml
 
-# Logs
-*.log
-
-# OS-specific
+# === System files ===
 .DS_Store
 Thumbs.db
 
-# Java class files
-*.class
+# === Logs ===
+*.log
 
-# Environment config
+# === Env & secrets ===
 .env
+.env.*
 
-# IDE-specific
-*.swp
-*.swo
-
-# Backup and generated files
-*.bak
-*.tmp
-*.orig
-
-# Compiled JARs
-*.jar
-*.war
-
-# Ignore test dump files
+# === Maven status ===
+*.lst
 *.dump
 *.hprof
+
+# === Editor backups ===
+*.swp
+*.swo
+*.tmp
+*.bak
+*.orig
+
+# === VS Code (if you ever use it) ===
+.vscode/
+
+HELP.md
