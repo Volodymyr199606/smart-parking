@@ -36,3 +36,5 @@ Thumbs.db
 .vscode/
 
 HELP.md
+
+src/main/resources/application.properties
