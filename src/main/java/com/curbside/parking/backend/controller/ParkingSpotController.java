@@ -1,5 +1,6 @@
 package com.curbside.parking.backend.controller;
 
+import com.curbside.parking.backend.dto.ParkingSpotDTO;
 import com.curbside.parking.backend.service.ParkingSpotService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
