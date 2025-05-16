@@ -1,16 +1,14 @@
 package com.curbside.parking.backend.controller;
 
 import com.curbside.parking.backend.dto.ParkingSpotDTO;
+import com.curbside.parking.backend.model.ParkingSpot;
 import com.curbside.parking.backend.service.ParkingSpotService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
@@ -85,5 +83,15 @@ public class ParkingSpotController {
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         double distance = EARTH_RADIUS * c;
         return distance <= radiusMeters;
+    }
+
+    @PostMapping("/user/{userId}")
+    public ResponseEntity<ParkingSpot> createSpotWithUser(@PathVariable Long userId, @RequestBody ParkingSpot spot) {
+        return ResponseEntity.ok(spot);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<ParkingSpot>> getAllSpots() {
+        return ResponseEntity.ok(parkingSpotService.getAllSpots());
     }
 }
