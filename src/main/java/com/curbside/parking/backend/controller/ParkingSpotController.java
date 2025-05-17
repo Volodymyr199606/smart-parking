@@ -108,4 +108,16 @@ public class ParkingSpotController {
         ParkingSpot savedSpot = parkingSpotService.saveSpot(spot);
         return ResponseEntity.ok(savedSpot);
     }
+
+    @PutMapping("/{id}/availability")
+    public ResponseEntity<ParkingSpot> updateAvailability(
+            @PathVariable Long id,
+            @RequestParam boolean available) {
+        ParkingSpot updated = parkingSpotService.updateAvailability(id, available);
+        if (updated != null) {
+            return ResponseEntity.ok(updated);
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
 }
