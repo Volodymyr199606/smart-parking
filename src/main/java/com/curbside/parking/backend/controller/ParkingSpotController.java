@@ -94,4 +94,12 @@ public class ParkingSpotController {
     public ResponseEntity<List<ParkingSpot>> getAllSpots() {
         return ResponseEntity.ok(parkingSpotService.getAllSpots());
     }
+
+    @PostMapping("/available")
+    public List<ParkingSpot> getNearbyAvailableSpots(@RequestBody Map<String, Double> location) {
+        double userLat = location.get("latitude");
+        double userLng = location.get("longitude");
+
+        return parkingSpotService.getAvailableSpotsNear(userLat, userLng);
+    }
 }
