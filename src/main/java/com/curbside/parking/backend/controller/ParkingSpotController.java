@@ -102,4 +102,10 @@ public class ParkingSpotController {
 
         return parkingSpotService.getAvailableSpotsNear(userLat, userLng);
     }
+
+    @PostMapping
+    public ResponseEntity<ParkingSpot> createSpot(@RequestBody ParkingSpot spot) {
+        ParkingSpot savedSpot = parkingSpotService.saveSpot(spot);
+        return ResponseEntity.ok(savedSpot);
+    }
 }
