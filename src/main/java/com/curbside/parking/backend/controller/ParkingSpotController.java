@@ -120,4 +120,10 @@ public class ParkingSpotController {
             return ResponseEntity.notFound().build();
         }
     }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteSpot(@PathVariable Long id) {
+        parkingSpotService.deleteSpot(id);
+        return ResponseEntity.noContent().build();
+    }
 }
