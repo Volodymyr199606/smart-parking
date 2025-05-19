@@ -4,7 +4,9 @@ import com.curbside.parking.backend.model.ParkingSpot;
 import com.curbside.parking.backend.service.ParkingSpotService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Optional;
@@ -57,5 +59,34 @@ public class ParkingSpotServiceImpl implements ParkingSpotService {
             return repository.save(spot);
         }
         return null;
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteSpot(@PathVariable Long id) {
+        parkingSpotService.deleteSpot(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/available")
+    public ResponseEntity<List<ParkingSpot>> getAllAvailableSpots() {
+        List<ParkingSpot> spots = parkingSpotService.getAvailableSpots();
+        return ResponseEntity.ok(spots);
+    }
+
+    @PostMapping("/update-spots-manually")
+    public ResponseEntity<String> updateSpotsManually() {
+        parkingSpotService.fetchAndUpdateAvailableSpots();
+        return ResponseEntity.ok("Manual update triggered");
+    }
+
+    @GetMapping("/nearby")
+    public ResponseEntity<List<ParkingSpot>> getNearbySpots(
+            @RequestParam double latitude,
+            @RequestParam double longitude,
+            @RequestParam(defaultValue = "800") double radiusMeters
+    ) {
+
+        List<ParkingSpot> nearby = parkingSpotService.getNearbySpots(latitude, longitude, radiusMeters);
+        return ResponseEntity.ok(nearby);
     }
 }
