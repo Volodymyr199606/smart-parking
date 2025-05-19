@@ -126,4 +126,16 @@ public class ParkingSpotController {
         parkingSpotService.deleteSpot(id);
         return ResponseEntity.noContent().build();
     }
+
+    @GetMapping("/available")
+    public ResponseEntity<List<ParkingSpot>> getAllAvailableSpots() {
+        List<ParkingSpot> spots = parkingSpotService.getAvailableSpots();
+        return ResponseEntity.ok(spots);
+    }
+
+    @PostMapping("/update-spots-manually")
+    public ResponseEntity<String> updateSpotsManually() {
+        parkingSpotService.fetchAndUpdateAvailableSpots();
+        return ResponseEntity.ok("Manual update triggered");
+    }
 }
