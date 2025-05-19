@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class ParkingSpotServiceImpl implements ParkingSpotService {
@@ -33,5 +34,28 @@ public class ParkingSpotServiceImpl implements ParkingSpotService {
     @Override
     public List<ParkingSpot> getAllSpots() {
         return repository.findAll();
+    }
+
+    @Override
+    public List<ParkingSpot> getAvailableSpots() {
+        return repository.findByAvailableTrue();
+    }
+
+    @Override
+    public ParkingSpot saveSpot(ParkingSpot spot) {
+        ParkingSpot saved = repository.save(spot);
+        broadcaster.broadcastNewSpot(saved);
+        return saved;
+    }
+
+    @Override
+    public ParkingSpot updateAvailability(Long id, boolean available) {
+        Optional<ParkingSpot> optionalSpot = repository.findById(id);
+        if (optionalSpot.isPresent()) {
+            ParkingSpot spot = optionalSpot.get();
+            spot.setAvailable(available);
+            return repository.save(spot);
+        }
+        return null;
     }
 }
