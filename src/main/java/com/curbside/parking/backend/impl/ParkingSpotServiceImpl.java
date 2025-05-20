@@ -4,6 +4,7 @@ import com.curbside.parking.backend.model.ParkingSpot;
 import com.curbside.parking.backend.service.ParkingSpotService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
@@ -88,5 +89,19 @@ public class ParkingSpotServiceImpl implements ParkingSpotService {
 
         List<ParkingSpot> nearby = parkingSpotService.getNearbySpots(latitude, longitude, radiusMeters);
         return ResponseEntity.ok(nearby);
+    }
+
+    @GetMapping("/reverse-geocode")
+    public ResponseEntity<?> reverseGeocode(@RequestParam double lat, @RequestParam double lng) {
+        try {
+            String url = "https://maps.googleapis.com/maps/api/geocode/json?latlng=" +
+                    lat + "," + lng + "&key=" + googleApiKey;
+
+            String result = restTemplate.getForObject(url, String.class);
+            return ResponseEntity.ok().body(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Reverse geocoding failed: " + e.getMessage());
+        }
     }
 }
