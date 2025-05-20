@@ -138,4 +138,15 @@ public class ParkingSpotController {
         parkingSpotService.fetchAndUpdateAvailableSpots();
         return ResponseEntity.ok("Manual update triggered");
     }
+
+    @GetMapping("/nearby")
+    public ResponseEntity<List<ParkingSpot>> getNearbySpots(
+            @RequestParam double latitude,
+            @RequestParam double longitude,
+            @RequestParam(defaultValue = "800") double radiusMeters
+    ) {
+
+        List<ParkingSpot> nearby = parkingSpotService.getNearbySpots(latitude, longitude, radiusMeters);
+        return ResponseEntity.ok(nearby);
+    }
 }
