@@ -1,152 +1,71 @@
 package com.curbside.parking.backend.controller;
 
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import com.curbside.parking.backend.dto.ParkingSpotDTO;
-import com.curbside.parking.backend.model.ParkingSpot;
 import com.curbside.parking.backend.service.ParkingSpotService;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 @RestController
-@RequestMapping("/api/parking")
+@RequestMapping("/api/parking-spots")
+@RequiredArgsConstructor
 public class ParkingSpotController {
 
-
-    @Value("${google.api.key}")
-    private String googleApiKey;
-
-
     private final ParkingSpotService parkingSpotService;
-    private final RestTemplate restTemplate;
-
-    @Autowired
-    public ParkingSpotController(ParkingSpotService parkingSpotService, RestTemplate restTemplate) {
-        this.parkingSpotService = parkingSpotService;
-        this.restTemplate = restTemplate;
-    }
-
-    @PostMapping("/nearby")
-    public ResponseEntity<List<ParkingSpotDTO>> getNearbyParking(@RequestBody Map<String, Double> location) {
-        double userLat = location.get("latitude");
-        double userLng = location.get("longitude");
-        double radiusMeters = location.getOrDefault("radius", 500.0);
-
-        String url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json" +
-                "?location=" + userLat + "," + userLng +
-                "&radius=1500&type=parking&key=" + googleApiKey;
-
-        ;
-
-        String jsonResponse = restTemplate.getForObject(url, String.class);
-        List<ParkingSpotDTO> filteredSpots = new ArrayList<>();
-
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(jsonResponse);
-            JsonNode results = root.path("results");
-
-            for (JsonNode result : results) {
-                double lat = result.path("geometry").path("location").path("lat").asDouble();
-                double lng = result.path("geometry").path("location").path("lng").asDouble();
-
-
-                if (isWithinRadius(userLat, userLng, lat, lng, radiusMeters)) {
-                    String name = result.path("name").asText();
-                    String address = result.path("vicinity").asText();
-                    filteredSpots.add(new ParkingSpotDTO(name, lat, lng, address));
-                }
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).build();
-        }
-
-        return ResponseEntity.ok(filteredSpots);
-    }
-
-    private boolean isWithinRadius(double lat1, double lon1, double lat2, double lon2, double radiusMeters) {
-        final int EARTH_RADIUS = 6371000;
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
-                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        double distance = EARTH_RADIUS * c;
-        return distance <= radiusMeters;
-    }
-
-    @PostMapping("/user/{userId}")
-    public ResponseEntity<ParkingSpot> createSpotWithUser(@PathVariable Long userId, @RequestBody ParkingSpot spot) {
-        return ResponseEntity.ok(spot);
-    }
 
     @GetMapping
-    public ResponseEntity<List<ParkingSpot>> getAllSpots() {
-        return ResponseEntity.ok(parkingSpotService.getAllSpots());
-    }
-
-    @PostMapping("/available")
-    public List<ParkingSpot> getNearbyAvailableSpots(@RequestBody Map<String, Double> location) {
-        double userLat = location.get("latitude");
-        double userLng = location.get("longitude");
-
-        return parkingSpotService.getAvailableSpotsNear(userLat, userLng);
-    }
-
-    @PostMapping
-    public ResponseEntity<ParkingSpot> createSpot(@RequestBody ParkingSpot spot) {
-        ParkingSpot savedSpot = parkingSpotService.saveSpot(spot);
-        return ResponseEntity.ok(savedSpot);
-    }
-
-    @PutMapping("/{id}/availability")
-    public ResponseEntity<ParkingSpot> updateAvailability(
-            @PathVariable Long id,
-            @RequestParam boolean available) {
-        ParkingSpot updated = parkingSpotService.updateAvailability(id, available);
-        if (updated != null) {
-            return ResponseEntity.ok(updated);
-        } else {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteSpot(@PathVariable Long id) {
-        parkingSpotService.deleteSpot(id);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<List<ParkingSpotDTO>> getAllParkingSpots() {
+        return ResponseEntity.ok(parkingSpotService.getAllParkingSpots());
     }
 
     @GetMapping("/available")
-    public ResponseEntity<List<ParkingSpot>> getAllAvailableSpots() {
-        List<ParkingSpot> spots = parkingSpotService.getAvailableSpots();
-        return ResponseEntity.ok(spots);
-    }
-
-    @PostMapping("/update-spots-manually")
-    public ResponseEntity<String> updateSpotsManually() {
-        parkingSpotService.fetchAndUpdateAvailableSpots();
-        return ResponseEntity.ok("Manual update triggered");
+    public ResponseEntity<List<ParkingSpotDTO>> getAvailableParkingSpots() {
+        return ResponseEntity.ok(parkingSpotService.getAvailableParkingSpots());
     }
 
     @GetMapping("/nearby")
-    public ResponseEntity<List<ParkingSpot>> getNearbySpots(
+    public ResponseEntity<List<ParkingSpotDTO>> getNearbyParkingSpots(
             @RequestParam double latitude,
             @RequestParam double longitude,
-            @RequestParam(defaultValue = "800") double radiusMeters
-    ) {
+            @RequestParam(defaultValue = "1000") double radius) {
+        return ResponseEntity.ok(parkingSpotService.getNearbyParkingSpots(latitude, longitude, radius));
+    }
 
-        List<ParkingSpot> nearby = parkingSpotService.getNearbySpots(latitude, longitude, radiusMeters);
-        return ResponseEntity.ok(nearby);
+    @GetMapping("/available/nearby")
+    public ResponseEntity<List<ParkingSpotDTO>> getAvailableNearbyParkingSpots(
+            @RequestParam double latitude,
+            @RequestParam double longitude,
+            @RequestParam(defaultValue = "1000") double radius) {
+        return ResponseEntity.ok(parkingSpotService.getAvailableNearbyParkingSpots(latitude, longitude, radius));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ParkingSpotDTO> getParkingSpotById(@PathVariable Long id) {
+        return ResponseEntity.ok(parkingSpotService.getParkingSpotById(id));
+    }
+
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ParkingSpotDTO> createParkingSpot(@Valid @RequestBody ParkingSpotDTO parkingSpotDTO) {
+        return ResponseEntity.ok(parkingSpotService.createParkingSpot(parkingSpotDTO));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ParkingSpotDTO> updateParkingSpot(
+            @PathVariable Long id,
+            @Valid @RequestBody ParkingSpotDTO parkingSpotDTO) {
+        return ResponseEntity.ok(parkingSpotService.updateParkingSpot(id, parkingSpotDTO));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteParkingSpot(@PathVariable Long id) {
+        parkingSpotService.deleteParkingSpot(id);
+        return ResponseEntity.noContent().build();
     }
 }
