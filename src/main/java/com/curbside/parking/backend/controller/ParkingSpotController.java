@@ -68,4 +68,22 @@ public class ParkingSpotController {
         parkingSpotService.deleteParkingSpot(id);
         return ResponseEntity.noContent().build();
     }
+
+    /**
+     * Report the availability status of a parking spot
+     *
+     * @param id The ID of the parking spot
+     * @param available Whether the spot is available or not
+     * @return The updated parking spot
+     */
+    @PostMapping("/{id}/report")
+    public ResponseEntity<ParkingSpotDTO> reportParkingSpotStatus(
+            @PathVariable Long id,
+            @RequestParam boolean available) {
+
+        log.info("Received report for parking spot {} as {}", id, available ? "available" : "unavailable");
+
+        ParkingSpotDTO updatedSpot = parkingSpotService.updateSpotAvailability(id, available);
+        return ResponseEntity.ok(updatedSpot);
+    }
 }
