@@ -1,17 +1,28 @@
 package com.curbside.parking.backend.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import lombok.Data;
+
+@Data
 public class ParkingSpotDTO {
-    private String name;
-    private double lat;
-    private double lng;
+
+    private Long id;
+
+    @NotNull(message = "Latitude is required")
+    private Double latitude;
+
+    @NotNull(message = "Longitude is required")
+    private Double longitude;
+
+    @NotBlank(message = "Address is required")
     private String address;
 
+    private boolean available;
 
-    public ParkingSpotDTO(String name, double lat, double lng, String address) {
-        this.name = name;
-        this.lat = lat;
-        this.lng = lng;
-        this.address = address;
-    }
+    @Positive(message = "Price must be positive")
+    private Double price;
 
+    private String restrictions;
 }
