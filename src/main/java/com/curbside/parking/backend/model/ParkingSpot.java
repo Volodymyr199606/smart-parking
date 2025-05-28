@@ -1,34 +1,38 @@
 package com.curbside.parking.backend.model;
 
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.locationtech.jts.geom.Point;
 
 @Entity
 @Table(name = "parking_spots")
-@Getter
-@Setter
+@Data
 @NoArgsConstructor
 @AllArgsConstructor
-@ToString
-@Data
 public class ParkingSpot {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private double latitude;
+    @Column(nullable = false)
+    private String address;
 
-    private double longitude;
+    @Column(nullable = false)
+    private Double latitude;
+
+    @Column(nullable = false)
+    private Double longitude;
+
+    // MySQL spatial column
+    @Column(columnDefinition = "POINT SRID 4326")
+    private Point location;
 
     private boolean available;
 
-    private String address;
+    private Double price;
 
-    private String name;
-
-
-    @ManyToOne
-    @JoinColumn(name = "user_id")
-    private User user;
+    private String restrictions;
 }
