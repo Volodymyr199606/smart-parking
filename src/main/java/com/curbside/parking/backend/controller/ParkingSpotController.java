@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import com.curbside.parking.backend.dto.ParkingSpotDTO;
 import com.curbside.parking.backend.service.ParkingSpotService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -13,6 +14,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/parking-spots")
 @RequiredArgsConstructor
+@Slf4j
 public class ParkingSpotController {
 
     private final ParkingSpotService parkingSpotService;
