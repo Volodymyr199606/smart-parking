@@ -1,1 +1,1 @@
-# curbside-parking
+# smart-parking
