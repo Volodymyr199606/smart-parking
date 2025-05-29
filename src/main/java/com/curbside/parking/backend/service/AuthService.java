@@ -1,6 +1,7 @@
 package com.curbside.parking.backend.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import com.curbside.parking.backend.dto.AuthResponse;
 import com.curbside.parking.backend.dto.LoginRequest;
 import com.curbside.parking.backend.dto.RegisterRequest;
@@ -14,12 +15,11 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.util.HashSet;
-import java.util.Set;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AuthService {
 
     private final UserRepository userRepository;
@@ -27,41 +27,53 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
 
+    @Transactional
     public AuthResponse register(RegisterRequest request) {
+        log.info("Attempting to register user with email: {}", request.getEmail());
+
         // Check if email already exists
         if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            log.warn("Registration failed - email already exists: {}", request.getEmail());
             throw new BadRequestException("Email is already taken");
         }
 
-        // Create new user
+
         User user = new User();
         user.setFullName(request.getFullName());
-        user.setEmail(request.getEmail());
+        user.setEmail(request.getEmail().toLowerCase().trim());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
 
-        // Set default role
-        Set<String> roles = new HashSet<>();
-        roles.add("USER");
-        user.setRoles(roles);
-
-        userRepository.save(user);
+        User savedUser = userRepository.save(user);
+        log.info("Successfully registered user with email: {}", savedUser.getEmail());
 
         // Generate JWT token
-        String token = jwtUtil.generateToken(user);
-        String[] rolesArray = user.getRoles().toArray(new String[0]);
-        return new AuthResponse(token, user.getEmail(), user.getFullName(), rolesArray);
+        String token = jwtUtil.generateToken(savedUser);
+
+        return new AuthResponse(token, savedUser.getEmail(), savedUser.getFullName());
     }
 
     public AuthResponse login(LoginRequest request) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
-        );
+        log.info("Attempting to login user with email: {}", request.getEmail());
 
-        SecurityContextHolder.getContext().setAuthentication(authentication);
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            request.getEmail().toLowerCase().trim(),
+                            request.getPassword()
+                    )
+            );
 
-        User user = (User) authentication.getPrincipal();
-        String token = jwtUtil.generateToken(user);
-        String[] rolesArray = user.getRoles().toArray(new String[0]);
-        return new AuthResponse(token, user.getEmail(), user.getFullName(), rolesArray);
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+
+            User user = (User) authentication.getPrincipal();
+            String token = jwtUtil.generateToken(user);
+
+            log.info("Successfully logged in user with email: {}", user.getEmail());
+            return new AuthResponse(token, user.getEmail(), user.getFullName());
+
+        } catch (Exception e) {
+            log.error("Login failed for email: {}", request.getEmail(), e);
+            throw e;
+        }
     }
 }
