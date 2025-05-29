@@ -8,11 +8,11 @@
 		<version>3.4.5</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
-	<groupId>com.curbside.parking</groupId>
+	<groupId>com.smart.parking</groupId>
 	<artifactId>backend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>curbside-parking</name>
-	<description>Spring Boot backend for Curbside Parking App</description>
+	<name>smart-parking</name>
+	<description>Spring Boot backend for Smart Parking App</description>
 	<url/>
 	<licenses>
 		<license/>
