@@ -1,6 +1,5 @@
 package com.smart.parking.backend.controller;
 
-import com.curbside.parking.backend.dto.*;
 import com.smart.parking.backend.dto.*;
 import com.smart.parking.backend.model.User;
 import com.smart.parking.backend.service.AuthService;

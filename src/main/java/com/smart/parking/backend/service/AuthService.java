@@ -37,7 +37,7 @@ public class AuthService {
             throw new BadRequestException("Email is already taken");
         }
 
-
+        // Create new user (simple - no roles)
         User user = new User();
         user.setFullName(request.getFullName());
         user.setEmail(request.getEmail().toLowerCase().trim());
