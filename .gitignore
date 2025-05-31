@@ -39,3 +39,6 @@ HELP.md
 
 # Ignore config with sensitive credentials
 src/main/resources/application.yml
+
+*.bat
+*.sh
