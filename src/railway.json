@@ -1,7 +1,0 @@
-{
-  "build": {
-    "env": {
-      "JAVA_TOOL_OPTIONS": "-Xmx512m -XshowSettings:vm"
-    }
-  }
-}
