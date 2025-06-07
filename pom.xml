@@ -78,9 +78,9 @@
 
 		<!-- Hibernate Spatial -->
 		<dependency>
-			<groupId>org.hibernate</groupId>
+			<groupId>org.hibernate.orm</groupId>
 			<artifactId>hibernate-spatial</artifactId>
-			<version>${hibernate.version}</version>
+			<version>6.2.7.Final</version>
 		</dependency>
 
 		<!-- MySQL Connector -->
