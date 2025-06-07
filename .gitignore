@@ -42,3 +42,10 @@ src/main/resources/application.yml
 
 *.bat
 *.sh
+
+
+target
+.idea
+*.iml
+*.log
+
