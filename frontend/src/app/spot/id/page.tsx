@@ -51,11 +51,12 @@ export default function SpotDetailsPage() {
             } catch (err) {
                 // User might not be logged in, ignore error
             }
-        } catch (err: any) {
-            setError(err.response?.data?.message || "Failed to load parking spot details")
-        } finally {
-            setLoading(false)
+        } catch (err: unknown) {
+            if (err instanceof Error) {
+                setError(err.message);
+            }
         }
+
     }
 
     const toggleFavorite = async () => {
@@ -70,14 +71,12 @@ export default function SpotDetailsPage() {
                 await api.post(`/users/favorites/${spot.id}`)
                 setIsFavorite(true)
             }
-        } catch (err: any) {
-            console.error("Error toggling favorite:", err)
-            if (err.response?.status === 401) {
-                router.push("/login")
+        } catch (err: unknown) {
+            if (err instanceof Error && (err as any).response?.status === 401) {
+                router.push("/login");
             }
-        } finally {
-            setAddingToFavorites(false)
         }
+
     }
 
     const getDirections = () => {

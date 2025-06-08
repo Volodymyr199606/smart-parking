@@ -34,7 +34,7 @@ export default function DashboardPage() {
     })
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+// const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
 
     useEffect(() => {
         if (isLoading) return
@@ -49,7 +49,7 @@ export default function DashboardPage() {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     const { latitude, longitude } = position.coords
-                    setUserLocation({ lat: latitude, lng: longitude })
+// setUserLocation({ lat: latitude, lng: longitude })
                     fetchDashboardData(latitude, longitude)
                 },
                 (error) => {
@@ -95,7 +95,7 @@ export default function DashboardPage() {
                 favoriteSpots: favoritesResponse.data.length,
                 recentSearches: 0, // This would come from user's search history
             })
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error("Error fetching dashboard data:", err)
             setError("Failed to load dashboard data")
         } finally {

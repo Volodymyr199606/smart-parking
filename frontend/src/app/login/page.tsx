@@ -62,7 +62,7 @@ export default function LoginPage() {
             setTimeout(() => {
                 router.push('/map');
             }, 2000);
-        } catch (error: any) {
+        } catch (error:unknown) {
             console.error('Login failed:', error);
             setEmailError('Invalid email or user not registered');
             setPasswordError('Check your credentials and try again');

@@ -55,10 +55,12 @@ export default function RegisterPage() {
             setTimeout(() => {
                 router.push('/login');
             }, 1500);
-        } catch (error: any) {
-            console.error('Registration failed:', error.response?.data || error.message);
-            alert('Registration failed: ' + (error.response?.data?.message || 'Unknown error'));
+        } catch (error: unknown) {
+            if (error instanceof Error) {
+                console.error('Registration failed:', error.message);
+            }
         }
+
     };
 
     return (
