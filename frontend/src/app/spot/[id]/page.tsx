@@ -42,11 +42,11 @@ export default function SpotDetailsPage() {
             const response = await api.get(`/parking-spots/${spotId}`)
             setSpot(response.data)
 
-            // Check if spot is in favorites
+            
             try {
 
             } catch {
-                // User might not be logged in, ignore error
+
             }
         } catch (err: unknown) {
             if (err instanceof Error) {
