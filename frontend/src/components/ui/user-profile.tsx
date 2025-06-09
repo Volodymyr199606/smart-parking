@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import api from "@/lib/api"
 import { User, Edit, Save, X } from 'lucide-react'
+import { AxiosError } from "axios"
 
 interface UpdateProfileRequest {
     fullName: string
@@ -23,12 +24,12 @@ export default function UserProfile() {
         setError(null)
 
         try {
-            // ✅ USING AuthController endpoint
             const response = await api.put('/auth/profile', data)
             setUser(response.data)
             setIsEditing(false)
-        } catch (err: any) {
-            setError(err.response?.data?.message || "Failed to update profile")
+        } catch (err) {
+            const error = err as AxiosError<{ message: string }>
+            setError(error.response?.data?.message || "Failed to update profile")
         } finally {
             setLoading(false)
         }

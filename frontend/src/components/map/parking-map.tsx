@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { MapPin, Navigation, DollarSign } from "lucide-react"
-
+import type { Map as LeafletMap } from 'leaflet';
 
 const mockParkingSpots = [
     {
@@ -60,14 +60,13 @@ interface ParkingSpot {
 
 export default function ParkingMap() {
     const mapRef = useRef<HTMLDivElement>(null)
-    const [map, setMap] = useState<any>(null)
+    const [map, setMap] = useState<LeafletMap | null>(null)
     const [selectedSpot, setSelectedSpot] = useState<ParkingSpot | null>(null)
     const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
-
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
@@ -76,11 +75,10 @@ export default function ParkingMap() {
                         lng: position.coords.longitude,
                     })
                 },
-                (error) => {
+                () => {
                     console.log("Location access denied, using default location")
-
                     setUserLocation({ lat: 40.7128, lng: -74.006 })
-                },
+                }
             )
         } else {
             setUserLocation({ lat: 40.7128, lng: -74.006 })
@@ -90,19 +88,15 @@ export default function ParkingMap() {
     useEffect(() => {
         if (!userLocation || !mapRef.current) return
 
-
         const loadMap = async () => {
             try {
                 const L = await import("leaflet")
 
-
                 const mapInstance = L.map(mapRef.current!).setView([userLocation.lat, userLocation.lng], 13)
-
 
                 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
                     attribution: "© OpenStreetMap contributors",
                 }).addTo(mapInstance)
-
 
                 const userIcon = L.divIcon({
                     html: `<div style="width: 16px; height: 16px; background: #3b82f6; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>`,
@@ -112,7 +106,6 @@ export default function ParkingMap() {
                 })
 
                 L.marker([userLocation.lat, userLocation.lng], { icon: userIcon }).addTo(mapInstance).bindPopup("Your Location")
-
 
                 mockParkingSpots.forEach((spot) => {
                     const markerColor = spot.available ? "#10b981" : "#ef4444"
@@ -143,13 +136,12 @@ export default function ParkingMap() {
 
         loadMap()
 
-
         return () => {
             if (map) {
                 map.remove()
             }
         }
-    }, [userLocation])
+    }, [userLocation, map]) // ✅ Added `map` to dependency array
 
     const getDirections = (spot: ParkingSpot) => {
         const url = `https://www.google.com/maps/dir/?api=1&destination=${spot.latitude},${spot.longitude}`
@@ -180,7 +172,6 @@ export default function ParkingMap() {
 
             <div ref={mapRef} className="h-full w-full rounded-xl" />
 
-            {/* Selected Spot Details */}
             {selectedSpot && (
                 <div className="absolute bottom-4 left-4 right-4 bg-white rounded-xl shadow-lg p-4 z-10">
                     <div className="flex justify-between items-start mb-3">

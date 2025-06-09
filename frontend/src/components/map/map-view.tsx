@@ -1,24 +1,15 @@
 'use client';
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
-import markerIcon from 'leaflet/dist/images/marker-icon.png';
-import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 
-
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 
-// Fix Leaflet icon issues in Next.js
-useEffect(() => {
-    L.Icon.Default.mergeOptions({
-        iconRetinaUrl: markerIcon2x.src,
-        iconUrl: markerIcon.src,
-        shadowUrl: markerShadow.src,
-    });
-}, []);
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 
 interface ParkingSpot {
     id: number;
@@ -55,25 +46,16 @@ export default function MapView({
     const [error, setError] = useState<string | null>(null);
     const router = useRouter();
 
+    // ✅ Fix Leaflet marker icons
     useEffect(() => {
-        // Get user's location
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    setUserLocation([position.coords.latitude, position.coords.longitude]);
-                    fetchNearbyParkingSpots(position.coords.latitude, position.coords.longitude);
-                },
-                (error) => {
-                    console.error('Error getting location:', error);
-                    fetchAllParkingSpots();
-                }
-            );
-        } else {
-            fetchAllParkingSpots();
-        }
+        L.Icon.Default.mergeOptions({
+            iconRetinaUrl: markerIcon2x.src,
+            iconUrl: markerIcon.src,
+            shadowUrl: markerShadow.src,
+        });
     }, []);
 
-    const fetchAllParkingSpots = async () => {
+    const fetchAllParkingSpots = useCallback(async () => {
         try {
             setLoading(true);
             const response = await api.get('/parking-spots');
@@ -84,28 +66,40 @@ export default function MapView({
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
-    const fetchNearbyParkingSpots = async (latitude: number, longitude: number) => {
+    const fetchNearbyParkingSpots = useCallback(async (latitude: number, longitude: number) => {
         try {
             setLoading(true);
             const response = await api.get('/parking-spots/nearby', {
-                params: {
-                    latitude,
-                    longitude,
-                    radius: 5000, // 5km radius
-                },
+                params: { latitude, longitude, radius: 5000 },
             });
             setParkingSpots(response.data);
         } catch (err) {
             console.error('Error fetching nearby parking spots:', err);
             setError('Failed to load nearby parking spots');
-            // Fallback to all spots
             fetchAllParkingSpots();
         } finally {
             setLoading(false);
         }
-    };
+    }, [fetchAllParkingSpots]);
+
+    useEffect(() => {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    setUserLocation([position.coords.latitude, position.coords.longitude]);
+                    fetchNearbyParkingSpots(position.coords.latitude, position.coords.longitude);
+                },
+                (err) => {
+                    console.error('Error getting location:', err);
+                    fetchAllParkingSpots();
+                }
+            );
+        } else {
+            fetchAllParkingSpots();
+        }
+    }, [fetchNearbyParkingSpots, fetchAllParkingSpots]);
 
     const handleSpotClick = (spotId: number) => {
         router.push(`/spot/${spotId}`);
@@ -165,12 +159,15 @@ export default function MapView({
                             <div className="p-2">
                                 <h3 className="font-bold">{spot.address}</h3>
                                 <p className="text-sm">
-                                    Status: <span className={spot.available ? 'text-green-600' : 'text-red-600'}>
+                                    Status:{' '}
+                                    <span className={spot.available ? 'text-green-600' : 'text-red-600'}>
                     {spot.available ? 'Available' : 'Unavailable'}
                   </span>
                                 </p>
                                 {spot.price && <p className="text-sm">Price: ${spot.price}/hr</p>}
-                                {spot.restrictions && <p className="text-sm text-gray-600">{spot.restrictions}</p>}
+                                {spot.restrictions && (
+                                    <p className="text-sm text-gray-600">{spot.restrictions}</p>
+                                )}
                                 <button
                                     className="mt-2 text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
                                     onClick={() => handleSpotClick(spot.id)}

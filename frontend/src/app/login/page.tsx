@@ -169,7 +169,7 @@ export default function LoginPage() {
 
                         <div className="text-center text-sm mt-8">
                             <p className="text-slate-600">
-                                Don't have an account?{' '}
+                                Do not have an account?{' '}
                                 <a href="/register" className="text-slate-900 hover:underline font-medium">
                                     Sign up
                                 </a>

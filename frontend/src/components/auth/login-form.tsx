@@ -23,7 +23,11 @@ export default function LoginForm() {
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const { register, handleSubmit, formState: { errors } } = useForm<LoginFormValues>({
+    const {
+        register,
+        handleSubmit,
+        formState: { errors },
+    } = useForm<LoginFormValues>({
         resolver: zodResolver(loginSchema),
         defaultValues: {
             email: '',
@@ -38,8 +42,19 @@ export default function LoginForm() {
         try {
             await login(data.email, data.password);
             router.push('/dashboard');
-        } catch (err: any) {
-            setError(err.response?.data?.message || 'Failed to login. Please check your credentials.');
+        }   catch (err: unknown) {
+        if (
+            typeof err === 'object' &&
+            err !== null &&
+            'response' in err &&
+            typeof (err as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
+        ) {
+            setError((err as { response: { data: { message: string } } }).response.data.message);
+        } else if (err instanceof Error) {
+            setError(err.message);
+        } else {
+            setError('Failed to login. Please try again.');
+        }
         } finally {
             setIsLoading(false);
         }
@@ -114,9 +129,9 @@ export default function LoginForm() {
                 >
                     {isLoading ? (
                         <span className="flex items-center justify-center">
-              <Loader2 size={18} className="animate-spin mr-2" />
-              Signing in...
-            </span>
+                            <Loader2 size={18} className="animate-spin mr-2" />
+                            Signing in...
+                        </span>
                     ) : (
                         'Sign in'
                     )}

@@ -7,14 +7,14 @@ import { Client, IMessage } from '@stomp/stompjs';
 interface UseWebSocketOptions {
     onConnect?: () => void;
     onDisconnect?: () => void;
-    onError?: (error: any) => void;
+    onError?: (error: unknown) => void;
     autoReconnect?: boolean;
     reconnectDelay?: number;
 }
 
 export function useWebSocket(
     url: string,
-    subscriptions: { topic: string; callback: (message: any) => void }[],
+    subscriptions: { topic: string; callback: (message: unknown) => void }[],
     options: UseWebSocketOptions = {}
 ) {
     const [connected, setConnected] = useState(false);
@@ -40,7 +40,11 @@ export function useWebSocket(
                 setConnected(true);
 
                 // Subscribe to all topics
-                subscriptions.forEach(({ topic, callback }) => {
+                interface Subscription {
+                    topic: string;
+                    callback: (message: IMessage) => void;
+                }
+                subscriptions.forEach(({ topic, callback }: Subscription) => {
                     client.subscribe(topic, (message: IMessage) => {
                         try {
                             const parsedBody = JSON.parse(message.body);
@@ -87,7 +91,7 @@ export function useWebSocket(
         setConnected(false);
     }, []);
 
-    const sendMessage = useCallback((destination: string, body: any) => {
+    const sendMessage = useCallback((destination: string, body: unknown) => {
         if (stompClient.current?.active) {
             stompClient.current.publish({
                 destination,

@@ -8,7 +8,9 @@ import { ArrowLeft } from 'lucide-react';
 import { Eye, EyeOff } from 'lucide-react';
 
 
-export default function RegisterPage() {
+
+
+export default function RegisterForm() {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
