@@ -1,11 +1,11 @@
-# Use Maven to build the application
-FROM maven:3.9.3-amazoncorretto-17 AS builder
+# Build stage with Java 21
+FROM maven:3.9.6-eclipse-temurin-21 AS builder
 WORKDIR /app
 COPY . .
 RUN mvn clean package -DskipTests
 
-# Use a lightweight JDK to run the app
-FROM eclipse-temurin:17-jdk-alpine
+# Run stage with Java 21
+FROM eclipse-temurin:21-jdk-alpine
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
 
