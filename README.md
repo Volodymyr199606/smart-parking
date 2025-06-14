@@ -1,1 +1,97 @@
 # smart-parking
+Smart-Parking is a full-stack responsive web application that helps drivers find available parking spots in real time. It features an interactive map, real-time mock data visualization, and secure user authentication. This project is currently under development.
+
+## Table of Contents
+
+---
+
+## Overview
+
+Finding parking in busy cities like San Francisco can be frustrating. This app aims to solve that problem by showing available nearby spots on a live map, reducing the time spent circling streets. The app is fully responsive and works on both desktop and mobile browsers.
+
+- [Overview](#overview)
+- [Tech Stack](#tech-stack)
+- [Features](#features)
+- [Getting Started](#getting-started)
+- [Running the App](#running-the-app)
+- [Future Improvements](#future-improvements)
+
+---
+
+## Tech Stack
+
+### Frontend
+- React
+- TypeScript
+- Next.js
+- Tailwind CSS
+- Leaflet (OpenStreetMap)
+- Context API & WebSocket (planned)
+
+
+
+- ### Backend
+- Java
+- Spring Boot
+- MySQL
+- JWT (JSON Web Tokens)
+- WebSocket (planned)
+- RESTful APIs
+
+----
+
+## Features
+
+- User registration and login with JWT authentication
+- Clean, modern, and responsive UI
+- Real-time map rendering with mock parking data
+- Spot availability indicators (green = available, red = occupied)
+- User location detection
+- Organized component-based frontend structure
+- Modular and scalable backend using OOP principles
+
+
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js (v18+)
+- Java (17+)
+- MySQL Server
+- Maven
+
+---
+
+## Running the App
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/yourusername/smart-parking.git
+cd smart-parking
+
+```
+
+### 2. Backend Setup
+
+
+Update application.yml with your MySQL credentials:
+
+```
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:port/name of db
+    username: root
+    password: your password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+```
+
+Create the database:
+
+```
+CREATE DATABASE smart_parking_db;
+```
+
+
