@@ -91,7 +91,25 @@ spring:
 ### 3. Create the database
 
 ```
-CREATE DATABASE smart_parking_db;
+Create a new MySQL database (name it anything you want).  
+2. Update your `application.yml` with your database name, username, and password.
+
+Example:
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/your_database_name
+    username: your_username
+    password: your_password
+  jpa:
+    hibernate:
+      ddl-auto: update
+```
+
+## If your database doesn't exist yet, create it manually:
+
+```
+CREATE DATABASE your_database_name;
 ```
 
 ###  4. Run the Spring Boot server
