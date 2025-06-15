@@ -82,16 +82,40 @@ Update application.yml with your MySQL credentials:
 spring:
   datasource:
     url: jdbc:mysql://localhost:port/name of db
-    username: root
+    username: your username
     password: your password
     driver-class-name: com.mysql.cj.jdbc.Driver
 
 ```
 
-Create the database:
+### 3. Create the database
 
 ```
 CREATE DATABASE smart_parking_db;
 ```
 
+###  4. Run the Spring Boot server
+
+```
+cd backend
+./mvnw spring-boot:run
+```
+
+### 5. Run the Frontend 
+
+```
+cd frontend
+npm install
+npm run dev
+```
+Open the app in your browser at:
+http://localhost:3000
+
+---
+
+## Future Improvements
+
+- Integrate real-time updates using WebSocket
+- Fetch live parking data from external APIs or IoT sensors
+- Improve marker clustering and map performance
 
