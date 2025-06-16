@@ -76,18 +76,6 @@ cd smart-parking
 ### 2. Backend Setup
 
 
-Update application.yml with your MySQL credentials:
-
-```
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:port/name of db
-    username: your username
-    password: your password
-    driver-class-name: com.mysql.cj.jdbc.Driver
-
-```
-
 ### 3. Create the database
 
 ```
