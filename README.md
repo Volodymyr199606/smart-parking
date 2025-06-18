@@ -183,6 +183,9 @@ If you see “started server on http://localhost:3000,” the frontend is live a
 ### Login Page
 ![Login Page](./screenshots/login.png)
 
+### Map View
+![Map View](./screenshots/map.png)
+
 ## Future Improvements
 
 - Integrate real-time updates using WebSocket
