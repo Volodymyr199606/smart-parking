@@ -174,16 +174,46 @@ If you see “started server on http://localhost:3000,” the frontend is live a
 
 ### Home Page
 
+This is the landing page that introduces users to the Smart-Parking app. It highlights the core features: finding available parking spots, navigating to them, and receiving updates.
+
+Currently, the map displays mock data for demonstration purposes. Real-time integration with live parking data will be implemented in a future update.
+
 ![Home Page](./screenshots/home.png)
 
 ### Registration Page
 
+New users can create an account by providing their full name, email, and password. The form includes real-time validation:
+
+- Full name must contain only letters with one space.
+- Email must include an "@" symbol.
+- Password must be at least 6 characters long and include a letter, number, and symbol.
+
+There’s also a password visibility toggle for convenience.
 ![Register Page](./screenshots/register.png)
 
 ### Login Page
+
+Returning users can log in to access real-time parking availability. The form includes:
+
+- Real-time validation for email (must contain '@')
+- Password must be at least 6 characters and include letters, numbers, and symbols
+- Password visibility toggle for user convenience
+- A "Forgot Password?" link for recovery (UI only for now)
+  
+Upon successful login, users are redirected to the interactive parking map.
+
 ![Login Page](./screenshots/login.png)
 
 ### Map View
+
+The map displays current parking availability using **mock data** (real-time integration coming soon). Each marker represents a parking spot:
+
+- Green = available
+- Red = occupied
+
+Users can click on any spot to see details like address, price, time limit, and distance. A "Directions" button opens Google Maps with navigation from the user's current location to the selected spot.
+The **search-by-address bar is currently non-functional** and will be connected once real-time data is implemented.
+
 ![Map View](./screenshots/map.png)
 
 ## Future Improvements
