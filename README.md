@@ -104,7 +104,7 @@ CREATE DATABASE your_database_name;
 
 ```
 cd backend
-./mvnw spring-boot:run
+mvn spring-boot:run
 ```
 
 ### 5. Run the Frontend 
@@ -118,6 +118,70 @@ Open the app in your browser at:
 http://localhost:3000
 
 ---
+---
+
+## Sample Output
+
+When you run the backend and frontend, you should see logs like the following.
+
+### Backend (Spring Boot)
+
+```
+PS C:\Users\hp\Documents\Projects\backend> mvn spring-boot:run
+
+[INFO] Building smart-parking 0.0.1-SNAPSHOT
+[INFO] --- spring-boot:run (default-cli) @ backend ---
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+:: Spring Boot :: (v3.4.5)
+
+...Started SmartParkingApplication in 6.5 seconds
+...Tomcat started on port 8080 (http)
+...Connected to MySQL via HikariCP
+...Initialized JPA repositories and JWT security filters
+
+```
+If you see messages like the above, your backend is running successfully and ready to serve API requests on http://localhost:8080/api
+Frontend (Next.js)
+
+```
+PS C:\Users\hp\Documents\Projects\backend\frontend> npm run dev
+
+> next dev
+
+▲ Next.js 15.3.3
+- Local:        http://localhost:3000
+- Network:      http://192.168.1.116:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 2.1s
+○ Compiling /home ...
+✓ Compiled /home in 3.7s (956 modules)
+✓ Compiled /favicon.ico in 366ms (588 modules)
+
+```
+If you see “started server on http://localhost:3000,” the frontend is live and accessible.
+
+---
+
+## Screenshots
+
+### Home Page
+
+![Home Page](./screenshots/home.png)
+
+### Registration Page
+
+![Register Page](./screenshots/register.png)
+
+### Login Page
+![Login Page](./screenshots/login.png)
 
 ## Future Improvements
 
