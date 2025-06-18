@@ -184,7 +184,7 @@ export default function ParkingMap() {
                                 </div>
                                 <div className="flex items-center">
                                     <MapPin size={14} className="mr-1" />
-                                    <span>{selectedSpot.distance} km away</span>
+                                    <span>{selectedSpot.distance} miles away</span>
                                 </div>
                             </div>
                         </div>

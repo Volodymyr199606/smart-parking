@@ -173,7 +173,7 @@ function InteractiveParkingMap() {
                                     </div>
                                     <div className="flex items-center">
                                         <MapPin size={14} className="mr-1" />
-                                        <span>{selectedSpot.distance} km away</span>
+                                        <span>{selectedSpot.distance} miles away</span>
                                     </div>
                                 </div>
                             </div>
@@ -262,7 +262,7 @@ function InteractiveParkingMap() {
                                             <h4 className="font-medium text-slate-900 text-sm mb-1">{spot.address}</h4>
                                             <div className="flex items-center space-x-3 text-xs text-slate-600">
                                                 <span>{spot.price ? `$${spot.price}/hr` : "Free"}</span>
-                                                <span>{spot.distance} km</span>
+                                                <span>{spot.distance} miles</span>
                                             </div>
                                         </div>
                                         <div className={`w-3 h-3 rounded-full ${spot.available ? "bg-green-500" : "bg-red-500"}`}></div>
