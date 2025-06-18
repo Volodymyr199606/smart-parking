@@ -170,7 +170,7 @@ If you see “started server on http://localhost:3000,” the frontend is live a
 
 ---
 
-## Screenshots
+## App Output (Screenshots)
 
 ### Home Page
 
