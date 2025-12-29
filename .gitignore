@@ -1,0 +1,51 @@
+# === Build output ===
+/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# === IntelliJ IDEA ===
+.idea/
+*.iml
+
+# === System files ===
+.DS_Store
+Thumbs.db
+
+# === Logs ===
+*.log
+
+# === Env & secrets ===
+.env
+.env.*
+
+# === Maven status ===
+*.lst
+*.dump
+*.hprof
+
+# === Editor backups ===
+*.swp
+*.swo
+*.tmp
+*.bak
+*.orig
+
+# === VS Code (if you ever use it) ===
+.vscode/
+
+HELP.md
+
+# Ignore config with sensitive credentials
+src/main/resources/application.yml
+
+*.bat
+*.sh
+
+
+target
+.idea
+*.iml
+*.log
+
