@@ -10,4 +10,6 @@ WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
 
 EXPOSE 8080
+# Render uses PORT environment variable, Spring Boot will pick it up automatically
+ENV PORT=10000
 ENTRYPOINT ["java", "-jar", "app.jar"]

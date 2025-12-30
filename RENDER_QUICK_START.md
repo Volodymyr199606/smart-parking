@@ -48,9 +48,9 @@ Your project has already been migrated to PostgreSQL:
 3. Configure:
    - **Name**: `smart-parking-backend`
    - **Root Directory**: Leave empty (root)
-   - **Environment**: `Java`
-   - **Build Command**: `mvn clean package -DskipTests`
-   - **Start Command**: `java -jar target/backend-0.0.1-SNAPSHOT.jar`
+   - **Environment**: `Docker` (Render will auto-detect your Dockerfile)
+   - **Build Command**: (Leave empty - Docker handles this)
+   - **Start Command**: (Leave empty - Docker handles this)
    - **Plan**: Free
 4. Add Environment Variables:
    ```
