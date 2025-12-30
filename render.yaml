@@ -1,6 +1,6 @@
 services:
   # PostgreSQL Database (Render free tier uses PostgreSQL)
-  - type: pspg
+  - type: pg
     name: smart-parking-db
     plan: free
     databaseName: smart_parking
