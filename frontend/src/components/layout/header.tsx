@@ -72,13 +72,13 @@ export default function Header() {
                         ) : (
                             <>
                                 <Link
-                                    href="/auth/login"
+                                    href="/login"
                                     className="text-slate-600 hover:text-slate-900 text-sm font-medium transition-colors"
                                 >
                                     Sign in
                                 </Link>
                                 <Link
-                                    href="/auth/register"
+                                    href="/register"
                                     className="bg-slate-900 text-white hover:bg-slate-800 px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300 hover:scale-105"
                                 >
                                     Sign up
@@ -148,14 +148,14 @@ export default function Header() {
                         ) : (
                             <>
                                 <Link
-                                    href="/auth/login"
+                                    href="/login"
                                     className="block py-2 text-slate-600 hover:text-slate-900 text-base font-medium transition-colors"
                                     onClick={toggleMobileMenu}
                                 >
                                     Sign in
                                 </Link>
                                 <Link
-                                    href="/auth/register"
+                                    href="/register"
                                     className="block mt-2 bg-slate-900 text-white text-center py-3 rounded-full text-base font-medium transition-colors"
                                     onClick={toggleMobileMenu}
                                 >

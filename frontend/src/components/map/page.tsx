@@ -8,9 +8,9 @@ import { ArrowLeft, MapPin, Navigation, DollarSign, Search, Filter } from "lucid
 const mockParkingSpots = [
     {
         id: 1,
-        latitude: 37.7749,
-        longitude: -122.4194,
-        address: "123 Market Street, San Francisco, CA",
+        latitude: 40.7128,
+        longitude: -74.006,
+        address: "123 Broadway, New York, NY",
         available: true,
         price: 5,
         restrictions: "2 hour limit",
@@ -19,9 +19,9 @@ const mockParkingSpots = [
     },
     {
         id: 2,
-        latitude: 37.7849,
-        longitude: -122.4094,
-        address: "456 Union Square, San Francisco, CA",
+        latitude: 40.7589,
+        longitude: -73.9851,
+        address: "456 Central Park West, New York, NY",
         available: true,
         price: 8,
         restrictions: "No restrictions",
@@ -30,9 +30,9 @@ const mockParkingSpots = [
     },
     {
         id: 3,
-        latitude: 37.7649,
-        longitude: -122.4294,
-        address: "789 Mission Street, San Francisco, CA",
+        latitude: 40.7505,
+        longitude: -73.9934,
+        address: "789 Times Square, New York, NY",
         available: false,
         price: 12,
         restrictions: "Weekdays only",
@@ -41,9 +41,9 @@ const mockParkingSpots = [
     },
     {
         id: 4,
-        latitude: 37.7849,
-        longitude: -122.4094,
-        address: "321 Embarcadero, San Francisco, CA",
+        latitude: 40.7282,
+        longitude: -74.0776,
+        address: "321 Liberty Street, New York, NY",
         available: true,
         price: 0,
         restrictions: "Free parking",
@@ -120,7 +120,7 @@ function InteractiveParkingMap() {
 
                     {/* Location Indicator */}
                     <div className="absolute top-4 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium z-10">
-                        📍 San Francisco
+                        📍 New York City
                     </div>
 
                     {/* Your Location */}
@@ -294,7 +294,7 @@ export default function MapPage() {
                         <h1 className="text-xl font-medium text-slate-900">Find Parking</h1>
                     </div>
                     <Link
-                        href="/auth/register"
+                        href="/register"
                         className="bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-lg font-medium text-sm transition-colors"
                     >
                         Sign Up
