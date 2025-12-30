@@ -32,7 +32,7 @@ export default function HomePage() {
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                            <Link href="/register">
+                            <Link href="/auth/register">
                                 <button className="bg-gray-900 hover:bg-gray-800 text-white px-8 py-3 rounded-full text-base font-medium transition-colors">
                                     Get Started →
                                 </button>
@@ -48,7 +48,7 @@ export default function HomePage() {
                 </section>
 
                 {/* Features Section */}
-                <section className="py-20 px-4">
+                <section id="features" className="py-20 px-4">
                     <div className="max-w-6xl mx-auto">
                         <div className="text-center mb-16">
                             <h3 className="text-3xl font-light text-gray-900 mb-4">Simple. Fast. Reliable.</h3>
@@ -108,13 +108,30 @@ export default function HomePage() {
                             Join thousands of drivers who have made their parking effortless
                         </p>
 
-                        <Link href="/register">
+                        <a href="#features">
                             <button className="bg-gray-900 hover:bg-gray-800 text-white px-8 py-3 rounded-full text-base font-medium transition-colors">
                                 Learn More →
                             </button>
-                        </Link>
+                        </a>
                     </div>
                 </section>
+
+                {/* Footer */}
+                <footer className="border-t border-gray-200 py-8 px-4">
+                    <div className="max-w-7xl mx-auto">
+                        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <p className="text-sm text-gray-600">
+                                © {new Date().getFullYear()} ParkFinder. All rights reserved.
+                            </p>
+                            <Link 
+                                href="/privacy-policy" 
+                                className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                            >
+                                Privacy Policy
+                            </Link>
+                        </div>
+                    </div>
+                </footer>
             </div>
         </div>
     )

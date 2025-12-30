@@ -5,50 +5,278 @@ import Link from "next/link"
 import { ArrowLeft, MapPin, Navigation, DollarSign, Search, Filter } from "lucide-react"
 
 // Mock parking data - this will be replaced with real-time API calls
+// Using static timestamp to avoid hydration mismatch
+const getInitialTimestamp = () => {
+    if (typeof window !== 'undefined') {
+        return new Date().toISOString();
+    }
+    return new Date('2025-01-01T00:00:00.000Z').toISOString();
+};
+
 const mockParkingSpots = [
     {
         id: 1,
-        latitude: 40.7128,
-        longitude: -74.006,
-        address: "123 Broadway, New York, NY",
+        latitude: 37.7749,
+        longitude: -122.4194,
+        address: "123 Market Street, San Francisco, CA",
         available: true,
         price: 5,
         restrictions: "2 hour limit",
         distance: 0.2,
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: getInitialTimestamp(),
     },
     {
         id: 2,
-        latitude: 40.7589,
-        longitude: -73.9851,
-        address: "456 Central Park West, New York, NY",
+        latitude: 37.7849,
+        longitude: -122.4094,
+        address: "456 Union Square, San Francisco, CA",
         available: true,
         price: 8,
         restrictions: "No restrictions",
         distance: 0.5,
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: getInitialTimestamp(),
     },
     {
         id: 3,
-        latitude: 40.7505,
-        longitude: -73.9934,
-        address: "789 Times Square, New York, NY",
+        latitude: 37.7649,
+        longitude: -122.4294,
+        address: "789 Mission Street, San Francisco, CA",
         available: false,
         price: 12,
         restrictions: "Weekdays only",
         distance: 0.8,
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: getInitialTimestamp(),
     },
     {
         id: 4,
-        latitude: 40.7282,
-        longitude: -74.0776,
-        address: "321 Liberty Street, New York, NY",
+        latitude: 37.7849,
+        longitude: -122.4094,
+        address: "321 Embarcadero, San Francisco, CA",
         available: true,
         price: 0,
         restrictions: "Free parking",
         distance: 1.2,
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 5,
+        latitude: 37.7799,
+        longitude: -122.4144,
+        address: "555 Sutter Street, San Francisco, CA",
+        available: true,
+        price: 7,
+        restrictions: "2 hour limit",
+        distance: 0.35,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 6,
+        latitude: 37.7699,
+        longitude: -122.4244,
+        address: "666 Folsom Street, San Francisco, CA",
+        available: false,
+        price: 11,
+        restrictions: "Weekdays only",
+        distance: 0.6,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 7,
+        latitude: 37.7899,
+        longitude: -122.4044,
+        address: "777 Geary Street, San Francisco, CA",
+        available: true,
+        price: 6,
+        restrictions: "No restrictions",
+        distance: 0.45,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 8,
+        latitude: 37.7749,
+        longitude: -122.4144,
+        address: "888 Bush Street, San Francisco, CA",
+        available: true,
+        price: 9,
+        restrictions: "2 hour limit",
+        distance: 0.55,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 9,
+        latitude: 37.7799,
+        longitude: -122.4244,
+        address: "999 California Street, San Francisco, CA",
+        available: false,
+        price: 13,
+        restrictions: "Business hours only",
+        distance: 0.65,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 10,
+        latitude: 37.7699,
+        longitude: -122.4144,
+        address: "111 Howard Street, San Francisco, CA",
+        available: true,
+        price: 5,
+        restrictions: "No restrictions",
+        distance: 0.75,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 11,
+        latitude: 37.7849,
+        longitude: -122.4144,
+        address: "222 Post Street, San Francisco, CA",
+        available: true,
+        price: 8,
+        restrictions: "2 hour limit",
+        distance: 0.4,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 12,
+        latitude: 37.7749,
+        longitude: -122.4244,
+        address: "333 New Montgomery Street, San Francisco, CA",
+        available: true,
+        price: 4,
+        restrictions: "Free parking",
+        distance: 0.85,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 13,
+        latitude: 37.8085,
+        longitude: -122.4158,
+        address: "Fisherman's Wharf, San Francisco, CA",
+        available: false,
+        price: 20,
+        restrictions: "High traffic area",
+        distance: 1.8,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 14,
+        latitude: 37.8086,
+        longitude: -122.4098,
+        address: "Pier 39, San Francisco, CA",
+        available: false,
+        price: 25,
+        restrictions: "Tourist area - premium pricing",
+        distance: 1.9,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 15,
+        latitude: 37.7849,
+        longitude: -122.4094,
+        address: "Union Square Shopping District, San Francisco, CA",
+        available: false,
+        price: 18,
+        restrictions: "Peak hours only",
+        distance: 0.3,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 16,
+        latitude: 37.7941,
+        longitude: -122.4078,
+        address: "Chinatown Gate, San Francisco, CA",
+        available: false,
+        price: 15,
+        restrictions: "Very busy area",
+        distance: 1.2,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 17,
+        latitude: 37.8024,
+        longitude: -122.4058,
+        address: "Lombard Street (Crooked Street), San Francisco, CA",
+        available: false,
+        price: 22,
+        restrictions: "Tourist attraction",
+        distance: 1.5,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 18,
+        latitude: 37.7879,
+        longitude: -122.4075,
+        address: "North Beach (Little Italy), San Francisco, CA",
+        available: false,
+        price: 16,
+        restrictions: "Nightlife district",
+        distance: 1.1,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 19,
+        latitude: 37.7879,
+        longitude: -122.4075,
+        address: "Financial District (Montgomery St), San Francisco, CA",
+        available: false,
+        price: 30,
+        restrictions: "Business district - peak hours",
+        distance: 0.5,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 20,
+        latitude: 37.7749,
+        longitude: -122.4194,
+        address: "SoMa District (South of Market), San Francisco, CA",
+        available: false,
+        price: 14,
+        restrictions: "Tech hub area",
+        distance: 0.6,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 21,
+        latitude: 37.7580,
+        longitude: -122.4180,
+        address: "AT&T Park / Oracle Park, San Francisco, CA",
+        available: false,
+        price: 35,
+        restrictions: "Event parking - premium",
+        distance: 1.4,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 22,
+        latitude: 37.7849,
+        longitude: -122.4094,
+        address: "Ghirardelli Square, San Francisco, CA",
+        available: false,
+        price: 20,
+        restrictions: "Tourist destination",
+        distance: 1.3,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 23,
+        latitude: 37.8024,
+        longitude: -122.4058,
+        address: "Alcatraz Ferry Terminal, San Francisco, CA",
+        available: false,
+        price: 28,
+        restrictions: "Tourist attraction",
+        distance: 1.6,
+        lastUpdated: getInitialTimestamp(),
+    },
+    {
+        id: 24,
+        latitude: 37.7879,
+        longitude: -122.4075,
+        address: "Castro District, San Francisco, CA",
+        available: false,
+        price: 12,
+        restrictions: "Popular neighborhood",
+        distance: 1.7,
+        lastUpdated: getInitialTimestamp(),
     },
 ]
 
@@ -66,9 +294,17 @@ interface ParkingSpot {
 
 function InteractiveParkingMap() {
     const [selectedSpot, setSelectedSpot] = useState<ParkingSpot | null>(null)
-    const [parkingSpots, setParkingSpots] = useState<ParkingSpot[]>(mockParkingSpots)
+    const [parkingSpots, setParkingSpots] = useState<ParkingSpot[]>([])
     const [searchQuery, setSearchQuery] = useState("")
     const [showAvailableOnly, setShowAvailableOnly] = useState(false)
+
+    // Initialize parking spots on client side only to avoid hydration mismatch
+    useEffect(() => {
+        setParkingSpots(mockParkingSpots.map(spot => ({
+            ...spot,
+            lastUpdated: new Date().toISOString()
+        })))
+    }, [])
 
     // Simulate real-time updates
     useEffect(() => {
@@ -120,7 +356,7 @@ function InteractiveParkingMap() {
 
                     {/* Location Indicator */}
                     <div className="absolute top-4 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium z-10">
-                        📍 New York City
+                        📍 San Francisco
                     </div>
 
                     {/* Your Location */}
@@ -294,7 +530,7 @@ export default function MapPage() {
                         <h1 className="text-xl font-medium text-slate-900">Find Parking</h1>
                     </div>
                     <Link
-                        href="/register"
+                        href="/auth/register"
                         className="bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-lg font-medium text-sm transition-colors"
                     >
                         Sign Up

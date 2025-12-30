@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import api from '@/lib/api';
 
 interface FormErrors {
     fullName?: string;
@@ -106,25 +107,28 @@ const RegisterForm: React.FC = () => {
         setIsLoading(true);
 
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    fullName: formData.fullName,
-                    email: formData.email,
-                    password: formData.password,
-                }),
+            const response = await api.post('/auth/register', {
+                fullName: formData.fullName,
+                email: formData.email,
+                password: formData.password,
             });
 
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.message || 'Registration failed');
+            const { token } = response.data;
+            if (token) {
+                localStorage.setItem('token', token);
+            }
 
             setSubmitSuccess(true);
-            if (data.token) localStorage.setItem('token', data.token);
-
             setTimeout(() => router.push('/dashboard'), 1500);
         } catch (err: unknown) {
-            setSubmitError(err instanceof Error ? err.message : 'Registration failed');
+            if (err && typeof err === 'object' && 'response' in err) {
+                const error = err as { response?: { data?: { message?: string } } };
+                setSubmitError(error.response?.data?.message || 'Registration failed');
+            } else if (err instanceof Error) {
+                setSubmitError(err.message);
+            } else {
+                setSubmitError('Registration failed');
+            }
         } finally {
             setIsLoading(false);
         }
@@ -226,7 +230,7 @@ const RegisterForm: React.FC = () => {
             <div className="text-center text-sm mt-8">
                 <p className="text-slate-600">
                     Already have an account?{' '}
-                    <Link href="/login" className="text-slate-900 hover:underline font-medium">
+                    <Link href="/auth/login" className="text-slate-900 hover:underline font-medium">
                         Sign in
                     </Link>
                 </p>
