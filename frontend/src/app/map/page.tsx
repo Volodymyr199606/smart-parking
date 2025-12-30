@@ -4,51 +4,127 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, MapPin, Navigation, DollarSign, Search, Filter } from "lucide-react"
 
-// Mock parking data - this will be replaced with real-time API calls
-const mockParkingSpots = [
+// Mock parking data - San Francisco locations on busiest streets (without timestamps to avoid hydration issues)
+const mockParkingSpotsData = [
     {
         id: 1,
-        latitude: 40.7128,
-        longitude: -74.006,
-        address: "123 Broadway, New York, NY",
+        latitude: 37.7749,
+        longitude: -122.4194,
+        address: "123 Market Street, San Francisco, CA",
         available: true,
-        price: 5,
+        price: 8,
         restrictions: "2 hour limit",
         distance: 0.2,
-        lastUpdated: new Date().toISOString(),
     },
     {
         id: 2,
-        latitude: 40.7589,
-        longitude: -73.9851,
-        address: "456 Central Park West, New York, NY",
+        latitude: 37.7849,
+        longitude: -122.4094,
+        address: "456 Union Square, San Francisco, CA",
         available: true,
-        price: 8,
-        restrictions: "No restrictions",
-        distance: 0.5,
-        lastUpdated: new Date().toISOString(),
+        price: 12,
+        restrictions: "Peak hours only",
+        distance: 0.3,
     },
     {
         id: 3,
-        latitude: 40.7505,
-        longitude: -73.9934,
-        address: "789 Times Square, New York, NY",
+        latitude: 37.7649,
+        longitude: -122.4294,
+        address: "789 Mission Street, San Francisco, CA",
         available: false,
-        price: 12,
+        price: 10,
         restrictions: "Weekdays only",
-        distance: 0.8,
-        lastUpdated: new Date().toISOString(),
+        distance: 0.5,
     },
     {
         id: 4,
-        latitude: 40.7282,
-        longitude: -74.0776,
-        address: "321 Liberty Street, New York, NY",
+        latitude: 37.7849,
+        longitude: -122.4094,
+        address: "321 Geary Boulevard, San Francisco, CA",
         available: true,
-        price: 0,
-        restrictions: "Free parking",
+        price: 6,
+        restrictions: "No restrictions",
+        distance: 0.4,
+    },
+    {
+        id: 5,
+        latitude: 37.7941,
+        longitude: -122.4078,
+        address: "555 Grant Avenue, Chinatown, San Francisco, CA",
+        available: true,
+        price: 15,
+        restrictions: "High traffic area",
+        distance: 0.6,
+    },
+    {
+        id: 6,
+        latitude: 37.8024,
+        longitude: -122.4058,
+        address: "666 Lombard Street, San Francisco, CA",
+        available: false,
+        price: 20,
+        restrictions: "Tourist attraction - premium pricing",
+        distance: 0.8,
+    },
+    {
+        id: 7,
+        latitude: 37.8085,
+        longitude: -122.4158,
+        address: "777 Fisherman's Wharf, San Francisco, CA",
+        available: true,
+        price: 18,
+        restrictions: "Tourist area",
         distance: 1.2,
-        lastUpdated: new Date().toISOString(),
+    },
+    {
+        id: 8,
+        latitude: 37.7879,
+        longitude: -122.4075,
+        address: "888 Van Ness Avenue, San Francisco, CA",
+        available: true,
+        price: 7,
+        restrictions: "2 hour limit",
+        distance: 0.7,
+    },
+    {
+        id: 9,
+        latitude: 37.7699,
+        longitude: -122.4244,
+        address: "999 Fillmore Street, San Francisco, CA",
+        available: true,
+        price: 9,
+        restrictions: "No restrictions",
+        distance: 0.9,
+    },
+    {
+        id: 10,
+        latitude: 37.7580,
+        longitude: -122.4180,
+        address: "111 Powell Street, Union Square, San Francisco, CA",
+        available: false,
+        price: 25,
+        restrictions: "Shopping district - peak hours",
+        distance: 0.35,
+    },
+    {
+        id: 11,
+        latitude: 37.7599,
+        longitude: -122.4144,
+        address: "222 Castro Street, San Francisco, CA",
+        available: true,
+        price: 6,
+        restrictions: "Evening hours",
+        distance: 1.1,
+    },
+    {
+        id: 12,
+        latitude: 37.7649,
+        longitude: -122.4214,
+        address: "333 Valencia Street, Mission District, San Francisco, CA",
+        available: true,
+        price: 5,
+        restrictions: "No restrictions",
+        distance: 0.65,
     },
 ]
 
@@ -66,9 +142,21 @@ interface ParkingSpot {
 
 function InteractiveParkingMap() {
     const [selectedSpot, setSelectedSpot] = useState<ParkingSpot | null>(null)
-    const [parkingSpots, setParkingSpots] = useState<ParkingSpot[]>(mockParkingSpots)
+    const [parkingSpots, setParkingSpots] = useState<ParkingSpot[]>([])
     const [searchQuery, setSearchQuery] = useState("")
     const [showAvailableOnly, setShowAvailableOnly] = useState(false)
+    const [isMounted, setIsMounted] = useState(false)
+
+    // Initialize parking spots on client side only to avoid hydration mismatch
+    useEffect(() => {
+        setIsMounted(true)
+        setParkingSpots(
+            mockParkingSpotsData.map((spot) => ({
+                ...spot,
+                lastUpdated: new Date().toISOString(),
+            })),
+        )
+    }, [])
 
     // Simulate real-time updates
     useEffect(() => {
@@ -120,7 +208,7 @@ function InteractiveParkingMap() {
 
                     {/* Location Indicator */}
                     <div className="absolute top-4 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium z-10">
-                        📍 New York City
+                        📍 San Francisco
                     </div>
 
                     {/* Your Location */}
@@ -209,7 +297,7 @@ function InteractiveParkingMap() {
                         </div>
 
                         <div className="mt-2 text-xs text-slate-500">
-                            Last updated: {new Date(selectedSpot.lastUpdated).toLocaleTimeString()}
+                            Last updated: {isMounted ? new Date(selectedSpot.lastUpdated).toLocaleTimeString() : "Loading..."}
                         </div>
                     </div>
                 )}
@@ -268,7 +356,7 @@ function InteractiveParkingMap() {
                                         <div className={`w-3 h-3 rounded-full ${spot.available ? "bg-green-500" : "bg-red-500"}`}></div>
                                     </div>
                                     <div className="text-xs text-slate-500">
-                                        Updated: {new Date(spot.lastUpdated).toLocaleTimeString()}
+                                        Updated: {isMounted ? new Date(spot.lastUpdated).toLocaleTimeString() : "Loading..."}
                                     </div>
                                 </div>
                             ))}

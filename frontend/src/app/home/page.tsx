@@ -1,7 +1,15 @@
+"use client"
+
 import Link from "next/link"
 import { MapPin, Navigation, Bell } from "lucide-react"
 
 export default function HomePage() {
+    const scrollToFeatures = () => {
+        const featuresSection = document.getElementById("features")
+        if (featuresSection) {
+            featuresSection.scrollIntoView({ behavior: "smooth" })
+        }
+    }
     return (
         <div className="min-h-screen bg-gray-50 relative overflow-hidden">
             {/* Background Pattern - Subtle circles */}
@@ -48,7 +56,7 @@ export default function HomePage() {
                 </section>
 
                 {/* Features Section */}
-                <section className="py-20 px-4">
+                <section id="features" className="py-20 px-4">
                     <div className="max-w-6xl mx-auto">
                         <div className="text-center mb-16">
                             <h3 className="text-3xl font-light text-gray-900 mb-4">Simple. Fast. Reliable.</h3>
@@ -108,13 +116,33 @@ export default function HomePage() {
                             Join thousands of drivers who have made their parking effortless
                         </p>
 
-                        <Link href="/register">
-                            <button className="bg-gray-900 hover:bg-gray-800 text-white px-8 py-3 rounded-full text-base font-medium transition-colors">
-                                Learn More →
-                            </button>
-                        </Link>
+                        <button 
+                            onClick={scrollToFeatures}
+                            className="bg-gray-900 hover:bg-gray-800 text-white px-8 py-3 rounded-full text-base font-medium transition-colors"
+                        >
+                            Learn More →
+                        </button>
                     </div>
                 </section>
+
+                {/* Footer Section */}
+                <footer className="border-t border-gray-200 py-8 px-4 mt-20">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div className="text-gray-600 text-sm">
+                                © {new Date().getFullYear()} ParkFinder. All rights reserved.
+                            </div>
+                            <div>
+                                <Link 
+                                    href="/privacy-policy" 
+                                    className="text-gray-600 hover:text-gray-900 text-sm transition-colors"
+                                >
+                                    Privacy Policy
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+                </footer>
             </div>
         </div>
     )
