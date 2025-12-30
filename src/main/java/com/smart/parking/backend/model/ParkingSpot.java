@@ -26,8 +26,8 @@ public class ParkingSpot {
     @Column(nullable = false)
     private Double longitude;
 
-    // MySQL spatial column
-    @Column(columnDefinition = "POINT SRID 4326")
+    // PostgreSQL/PostGIS spatial column
+    @Column(columnDefinition = "geometry(Point, 4326)")
     private Point location;
 
     private boolean available;

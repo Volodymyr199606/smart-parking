@@ -1,0 +1,44 @@
+services:
+  # PostgreSQL Database (Render free tier uses PostgreSQL)
+  - type: pspg
+    name: smart-parking-db
+    plan: free
+    databaseName: smart_parking
+    databaseUser: smart_parking_user
+
+  # Spring Boot Backend
+  - type: web
+    name: smart-parking-backend
+    env: java
+    plan: free
+    buildCommand: mvn clean package -DskipTests
+    startCommand: java -jar target/backend-0.0.1-SNAPSHOT.jar
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: production
+      - key: SPRING_DATASOURCE_URL
+        fromDatabase:
+          name: smart-parking-db
+          property: connectionString
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: smart-parking-db
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: smart-parking-db
+          property: password
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRATION
+        value: 86400
+      - key: SPRING_JPA_HIBERNATE_DDL_AUTO
+        value: update
+      - key: SPRING_JPA_SHOW_SQL
+        value: false
+      - key: SERVER_PORT
+        value: 10000
+      - key: CORS_ALLOWED_ORIGINS
+        value: http://localhost:3000,https://your-frontend.vercel.app
+        # Update this with your actual Vercel frontend URL after deployment
+

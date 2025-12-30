@@ -82,7 +82,7 @@ export default function LoginForm() {
                         id="email"
                         type="email"
                         {...register('email')}
-                        className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="w-full p-2 bg-white text-slate-900 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder:text-slate-400"
                         placeholder="you@example.com"
                         disabled={isLoading}
                     />
@@ -105,7 +105,7 @@ export default function LoginForm() {
                             id="password"
                             type={showPassword ? 'text' : 'password'}
                             {...register('password')}
-                            className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full p-2 bg-white text-slate-900 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder:text-slate-400"
                             placeholder="••••••••"
                             disabled={isLoading}
                         />

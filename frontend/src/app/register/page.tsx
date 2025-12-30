@@ -97,7 +97,7 @@ export default function RegisterForm() {
                                         setName(e.target.value);
                                         validateName(e.target.value);
                                     }}
-                                    className={`w-full p-4 border ${nameError ? 'border-red-500' : 'border-slate-200'} rounded-xl focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors`}
+                                    className={`w-full p-4 bg-white text-slate-900 border ${nameError ? 'border-red-500' : 'border-slate-200'} rounded-xl focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors placeholder:text-slate-400`}
                                     placeholder="John Doe"
                                     required
                                 />
@@ -117,7 +117,7 @@ export default function RegisterForm() {
                                         setEmail(e.target.value);
                                         validateEmail(e.target.value);
                                     }}
-                                    className={`w-full p-4 border ${emailError ? 'border-red-500' : 'border-slate-200'} rounded-xl focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors`}
+                                    className={`w-full p-4 bg-white text-slate-900 border ${emailError ? 'border-red-500' : 'border-slate-200'} rounded-xl focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors placeholder:text-slate-400`}
                                     placeholder="you@example.com"
                                     required
                                 />
@@ -138,7 +138,7 @@ export default function RegisterForm() {
                                             setPassword(e.target.value);
                                             validatePassword(e.target.value);
                                         }}
-                                        className={`w-full p-4 pr-12 border ${passwordError ? 'border-red-500' : 'border-slate-200'} rounded-xl focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors`}
+                                        className={`w-full p-4 pr-12 bg-white text-slate-900 border ${passwordError ? 'border-red-500' : 'border-slate-200'} rounded-xl focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors placeholder:text-slate-400`}
                                         placeholder="••••••••"
                                         required
                                     />

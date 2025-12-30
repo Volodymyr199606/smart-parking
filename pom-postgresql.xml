@@ -1,0 +1,10 @@
+<!-- 
+  PostgreSQL Configuration for Render Deployment
+  Replace the MySQL dependency in pom.xml with this if using Render's PostgreSQL
+-->
+<dependency>
+    <groupId>org.postgresql</groupId>
+    <artifactId>postgresql</artifactId>
+    <scope>runtime</scope>
+</dependency>
+

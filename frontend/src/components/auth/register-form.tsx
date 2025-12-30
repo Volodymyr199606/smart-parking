@@ -171,7 +171,7 @@ const RegisterForm: React.FC = () => {
                                 }
                                 value={formData[field as keyof FormData]}
                                 onChange={handleInputChange}
-                                className={`w-full p-4 border rounded-xl transition-colors ${
+                                className={`w-full p-4 bg-white text-slate-900 border rounded-xl transition-colors placeholder:text-slate-400 ${
                                     getFieldStatus(field as keyof FormData) === 'error'
                                         ? 'border-red-300'
                                         : getFieldStatus(field as keyof FormData) === 'success'
