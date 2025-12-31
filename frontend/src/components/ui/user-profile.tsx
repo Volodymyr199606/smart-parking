@@ -24,7 +24,7 @@ export default function UserProfile() {
         setError(null)
 
         try {
-            const response = await api.put('/auth/profile', data)
+            const response = await api.put('/api/auth/profile', data)
             setUser(response.data)
             setIsEditing(false)
         } catch (err) {

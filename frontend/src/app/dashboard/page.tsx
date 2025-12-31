@@ -68,16 +68,28 @@ export default function DashboardPage() {
         try {
             setLoading(true)
 
-            // Fetch nearby spots
+            // Fetch nearby spots (fail gracefully if this endpoint isn't working)
             if (latitude && longitude) {
-                const nearbyResponse = await api.get("/parking-spots/nearby", {
-                    params: {
-                        latitude,
-                        longitude,
-                        radius: 2000, // 2km radius
-                    },
-                })
-                setNearbySpots(nearbyResponse.data.slice(0, 6)) // Show only first 6 spots
+                try {
+                    const nearbyResponse = await api.get("/parking-spots/nearby", {
+                        params: {
+                            latitude,
+                            longitude,
+                            radius: 2000, // 2km radius
+                        },
+                    })
+                    setNearbySpots(nearbyResponse.data.slice(0, 6)) // Show only first 6 spots
+                } catch (nearbyError) {
+                    console.warn("Failed to fetch nearby spots, continuing without them:", nearbyError)
+                    // Try to get available spots as fallback
+                    try {
+                        const availableResponse = await api.get("/parking-spots/available")
+                        setNearbySpots(availableResponse.data.slice(0, 6))
+                    } catch (fallbackError) {
+                        console.warn("Failed to fetch available spots as fallback:", fallbackError)
+                        setNearbySpots([])
+                    }
+                }
             }
 
             // Fetch dashboard stats
@@ -271,3 +283,4 @@ export default function DashboardPage() {
         </div>
     )
 }
+

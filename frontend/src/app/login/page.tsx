@@ -2,15 +2,16 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import axios from 'axios';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { Eye, EyeOff } from 'lucide-react';
+import { useAuth } from '@/contexts/auth-context';
 
 
 
 
 export default function LoginPage() {
+    const { login } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [emailError, setEmailError] = useState('');
@@ -19,6 +20,7 @@ export default function LoginPage() {
     const router = useRouter();
     const [showPassword, setShowPassword] = useState(false);
     const [showForgotPopup, setShowForgotPopup] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
 
 
@@ -46,26 +48,79 @@ export default function LoginPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        validateEmail(email);
-        validatePassword(password);
-        if (emailError || passwordError) return;
+        // Validate synchronously
+        let hasErrors = false;
+        
+        if (!email.includes('@')) {
+            setEmailError("Email must include '@'");
+            hasErrors = true;
+        } else {
+            setEmailError('');
+        }
 
+        const hasLetter = /[a-zA-Z]/.test(password);
+        const hasNumber = /[0-9]/.test(password);
+        const hasSymbol = /[^a-zA-Z0-9]/.test(password);
+        if (password.length < 6 || !hasLetter || !hasNumber || !hasSymbol) {
+            setPasswordError("Password must be at least 6 characters and include letters, numbers, and symbols");
+            hasErrors = true;
+        } else {
+            setPasswordError('');
+        }
+
+        if (hasErrors) return;
+
+        setIsLoading(true);
+        setEmailError('');
+        setPasswordError('');
+        
         try {
-            const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
-                email,
-                password,
-            });
-
-            localStorage.setItem('token', response.data.token);
+            // Use the auth context's login function which properly updates the auth state
+            await login(email, password);
+            
+            // Show success popup
             setShowPopup(true);
 
+            // The auth context's login function already navigates to /dashboard,
+            // but we'll add a small delay for the popup to show
             setTimeout(() => {
-                router.push('/map');
-            }, 2000);
-        } catch (error:unknown) {
+                // If we're still on login page (shouldn't happen, but just in case)
+                if (window.location.pathname === '/login') {
+                    router.push('/dashboard');
+                }
+            }, 1000);
+        } catch (error: unknown) {
             console.error('Login failed:', error);
-            setEmailError('Invalid email or user not registered');
-            setPasswordError('Check your credentials and try again');
+            
+            // Handle different types of errors
+            if (error && typeof error === 'object' && 'response' in error) {
+                const axiosError = error as { response?: { status?: number; data?: { message?: string } } };
+                
+                if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
+                    setEmailError('Invalid email or password');
+                    setPasswordError('Please check your credentials and try again');
+                } else if (axiosError.response?.data?.message) {
+                    setEmailError(axiosError.response.data.message);
+                    setPasswordError('Please check your credentials and try again');
+                } else {
+                    setEmailError('Login failed. Please try again.');
+                    setPasswordError('');
+                }
+            } else if (error instanceof Error) {
+                // Network error or other errors
+                if (error.message.includes('Network Error') || error.message.includes('ECONNREFUSED')) {
+                    setEmailError('Cannot connect to server. Please ensure the backend is running.');
+                    setPasswordError('Backend server is not reachable');
+                } else {
+                    setEmailError(error.message || 'An unexpected error occurred');
+                    setPasswordError('Please try again later');
+                }
+            } else {
+                setEmailError('Failed to login. Please try again.');
+                setPasswordError('');
+            }
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -161,9 +216,10 @@ export default function LoginPage() {
 
                             <button
                                 type="submit"
-                                className="w-full bg-slate-900 text-white hover:bg-slate-800 py-4 rounded-xl font-medium transition-all duration-300 hover:scale-105"
+                                disabled={isLoading}
+                                className="w-full bg-slate-900 text-white hover:bg-slate-800 py-4 rounded-xl font-medium transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                Sign
+                                {isLoading ? 'Signing in...' : 'Sign in'}
                             </button>
                         </form>
 

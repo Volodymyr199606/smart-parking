@@ -61,24 +61,34 @@ public class ParkingSpotServiceImpl implements ParkingSpotService {
     public List<ParkingSpotDTO> getNearbyParkingSpots(double latitude, double longitude, double radiusInMeters) {
         log.info("Finding parking spots near coordinates: lat={}, lng={}, radius={}m", latitude, longitude, radiusInMeters);
 
-        List<ParkingSpot> spots = repository.findNearby(latitude, longitude, radiusInMeters);
-        log.debug("Found {} nearby parking spots", spots.size());
+        try {
+            List<ParkingSpot> spots = repository.findNearby(latitude, longitude, radiusInMeters);
+            log.debug("Found {} nearby parking spots", spots.size());
 
-        return spots.stream()
-                .map(this::convertToDTO)
-                .toList();
+            return spots.stream()
+                    .map(this::convertToDTO)
+                    .toList();
+        } catch (Exception e) {
+            log.error("Error finding nearby parking spots. This may occur if PostGIS extension is not enabled or database doesn't support spatial queries.", e);
+            throw new RuntimeException("Failed to find nearby parking spots. Ensure PostGIS extension is enabled in PostgreSQL.", e);
+        }
     }
 
     @Override
     public List<ParkingSpotDTO> getAvailableNearbyParkingSpots(double latitude, double longitude, double radiusInMeters) {
         log.info("Finding available parking spots near coordinates: lat={}, lng={}, radius={}m", latitude, longitude, radiusInMeters);
 
-        List<ParkingSpot> spots = repository.findAvailableNearby(latitude, longitude, radiusInMeters);
-        log.debug("Found {} available nearby parking spots", spots.size());
+        try {
+            List<ParkingSpot> spots = repository.findAvailableNearby(latitude, longitude, radiusInMeters);
+            log.debug("Found {} available nearby parking spots", spots.size());
 
-        return spots.stream()
-                .map(this::convertToDTO)
-                .toList();
+            return spots.stream()
+                    .map(this::convertToDTO)
+                    .toList();
+        } catch (Exception e) {
+            log.error("Error finding available nearby parking spots. This may occur if PostGIS extension is not enabled or database doesn't support spatial queries.", e);
+            throw new RuntimeException("Failed to find available nearby parking spots. Ensure PostGIS extension is enabled in PostgreSQL.", e);
+        }
     }
 
     @Override

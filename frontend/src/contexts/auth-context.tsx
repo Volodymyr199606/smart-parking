@@ -41,13 +41,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 if (decoded.exp > currentTime) {
                     setToken(storedToken);
                     // ✅ UPDATED: Fetch user data from AuthController
-                    api.get('/auth/me')
+                    api.get('/api/auth/me')
                         .then(response => {
                             setUser(response.data);
                         })
                         .catch(error => {
-                            console.error('Error fetching user data:', error);
-                            localStorage.removeItem('token');
+                            // Handle both 401 and 500 errors as authentication failures
+                            // 500 can occur if token is invalid or user doesn't exist
+                            const status = error?.response?.status;
+                            if (status === 401 || status === 500) {
+                                console.warn('Authentication failed, clearing token:', error?.response?.status || 'network error');
+                                localStorage.removeItem('token');
+                                setToken(null);
+                                setUser(null);
+                            } else {
+                                console.error('Error fetching user data:', error);
+                            }
                         })
                         .finally(() => {
                             setIsLoading(false);
@@ -69,12 +78,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const login = async (email: string, password: string) => {
         try {
-            const response = await api.post('/auth/login', { email, password });
-            const { token, email: userEmail, fullName, roles } = response.data;
+            const response = await api.post('/api/auth/login', { email, password });
+            const { token, email: userEmail, fullName, roles = [] } = response.data;
 
             localStorage.setItem('token', token);
             setToken(token);
-            setUser({ email: userEmail, fullName, roles });
+            setUser({ email: userEmail, fullName, roles: roles || [] });
             router.push('/dashboard');
         } catch (error) {
             console.error('Login error:', error);
@@ -84,12 +93,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const register = async (fullName: string, email: string, password: string) => {
         try {
-            const response = await api.post('/auth/register', { fullName, email, password });
-            const { token, email: userEmail, fullName: userName, roles } = response.data;
+            const response = await api.post('/api/auth/register', { fullName, email, password });
+            const { token, email: userEmail, fullName: userName, roles = [] } = response.data;
 
             localStorage.setItem('token', token);
             setToken(token);
-            setUser({ email: userEmail, fullName: userName, roles });
+            setUser({ email: userEmail, fullName: userName, roles: roles || [] });
             router.push('/dashboard');
         } catch (error) {
             console.error('Registration error:', error);

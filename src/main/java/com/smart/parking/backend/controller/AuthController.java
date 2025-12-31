@@ -7,6 +7,7 @@ import com.smart.parking.backend.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
@@ -54,17 +55,28 @@ public class AuthController {
 
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> getCurrentUser(Authentication authentication) {
-        String email = authentication.getName();
-        User user = userService.getCurrentUser(email);
+        // Handle case where authentication is null or invalid
+        if (authentication == null || authentication.getName() == null) {
+            log.warn("Unauthorized access attempt to /api/auth/me");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
 
-        UserProfileResponse response = new UserProfileResponse(
-                user.getId(),
-                user.getEmail(),
-                user.getFullName(),
-                new String[0] // No roles - empty array
-        );
+        try {
+            String email = authentication.getName();
+            User user = userService.getCurrentUser(email);
 
-        return ResponseEntity.ok(response);
+            UserProfileResponse response = new UserProfileResponse(
+                    user.getId(),
+                    user.getEmail(),
+                    user.getFullName(),
+                    new String[0] // No roles - empty array
+            );
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error fetching current user", e);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
     }
 
     @PutMapping("/profile")

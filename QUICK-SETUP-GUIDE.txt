@@ -1,0 +1,63 @@
+===========================================
+QUICK SETUP GUIDE - PostgreSQL Database
+===========================================
+
+STEP 1: Open SQL Shell
+-----------------------
+- Start Menu → Search "SQL Shell" or "psql"
+- Click "SQL Shell (psql)"
+
+STEP 2: Connect (Press Enter 4 Times!)
+---------------------------------------
+When you see these prompts, DO NOT TYPE ANYTHING - just press ENTER:
+
+  Server [localhost]:          [PRESS ENTER]
+  Database [postgres]:         [PRESS ENTER]  
+  Port [5432]:                 [PRESS ENTER]
+  Username [postgres]:         [PRESS ENTER]
+  Password for user postgres:  [TYPE YOUR PASSWORD, THEN ENTER]
+
+IMPORTANT: The password won't show as you type - that's normal!
+
+STEP 3: You Should See This
+-----------------------------
+postgres=#
+
+This means you're connected!
+
+STEP 4: Run These Commands (One at a Time)
+--------------------------------------------
+Copy and paste each command, then press Enter:
+
+Command 1:
+CREATE DATABASE smart_parking;
+
+Expected output: CREATE DATABASE
+
+Command 2:
+\c smart_parking
+
+Expected output: You are now connected to database "smart_parking"...
+                smart_parking=#
+
+Command 3:
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+Expected output: CREATE EXTENSION
+
+Command 4:
+SELECT PostGIS_version();
+
+Expected output: 
+ postgis_version
+-----------------
+ 3.6.1
+(1 row)
+
+Command 5 (to exit):
+\q
+
+===========================================
+DONE! Your database is ready.
+===========================================
+

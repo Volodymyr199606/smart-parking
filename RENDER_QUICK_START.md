@@ -61,7 +61,7 @@ Your project has already been migrated to PostgreSQL:
    JWT_SECRET=<generate random string, e.g., use openssl rand -hex 32>
    JWT_EXPIRATION=86400
    SPRING_JPA_HIBERNATE_DDL_AUTO=update
-   CORS_ALLOWED_ORIGINS=http://localhost:3000,https://your-frontend.vercel.app
+   CORS_ALLOWED_ORIGINS=http://localhost:3000,https://your-frontend.vercel.
    ```
 5. Click **"Create Web Service"**
 
@@ -75,7 +75,7 @@ After deployment completes:
 ### Step 5: Deploy Frontend on Vercel
 
 1. Go to [vercel.com](https://vercel.com) and sign up/login
-2. Click **"Add New Project"**
+2. Click **"Add New Project"**app
 3. Import your GitHub repository
 4. Configure:
    - **Framework Preset**: Next.js
