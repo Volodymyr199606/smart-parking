@@ -186,9 +186,9 @@ function InteractiveParkingMap() {
     }
 
     return (
-        <div className="h-full w-full flex flex-col lg:flex-row bg-white rounded-xl shadow-soft overflow-hidden">
+        <div className="h-full w-full flex flex-row bg-white rounded-xl shadow-soft overflow-hidden">
             {/* Map Section */}
-            <div className="flex-1 relative">
+            <div className="flex-1 relative min-w-0">
                 {/* Map Placeholder with Interactive Elements */}
                 <div className="h-full bg-gradient-to-br from-blue-50 to-slate-100 relative overflow-hidden">
                     {/* Grid Background */}
@@ -304,7 +304,7 @@ function InteractiveParkingMap() {
             </div>
 
             {/* Sidebar */}
-            <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col">
+            <div className="w-64 sm:w-72 md:w-80 flex-shrink-0 border-l border-slate-200 flex flex-col">
                 {/* Search and filters */}
                 <div className="p-4 border-b border-slate-200">
                     <div className="relative mb-3">
