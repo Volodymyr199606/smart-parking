@@ -10,8 +10,20 @@ const getBaseURL = () => {
             return 'http://localhost:8080';
         }
     }
-    // For production builds, use environment variable or default
-    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+    // For production builds, use environment variable
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (!apiUrl) {
+        console.error(
+            '⚠️ NEXT_PUBLIC_API_URL environment variable is not set!\n' +
+            'Please set it in your Vercel project settings:\n' +
+            '1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables\n' +
+            '2. Add NEXT_PUBLIC_API_URL with your backend URL (e.g., https://your-backend.onrender.com)\n' +
+            '3. Redeploy your application'
+        );
+        // This will cause CORS errors, but at least the console message will help debug
+        return 'http://localhost:8080';
+    }
+    return apiUrl;
 };
 
 const baseURL = getBaseURL();
