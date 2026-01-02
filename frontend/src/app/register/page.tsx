@@ -23,12 +23,21 @@ export default function RegisterForm() {
 
 
     const validateName = (value: string) => {
-        const nameRegex = /^[A-Za-z]+ [A-Za-z]+$/;
-        setNameError(nameRegex.test(value.trim()) ? '' : 'Enter first and last name (letters only, with one space)');
+        const trimmed = value.trim();
+        if (!trimmed) {
+            setNameError('Full name is required');
+        } else if (trimmed.length < 2) {
+            setNameError('Full name must be at least 2 characters');
+        } else if (trimmed.length > 100) {
+            setNameError('Full name must be less than 100 characters');
+        } else {
+            setNameError('');
+        }
     };
 
     const validateEmail = (value: string) => {
-        setEmailError(value.includes('@') ? '' : 'Email must contain "@"');
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        setEmailError(emailRegex.test(value.trim()) ? '' : 'Please enter a valid email address');
     };
 
     const validatePassword = (value: string) => {
@@ -58,8 +67,30 @@ export default function RegisterForm() {
                 router.push('/login');
             }, 1500);
         } catch (error: unknown) {
-            if (error instanceof Error) {
+            if (error && typeof error === 'object' && 'response' in error) {
+                const axiosError = error as { response?: { data?: { error?: string; message?: string; fullName?: string; email?: string; password?: string } } };
+                const errorData = axiosError.response?.data;
+                if (errorData) {
+                    // Handle validation errors from backend
+                    if (errorData.fullName) {
+                        setNameError(errorData.fullName);
+                    }
+                    if (errorData.email) {
+                        setEmailError(errorData.email);
+                    }
+                    if (errorData.password) {
+                        setPasswordError(errorData.password);
+                    }
+                    // Show general error message
+                    const errorMessage = errorData.error || errorData.message || 'Registration failed';
+                    console.error('Registration failed:', errorMessage);
+                    alert(errorMessage);
+                } else {
+                    console.error('Registration failed:', 'Unknown error');
+                }
+            } else if (error instanceof Error) {
                 console.error('Registration failed:', error.message);
+                alert(error.message);
             }
         }
 

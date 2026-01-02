@@ -1,7 +1,26 @@
 import axios from 'axios';
 
-// Default to localhost:8080 for local development if env var is not set
-const baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+// Force localhost for local development
+// Always use localhost when running on localhost (development)
+const getBaseURL = () => {
+    // Check if we're running on localhost
+    if (typeof window !== 'undefined') {
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (isLocalhost) {
+            return 'http://localhost:8080';
+        }
+    }
+    // For production builds, use environment variable or default
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+};
+
+const baseURL = getBaseURL();
+
+// Log the API URL being used
+if (typeof window !== 'undefined') {
+    console.log('API Base URL:', baseURL);
+    console.log('Hostname:', window.location.hostname);
+}
 
 const api = axios.create({
     baseURL,

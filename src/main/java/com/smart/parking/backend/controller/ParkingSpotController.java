@@ -21,7 +21,13 @@ public class ParkingSpotController {
 
     @GetMapping
     public ResponseEntity<List<ParkingSpotDTO>> getAllParkingSpots() {
-        return ResponseEntity.ok(parkingSpotService.getAllParkingSpots());
+        try {
+            List<ParkingSpotDTO> spots = parkingSpotService.getAllParkingSpots();
+            return ResponseEntity.ok(spots != null ? spots : List.of());
+        } catch (Exception e) {
+            log.error("Error fetching all parking spots", e);
+            return ResponseEntity.ok(List.of()); // Return empty list instead of error
+        }
     }
 
     @GetMapping("/available")

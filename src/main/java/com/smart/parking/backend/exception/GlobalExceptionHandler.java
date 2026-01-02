@@ -44,9 +44,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleGenericException(Exception ex) {
         ex.printStackTrace();  // 🔥 Print to console
-        log.error("Unexpected error occurred", ex); // 🔥 Log with stack trace
+        log.error("Unexpected error occurred: {}", ex.getMessage(), ex); // 🔥 Log with stack trace
         Map<String, String> error = new HashMap<>();
-        error.put("error", "An unexpected error occurred");
+        // Include the actual error message for debugging (remove in production if needed)
+        String errorMessage = ex.getMessage() != null ? ex.getMessage() : "An unexpected error occurred";
+        error.put("error", errorMessage);
+        error.put("message", errorMessage);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 

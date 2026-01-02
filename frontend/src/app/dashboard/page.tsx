@@ -55,9 +55,14 @@ export default function DashboardPage() {
                     fetchDashboardData(latitude, longitude)
                 },
                 (error) => {
-                    console.error("Error getting location:", error)
+                    // Silently handle geolocation errors - not critical for dashboard
+                    console.warn("Geolocation not available, fetching data without location:", error.message)
                     fetchDashboardData()
                 },
+                {
+                    timeout: 5000,
+                    enableHighAccuracy: false,
+                }
             )
         } else {
             fetchDashboardData()
@@ -94,19 +99,25 @@ export default function DashboardPage() {
 
             // Fetch dashboard stats
             const [spotsResponse, favoritesResponse] = await Promise.all([
-                api.get("/parking-spots"),
+                api.get("/parking-spots").catch((err) => {
+                    console.warn("Failed to fetch parking spots:", err)
+                    return { data: [] }
+                }),
                 api
                     .get("/users/favorites")
-                    .catch(() => ({ data: [] })), // Handle if user has no favorites
+                    .catch(() => {
+                        // Endpoint doesn't exist yet, return empty array
+                        return { data: [] }
+                    }),
             ])
 
-            const allSpots = spotsResponse.data
+            const allSpots = spotsResponse.data || []
             const availableSpots = allSpots.filter((spot: ParkingSpot) => spot.available)
 
             setStats({
                 totalSpots: allSpots.length,
                 availableSpots: availableSpots.length,
-                favoriteSpots: favoritesResponse.data.length,
+                favoriteSpots: (favoritesResponse?.data?.length) || 0,
                 recentSearches: 0, // This would come from user's search history
             })
         } catch (err: unknown) {
