@@ -31,11 +31,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
 
         // ✅ SKIP JWT AUTHENTICATION FOR PUBLIC ENDPOINTS
-        if (path.contains("/auth/") || path.contains("/public/") ||
+        // But allow /api/auth/me and /api/auth/profile which require authentication
+        boolean isPublicAuthEndpoint = path.equals("/api/auth/login") || path.equals("/api/auth/register");
+        boolean isProtectedAuthEndpoint = path.equals("/api/auth/me") || path.equals("/api/auth/profile");
+        
+        if (isPublicAuthEndpoint || path.contains("/public/") ||
                 path.contains("/h2-console") || path.contains("/ws/")) {
             filterChain.doFilter(request, response);
             return;
         }
+        
+        // Protected auth endpoints need JWT authentication, so continue with filter logic
 
         final String authorizationHeader = request.getHeader("Authorization");
 

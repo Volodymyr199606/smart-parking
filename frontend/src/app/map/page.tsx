@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { useAuth } from "@/contexts/auth-context"
 import { ArrowLeft, MapPin, Navigation, DollarSign, Search, Filter } from "lucide-react"
 
 // Mock parking data - San Francisco locations on busiest streets (without timestamps to avoid hydration issues)
@@ -369,24 +370,42 @@ function InteractiveParkingMap() {
 }
 
 export default function MapPage() {
+    const { isAuthenticated } = useAuth()
+
     return (
         <div className="h-screen bg-slate-50 flex flex-col">
             {/* Header */}
             <div className="bg-white border-b border-slate-200 p-4">
                 <div className="flex items-center justify-between max-w-7xl mx-auto">
                     <div className="flex items-center space-x-4">
-                        <Link href="/" className="flex items-center text-slate-600 hover:text-slate-900 transition-colors">
-                            <ArrowLeft size={20} className="mr-2" />
-                            Back to Home
-                        </Link>
+                        {isAuthenticated ? (
+                            <Link href="/dashboard" className="flex items-center text-slate-600 hover:text-slate-900 transition-colors">
+                                <ArrowLeft size={20} className="mr-2" />
+                                Back to Dashboard
+                            </Link>
+                        ) : (
+                            <Link href="/" className="flex items-center text-slate-600 hover:text-slate-900 transition-colors">
+                                <ArrowLeft size={20} className="mr-2" />
+                                Back to Home
+                            </Link>
+                        )}
                         <h1 className="text-xl font-medium text-slate-900">Find Parking</h1>
                     </div>
-                    <Link
-                        href="/register"
-                        className="bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-lg font-medium text-sm transition-colors"
-                    >
-                        Sign Up
-                    </Link>
+                    {isAuthenticated ? (
+                        <Link
+                            href="/dashboard"
+                            className="bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                        >
+                            Dashboard
+                        </Link>
+                    ) : (
+                        <Link
+                            href="/register"
+                            className="bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                        >
+                            Sign Up
+                        </Link>
+                    )}
                 </div>
             </div>
 

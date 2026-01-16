@@ -38,8 +38,11 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/**").permitAll()
-                        .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/users/register").permitAll() // ✅ FIXED!
+                        .requestMatchers("/api/auth/login").permitAll()
+                        .requestMatchers("/api/auth/register").permitAll()
+                        .requestMatchers("/api/auth/me").authenticated()
+                        .requestMatchers("/api/auth/profile").authenticated()
+                        .requestMatchers("/users/register").permitAll()
                         .requestMatchers("/public/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/parking-spots").permitAll()

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import api from "@/lib/api"
 import { User, Edit, Save, X } from 'lucide-react'
@@ -19,17 +19,71 @@ export default function UserProfile() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
+    // Update formData when user changes
+    useEffect(() => {
+        if (user?.fullName && !isEditing) {
+            setFormData({ fullName: user.fullName })
+        }
+    }, [user, isEditing])
+
     const updateProfile = async (data: UpdateProfileRequest) => {
         setLoading(true)
         setError(null)
 
         try {
+            // Validate the data before sending
+            if (!data.fullName || data.fullName.trim().length < 2) {
+                setError("Full name must be at least 2 characters long")
+                setLoading(false)
+                return
+            }
+
+            if (data.fullName.trim().length > 100) {
+                setError("Full name must be less than 100 characters")
+                setLoading(false)
+                return
+            }
+
             const response = await api.put('/api/auth/profile', data)
             setUser(response.data)
             setIsEditing(false)
         } catch (err) {
-            const error = err as AxiosError<{ message: string }>
-            setError(error.response?.data?.message || "Failed to update profile")
+            const error = err as AxiosError<{ message?: string; error?: string; fullName?: string }>
+            const status = error.response?.status
+            const errorData = error.response?.data || {}
+            const errorMessage = error?.message || "Unknown error"
+            
+            // Try to get error message from different possible fields
+            const displayMessage = 
+                errorData?.message || 
+                errorData?.error || 
+                errorData?.fullName || 
+                (status === 403 ? "Forbidden: You don't have permission to update your profile" : null) ||
+                (status === 401 ? "Authentication failed. Please log in again." : null) ||
+                errorMessage || 
+                "Failed to update profile"
+
+            console.error('Profile update error:', {
+                status: status || 'no status',
+                statusText: error.response?.statusText || 'no status text',
+                errorMessage: displayMessage,
+                errorData: errorData,
+                errorResponse: error.response,
+                fullError: err
+            })
+
+            // Provide more specific error messages
+            if (status === 401) {
+                setError("Authentication failed. Please log in again.")
+            } else if (status === 403) {
+                setError("Forbidden: You don't have permission to update your profile. Please check your authentication.")
+            } else if (status === 400) {
+                setError(displayMessage)
+            } else if (status === 500) {
+                setError(displayMessage || "Server error. Please try again later.")
+            } else {
+                setError(displayMessage)
+            }
         } finally {
             setLoading(false)
         }
@@ -83,7 +137,7 @@ export default function UserProfile() {
                             type="text"
                             value={formData.fullName}
                             onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                            className="w-full p-4 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors"
+                            className="w-full p-4 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors bg-white text-slate-900"
                             required
                         />
                     ) : (

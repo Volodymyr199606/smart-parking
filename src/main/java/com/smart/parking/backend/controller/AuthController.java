@@ -83,6 +83,12 @@ public class AuthController {
     public ResponseEntity<UserProfileResponse> updateProfile(
             @Valid @RequestBody UpdateProfileRequest request,
             Authentication authentication) {
+        
+        // Handle case where authentication is null or invalid
+        if (authentication == null || authentication.getName() == null) {
+            log.warn("Unauthorized access attempt to /api/auth/profile");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
 
         String email = authentication.getName();
         User updatedUser = userService.updateUserProfile(email, request);
