@@ -197,9 +197,9 @@ export default function RegisterForm() {
                         <div className="text-center text-sm mt-8">
                             <p className="text-slate-600">
                                 Already have an account?{' '}
-                                <a href="/login" className="text-slate-900 hover:underline font-medium">
+                                <Link href="/login" className="inline-block bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105">
                                     Sign in
-                                </a>
+                                </Link>
                             </p>
                         </div>
                     </div>
