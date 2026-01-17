@@ -68,8 +68,19 @@ export default function RegisterForm() {
             }, 1500);
         } catch (error: unknown) {
             if (error && typeof error === 'object' && 'response' in error) {
-                const axiosError = error as { response?: { data?: { error?: string; message?: string; fullName?: string; email?: string; password?: string } } };
+                const axiosError = error as { response?: { data?: { error?: string; message?: string; fullName?: string; email?: string; password?: string }; status?: number } };
                 const errorData = axiosError.response?.data;
+                
+                // Handle timeout errors
+                if (error instanceof Error && (error.message.includes('timeout') || error.message.includes('Network Error'))) {
+                    const timeoutError = error as { code?: string; message?: string };
+                    if (timeoutError.code === 'ECONNABORTED' || timeoutError.message?.includes('timeout')) {
+                        alert('Request timed out. The backend server may be starting up (this can take 30-60 seconds on first request). Please try again in a moment.');
+                        console.error('Request timeout:', error);
+                        return;
+                    }
+                }
+                
                 if (errorData) {
                     // Handle validation errors from backend
                     if (errorData.fullName) {
@@ -89,8 +100,15 @@ export default function RegisterForm() {
                     console.error('Registration failed:', 'Unknown error');
                 }
             } else if (error instanceof Error) {
-                console.error('Registration failed:', error.message);
-                alert(error.message);
+                // Check for API URL configuration errors
+                if (error.message.includes('API URL not configured')) {
+                    alert('Backend API is not configured. Please contact the administrator.\n\nError: ' + error.message);
+                } else if (error.message.includes('timeout') || error.message.includes('Network Error')) {
+                    alert('Request timed out. The backend server may be starting up (this can take 30-60 seconds on first request). Please try again in a moment.');
+                } else {
+                    console.error('Registration failed:', error.message);
+                    alert(error.message);
+                }
             }
         }
 

@@ -20,8 +20,9 @@ const getBaseURL = () => {
             '2. Add NEXT_PUBLIC_API_URL with your backend URL (e.g., https://your-backend.onrender.com)\n' +
             '3. Redeploy your application'
         );
-        // This will cause CORS errors, but at least the console message will help debug
-        return 'http://localhost:8080';
+        // Don't return localhost - it will always fail in production
+        // Instead, return null and let error handling catch it
+        return null;
     }
     return apiUrl;
 };
@@ -30,21 +31,30 @@ const baseURL = getBaseURL();
 
 // Log the API URL being used
 if (typeof window !== 'undefined') {
-    console.log('API Base URL:', baseURL);
+    console.log('API Base URL:', baseURL || 'NOT CONFIGURED');
     console.log('Hostname:', window.location.hostname);
 }
 
 const api = axios.create({
-    baseURL,
+    baseURL: baseURL || 'http://localhost:8080', // Fallback for build-time
     headers: {
         'Content-Type': 'application/json',
     },
-    timeout: 10000, // 10 second timeout to prevent hanging
+    // Increased timeout for production (Render free tier can take 30+ seconds on cold start)
+    timeout: typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
+        ? 60000 // 60 seconds for production
+        : 10000, // 10 seconds for localhost
 });
 
-// Add a request interceptor to include the JWT token
+// Add a request interceptor to include the JWT token and check API URL
 api.interceptors.request.use(
     (config) => {
+        // Check if API URL is configured first
+        if (!baseURL) {
+            return Promise.reject(new Error('API URL not configured. Please set NEXT_PUBLIC_API_URL environment variable in Vercel settings and redeploy.'));
+        }
+        
+        // Add JWT token if available
         const token = localStorage.getItem('token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
