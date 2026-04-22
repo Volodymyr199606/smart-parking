@@ -82,20 +82,24 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         
         // Get allowed origins from environment variable or use defaults
+        // Prefer CORS_ALLOWED_ORIGINS (comma-separated) in production, e.g. https://app.vercel.app
         String allowedOrigins = System.getenv("CORS_ALLOWED_ORIGINS");
-        if (allowedOrigins != null && !allowedOrigins.isEmpty()) {
-            configuration.setAllowedOrigins(Arrays.asList(allowedOrigins.split(",")));
+        if (allowedOrigins != null && !allowedOrigins.isBlank()) {
+            configuration.setAllowedOrigins(
+                    Arrays.stream(allowedOrigins.split(","))
+                            .map(String::trim)
+                            .filter(s -> !s.isEmpty())
+                            .toList());
         } else {
-            // Default origins for development
-            configuration.setAllowedOrigins(Arrays.asList(
-                "http://localhost:3000",
-                "http://localhost:3001",
-                "https://your-frontend-domain.vercel.app"
-            ));
+            // Any Vercel deployment URL + local dev (no need to hardcode each preview URL)
+            configuration.setAllowedOriginPatterns(Arrays.asList(
+                    "http://localhost:*",
+                    "http://127.0.0.1:*",
+                    "https://*.vercel.app"));
         }
-        
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
+
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

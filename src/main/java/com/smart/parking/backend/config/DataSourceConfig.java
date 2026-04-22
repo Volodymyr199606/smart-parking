@@ -28,8 +28,12 @@ public class DataSourceConfig {
     public DataSource dataSource(DataSourceProperties properties) {
         String url = properties.getUrl();
         
+        if (url == null) {
+            throw new RuntimeException("Database URL is not configured. Please set SPRING_DATASOURCE_URL environment variable.");
+        }
+        
         // Convert PostgreSQL URI to JDBC URL if needed
-        if (url != null && url.startsWith("postgresql://") && !url.startsWith("jdbc:")) {
+        if (url.startsWith("postgresql://") && !url.startsWith("jdbc:")) {
             try {
                 URI uri = new URI(url);
                 String host = uri.getHost();
@@ -47,9 +51,32 @@ public class DataSourceConfig {
             }
         }
         
+        // Auto-detect database type from URL and set driver class name
+        String driverClassName = detectDriverFromUrl(url);
+        if (driverClassName != null) {
+            properties.setDriverClassName(driverClassName);
+        }
+        
         return properties.initializeDataSourceBuilder()
                 .type(HikariDataSource.class)
                 .build();
+    }
+    
+    /**
+     * Detects the appropriate JDBC driver from the database URL
+     */
+    private String detectDriverFromUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        
+        if (url.startsWith("jdbc:mysql://") || url.startsWith("jdbc:mariadb://")) {
+            return "com.mysql.cj.jdbc.Driver";
+        } else if (url.startsWith("jdbc:postgresql://") || url.startsWith("postgresql://")) {
+            return "org.postgresql.Driver";
+        }
+        
+        return null;
     }
 }
 

@@ -16,10 +16,6 @@ import jakarta.validation.Valid;
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = {"http://localhost:3000",
-        "https://your-frontend-domain.com",
-        "https://smart-parking-w3z.vercel.app"
-})
 public class AuthController {
 
     private final AuthService authService;

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { registerUser } from '@/lib/auth';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Eye, EyeOff } from 'lucide-react';
 
 
@@ -20,6 +20,7 @@ export default function RegisterForm() {
     const [showSuccess, setShowSuccess] = useState(false);
     const router = useRouter();
     const [showPassword, setShowPassword] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
 
     const validateName = (value: string) => {
@@ -57,8 +58,29 @@ export default function RegisterForm() {
         validateEmail(email);
         validatePassword(password);
 
-        if (nameError || emailError || passwordError) return;
+        // Use fresh validation result (React state from the lines above is still stale on this tick)
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const trimmedName = name.trim();
+        let blockingName = '';
+        if (!trimmedName) blockingName = 'Full name is required';
+        else if (trimmedName.length < 2) blockingName = 'Full name must be at least 2 characters';
+        else if (trimmedName.length > 100) blockingName = 'Full name must be less than 100 characters';
+        const blockingEmail = emailRegex.test(email.trim()) ? '' : 'Please enter a valid email address';
+        const hasLetter = /[a-zA-Z]/.test(password);
+        const hasNumber = /[0-9]/.test(password);
+        const hasSymbol = /[^a-zA-Z0-9]/.test(password);
+        const blockingPassword =
+            password.length >= 6 && hasLetter && hasNumber && hasSymbol
+                ? ''
+                : 'Min 6 chars, include letter, number, and symbol';
+        if (blockingName || blockingEmail || blockingPassword) {
+            setNameError(blockingName);
+            setEmailError(blockingEmail);
+            setPasswordError(blockingPassword);
+            return;
+        }
 
+        setIsSubmitting(true);
         try {
             const response = await registerUser(name, email, password);
             console.log('Success:', response.data);
@@ -110,8 +132,9 @@ export default function RegisterForm() {
                     alert(error.message);
                 }
             }
+        } finally {
+            setIsSubmitting(false);
         }
-
     };
 
     return (
@@ -206,9 +229,17 @@ export default function RegisterForm() {
 
                             <button
                                 type="submit"
-                                className="w-full bg-slate-900 text-white hover:bg-slate-800 py-4 rounded-xl font-medium transition-all duration-300 hover:scale-105"
+                                disabled={isSubmitting}
+                                className="w-full bg-slate-900 text-white hover:bg-slate-800 py-4 rounded-xl font-medium transition-all duration-300 hover:scale-105 disabled:opacity-60 disabled:pointer-events-none flex items-center justify-center gap-2"
                             >
-                                Sign up
+                                {isSubmitting ? (
+                                    <>
+                                        <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                                        Signing up…
+                                    </>
+                                ) : (
+                                    'Sign up'
+                                )}
                             </button>
                         </form>
 

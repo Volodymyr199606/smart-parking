@@ -40,10 +40,10 @@ const api = axios.create({
     headers: {
         'Content-Type': 'application/json',
     },
-    // Increased timeout for production (Render free tier can take 30+ seconds on cold start)
-    timeout: typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
-        ? 60000 // 60 seconds for production
-        : 10000, // 10 seconds for localhost
+    // Production hosts often cold-start (e.g. Render free tier); allow enough time for first request
+    timeout: typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+        ? 120000 // 2 minutes for production
+        : 15000, // localhost backend should respond quickly
 });
 
 // Add a request interceptor to include the JWT token and check API URL
