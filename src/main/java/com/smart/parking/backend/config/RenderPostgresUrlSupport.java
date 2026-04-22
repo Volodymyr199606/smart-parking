@@ -56,13 +56,6 @@ public final class RenderPostgresUrlSupport {
                     username = URLDecoder.decode(userInfo, StandardCharsets.UTF_8);
                 }
             }
-            // Render often sets SPRING_DATASOURCE_* separately; use those so URL copy/paste never fights env
-            String envU = System.getenv("SPRING_DATASOURCE_USERNAME");
-            String envP = System.getenv("SPRING_DATASOURCE_PASSWORD");
-            if (StringUtils.hasText(envU) && StringUtils.hasText(envP)) {
-                username = envU.trim();
-                password = envP.trim();
-            }
             String host = uri.getHost();
             if (!StringUtils.hasText(host)) {
                 return null;
@@ -81,7 +74,7 @@ public final class RenderPostgresUrlSupport {
             if (StringUtils.hasText(query)) {
                 jdbc += "?" + query;
             }
-            return new PgDataSourceFix(ensureSslForRenderCloud(jdbc), username, password);
+            return mergeEnvCredentialsIntoFix(ensureSslForRenderCloud(jdbc), username, password);
         } catch (Exception e) {
             return null;
         }
@@ -91,10 +84,34 @@ public final class RenderPostgresUrlSupport {
         int prefixLen = PREFIX.length();
         int pathStart = jdbcUrl.indexOf('/', prefixLen);
         if (pathStart < 0) {
-            return new PgDataSourceFix(ensureSslForRenderCloud(expandHostInJdbc(jdbcUrl, prefixLen, jdbcUrl.length())), null, null);
+            return mergeEnvCredentialsIntoFix(
+                    ensureSslForRenderCloud(expandHostInJdbc(jdbcUrl, prefixLen, jdbcUrl.length())), null, null);
         }
         String withHost = expandHostInJdbc(jdbcUrl, prefixLen, pathStart);
-        return new PgDataSourceFix(ensureSslForRenderCloud(withHost), null, null);
+        return mergeEnvCredentialsIntoFix(ensureSslForRenderCloud(withHost), null, null);
+    }
+
+    /**
+     * Fills missing user/pass from {@code SPRING_DATASOURCE_USERNAME} / {@code SPRING_DATASOURCE_PASSWORD}.
+     * If both are set, they take precedence (same as Render "linked" override behavior).
+     */
+    static PgDataSourceFix mergeEnvCredentialsIntoFix(String jdbc, String username, String password) {
+        String envU = System.getenv("SPRING_DATASOURCE_USERNAME");
+        String envP = System.getenv("SPRING_DATASOURCE_PASSWORD");
+        String u = username;
+        String p = password;
+        if (StringUtils.hasText(envU) && StringUtils.hasText(envP)) {
+            u = envU.trim();
+            p = envP.trim();
+        } else {
+            if (!StringUtils.hasText(u) && StringUtils.hasText(envU)) {
+                u = envU.trim();
+            }
+            if (!StringUtils.hasText(p) && StringUtils.hasText(envP)) {
+                p = envP.trim();
+            }
+        }
+        return new PgDataSourceFix(jdbc, u, p);
     }
 
     private static String expandHostInJdbc(String jdbcUrl, int prefixLen, int pathStart) {
