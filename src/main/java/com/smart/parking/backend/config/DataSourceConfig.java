@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.util.StringUtils;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.sql.DataSource;
 import com.zaxxer.hikari.HikariDataSource;
@@ -17,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 
 @Configuration
 @Profile("production")
+@Slf4j
 public class DataSourceConfig {
 
     @Bean
@@ -65,6 +67,7 @@ public class DataSourceConfig {
                 if (!StringUtils.hasText(host)) {
                     throw new RuntimeException("PostgreSQL URL has no host: " + redactPassword(url));
                 }
+                host = resolveRenderPostgresHostname(host);
                 int port = uri.getPort() == -1 ? 5432 : uri.getPort();
                 String path = uri.getPath();
                 if (path.startsWith("/")) {
@@ -88,6 +91,7 @@ public class DataSourceConfig {
         }
 
         String jdbcUrl = properties.getUrl();
+        jdbcUrl = rewriteJdbcPostgresHostIfRenderInternal(jdbcUrl);
         jdbcUrl = ensurePostgresSslForCloudHosts(jdbcUrl);
         properties.setUrl(jdbcUrl);
 
@@ -102,10 +106,79 @@ public class DataSourceConfig {
     }
 
     /**
+     * Render's linked {@code DATABASE_URL} often uses a private hostname like {@code dpg-xxxxx-a}
+     * with no domain. That only resolves on Render's private network; Docker web services typically
+     * need the public hostname {@code dpg-xxxxx-a.&lt;region&gt;-postgres.render.com}.
+     */
+    private static String resolveRenderPostgresHostname(String host) {
+        if (!StringUtils.hasText(host) || host.contains(".")) {
+            return host;
+        }
+        if (!host.startsWith("dpg-")) {
+            return host;
+        }
+        String explicit = System.getenv("RENDER_POSTGRES_HOST");
+        if (StringUtils.hasText(explicit)) {
+            return explicit.trim();
+        }
+        String pgHost = System.getenv("PGHOST");
+        if (StringUtils.hasText(pgHost) && pgHost.contains(".") && pgHost.startsWith("dpg-")) {
+            return pgHost.trim();
+        }
+        String region = System.getenv("RENDER_REGION");
+        if (!StringUtils.hasText(region)) {
+            region = "oregon";
+        }
+        region = region.trim().toLowerCase().replace('_', '-');
+        String full = host + "." + region + "-postgres.render.com";
+        log.warn(
+                "PostgreSQL host '{}' is a Render internal hostname (no public DNS from Docker). "
+                        + "Using '{}'. Override with env RENDER_POSTGRES_HOST if needed; RENDER_REGION is '{}'.",
+                host,
+                full,
+                region);
+        return full;
+    }
+
+    /**
+     * Fix JDBC URLs that still use a short internal Render hostname (e.g. when SPRING_DATASOURCE_URL
+     * is already {@code jdbc:postgresql://...}).
+     */
+    private static String rewriteJdbcPostgresHostIfRenderInternal(String jdbcUrl) {
+        if (jdbcUrl == null || !jdbcUrl.startsWith("jdbc:postgresql://")) {
+            return jdbcUrl;
+        }
+        int prefixLen = "jdbc:postgresql://".length();
+        int pathStart = jdbcUrl.indexOf('/', prefixLen);
+        if (pathStart < 0) {
+            return jdbcUrl;
+        }
+        String authority = jdbcUrl.substring(prefixLen, pathStart);
+        String pathSuffix = jdbcUrl.substring(pathStart);
+        String host;
+        int port = 5432;
+        int colon = authority.lastIndexOf(':');
+        if (colon > 0 && authority.substring(colon + 1).matches("\\d+")) {
+            host = authority.substring(0, colon);
+            port = Integer.parseInt(authority.substring(colon + 1));
+        } else {
+            host = authority;
+        }
+        if (!StringUtils.hasText(host) || host.contains(".") || !host.startsWith("dpg-")) {
+            return jdbcUrl;
+        }
+        String resolved = resolveRenderPostgresHostname(host);
+        if (resolved.equals(host)) {
+            return jdbcUrl;
+        }
+        return "jdbc:postgresql://" + resolved + ":" + port + pathSuffix;
+    }
+
+    /**
      * Render (and many managed Postgres providers) require TLS. Without sslmode=require the driver
      * often fails with "connection attempt failed" during Hibernate startup.
      */
-    private static String ensurePostgresSslForCloudHosts(String jdbcUrl) {
+    private String ensurePostgresSslForCloudHosts(String jdbcUrl) {
         if (jdbcUrl == null || !jdbcUrl.startsWith("jdbc:postgresql://")) {
             return jdbcUrl;
         }
