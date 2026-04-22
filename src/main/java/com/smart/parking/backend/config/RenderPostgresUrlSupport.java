@@ -56,6 +56,13 @@ public final class RenderPostgresUrlSupport {
                     username = URLDecoder.decode(userInfo, StandardCharsets.UTF_8);
                 }
             }
+            // Render often sets SPRING_DATASOURCE_* separately; use those so URL copy/paste never fights env
+            String envU = System.getenv("SPRING_DATASOURCE_USERNAME");
+            String envP = System.getenv("SPRING_DATASOURCE_PASSWORD");
+            if (StringUtils.hasText(envU) && StringUtils.hasText(envP)) {
+                username = envU.trim();
+                password = envP.trim();
+            }
             String host = uri.getHost();
             if (!StringUtils.hasText(host)) {
                 return null;
