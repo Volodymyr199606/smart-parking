@@ -74,7 +74,11 @@ public class DataSourceConfig {
                     throw new RuntimeException("PostgreSQL URL has no database name: " + redactPassword(url));
                 }
 
+                String query = uri.getRawQuery();
                 url = String.format("jdbc:postgresql://%s:%d/%s", host, port, path);
+                if (StringUtils.hasText(query)) {
+                    url += "?" + query;
+                }
                 properties.setUrl(url);
             } catch (RuntimeException e) {
                 throw e;
@@ -84,6 +88,9 @@ public class DataSourceConfig {
         }
 
         String jdbcUrl = properties.getUrl();
+        jdbcUrl = ensurePostgresSslForCloudHosts(jdbcUrl);
+        properties.setUrl(jdbcUrl);
+
         String driverClassName = detectDriverFromUrl(jdbcUrl);
         if (driverClassName != null) {
             properties.setDriverClassName(driverClassName);
@@ -92,6 +99,32 @@ public class DataSourceConfig {
         return properties.initializeDataSourceBuilder()
                 .type(HikariDataSource.class)
                 .build();
+    }
+
+    /**
+     * Render (and many managed Postgres providers) require TLS. Without sslmode=require the driver
+     * often fails with "connection attempt failed" during Hibernate startup.
+     */
+    private static String ensurePostgresSslForCloudHosts(String jdbcUrl) {
+        if (jdbcUrl == null || !jdbcUrl.startsWith("jdbc:postgresql://")) {
+            return jdbcUrl;
+        }
+        if (jdbcUrl.contains("sslmode=") || jdbcUrl.contains("ssl=true")) {
+            return jdbcUrl;
+        }
+        String lower = jdbcUrl.toLowerCase();
+        if (lower.contains("localhost") || lower.contains("127.0.0.1")) {
+            return jdbcUrl;
+        }
+        boolean managedCloud = lower.contains("render.com")
+                || lower.contains("supabase.co")
+                || lower.contains("neon.tech")
+                || lower.contains("amazonaws.com")
+                || lower.contains("azure.com");
+        if (!managedCloud) {
+            return jdbcUrl;
+        }
+        return jdbcUrl + (jdbcUrl.contains("?") ? "&" : "?") + "sslmode=require";
     }
 
     private static String redactPassword(String url) {
