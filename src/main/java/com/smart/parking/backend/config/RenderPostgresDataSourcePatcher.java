@@ -51,20 +51,10 @@ public final class RenderPostgresDataSourcePatcher {
             map.put("spring.datasource.password", fix.overridePassword());
         }
         map.put("spring.datasource.hikari.jdbc-url", jdbc);
-        map.put("hibernate.connection.url", jdbc);
-        map.put("spring.jpa.properties.hibernate.connection.url", jdbc);
-        map.put("jakarta.persistence.jdbc.url", jdbc);
-        String du = environment.getProperty("spring.datasource.username");
-        String dp = environment.getProperty("spring.datasource.password");
-        if (StringUtils.hasText(du)) {
-            map.put("jakarta.persistence.jdbc.user", du);
-            map.put("hibernate.connection.username", du);
-        }
-        if (StringUtils.hasText(dp)) {
-            map.put("jakarta.persistence.jdbc.password", dp);
-            map.put("hibernate.connection.password", dp);
-        }
-        map.put("jakarta.persistence.jdbc.driver", "org.postgresql.Driver");
+        // Do not set jakarta.persistence.jdbc.* or hibernate.connection.* here. If username comes from
+        // env and password was only in the URL, Hibernate could see user without password and use
+        // DriverManager with no password. The DataSource (Hikari) built from spring.datasource.* is the
+        // single source of truth for JPA in Spring Boot.
         addOrReplace(environment, map);
         log.info("Render PostgreSQL connection URL was patched to use a resolvable .render.com hostname (Docker / UnknownHost dpg-...).");
     }

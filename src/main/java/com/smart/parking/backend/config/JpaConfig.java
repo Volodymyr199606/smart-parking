@@ -29,9 +29,7 @@ public class JpaConfig {
             // Patcher / env can set any of these; use first non-blank
             String datasourceUrl = firstNonEmpty(
                     environment.getProperty("spring.datasource.url"),
-                    environment.getProperty("spring.datasource.hikari.jdbc-url"),
-                    environment.getProperty("jakarta.persistence.jdbc.url"),
-                    environment.getProperty("hibernate.connection.url"));
+                    environment.getProperty("spring.datasource.hikari.jdbc-url"));
             if (datasourceUrl != null) {
                 String dialect = detectDialectFromUrl(datasourceUrl);
                 if (dialect != null) {
