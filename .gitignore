@@ -1,29 +1,29 @@
-# === Build output ===
-/target/
-*.class
-*.jar
-*.war
-*.ear
+# === Dependencies ===
+node_modules/
+.pnpm-store/
 
-# === IntelliJ IDEA ===
-.idea/
-*.iml
+# === Build output ===
+dist/
+.next/
+.expo/
+*.tsbuildinfo
+
+# === Environment & secrets ===
+.env
+.env.*
+.env.local
 
 # === System files ===
 .DS_Store
 Thumbs.db
 
+# === IDE ===
+.idea/
+*.iml
+.vscode/
+
 # === Logs ===
 *.log
-
-# === Env & secrets ===
-.env
-.env.*
-
-# === Maven status ===
-*.lst
-*.dump
-*.hprof
 
 # === Editor backups ===
 *.swp
@@ -32,20 +32,20 @@ Thumbs.db
 *.bak
 *.orig
 
-# === VS Code (if you ever use it) ===
-.vscode/
+# === Mobile ===
+ios/
+android/
+*.apk
+*.ipa
 
+# === Supabase ===
+supabase/.temp/
+
+# === Archive build artifacts (not needed) ===
+archive/old-backend/target/
+
+# === Misc ===
 HELP.md
-
-# Ignore config with sensitive credentials
-src/main/resources/application.yml
-
-*.bat
-*.sh
-
-
-target
-.idea
-*.iml
-*.log
-
+*.hprof
+*.dump
+*.lst
