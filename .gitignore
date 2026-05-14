@@ -10,8 +10,9 @@ dist/
 
 # === Environment & secrets ===
 .env
-.env.*
 .env.local
+.env.*.local
+!.env.example
 
 # === System files ===
 .DS_Store
