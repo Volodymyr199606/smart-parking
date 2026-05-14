@@ -2,6 +2,128 @@
 
 Database migrations, seed data, and configuration for the Supabase backend.
 
+---
+
+## Quick Start: Connect to Supabase
+
+Follow these steps to create a Supabase project and connect it to the app.
+
+### Step 1: Create a Supabase Project
+
+1. Go to [https://supabase.com/dashboard](https://supabase.com/dashboard)
+2. Click **"New Project"**
+3. Fill in:
+   - **Name:** `smart-parking`
+   - **Database Password:** (save this somewhere safe — you won't need it in the app, but keep it for admin access)
+   - **Region:** Choose the closest to you (e.g. `West US` for San Francisco)
+4. Click **"Create new project"**
+5. Wait ~2 minutes for the project to finish provisioning
+
+### Step 2: Get Your API Credentials
+
+1. In your Supabase project dashboard, go to **Project Settings** → **API**
+2. Copy these two values:
+
+| Value | Where to find it | What it is |
+|-------|------------------|------------|
+| **Project URL** | Under "Project URL" | `https://your-project-ref.supabase.co` |
+| **anon public key** | Under "Project API keys" → `anon` `public` | A long JWT string starting with `eyJ...` |
+
+> The anon key is safe to use in client-side code. Row Level Security on the database ensures users can only access their authorized data.
+
+### Step 3: Configure Environment Variables
+
+Create a `.env` file in `apps/mobile/`:
+
+```bash
+cd apps/mobile
+cp .env.example .env
+```
+
+Edit `apps/mobile/.env` with your real values:
+
+```env
+EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...your-key-here
+```
+
+> **Never commit `.env` to git.** Only `.env.example` (with placeholder values) is committed.
+
+### Step 4: Apply the Database Migration
+
+This creates the tables, indexes, RLS policies, and triggers.
+
+**Option A: Supabase Dashboard (recommended for first setup)**
+
+1. In your Supabase project, go to **SQL Editor**
+2. Click **"New query"**
+3. Copy and paste the entire contents of `supabase/migrations/00001_initial_schema.sql`
+4. Click **"Run"** (or press Ctrl+Enter)
+5. You should see "Success. No rows returned." — this is correct
+
+**Option B: Supabase CLI**
+
+```bash
+# Install CLI if you haven't
+npm install -g supabase
+
+# Login
+npx supabase login
+
+# Link to your project (find project ref in dashboard URL or Project Settings)
+npx supabase link --project-ref YOUR_PROJECT_REF
+
+# Push migrations
+npx supabase db push
+```
+
+### Step 5: Seed the Database with Mock Data
+
+After the migration is applied:
+
+**Option A: Supabase Dashboard**
+
+1. Go to **SQL Editor** → **"New query"**
+2. Copy and paste the contents of `supabase/seed/seed.sql`
+3. Click **"Run"**
+4. You should see "Success. 25 rows affected."
+
+**Option B: Supabase CLI**
+
+```bash
+npx supabase db reset
+```
+
+### Step 6: Verify Tables
+
+1. Go to **Table Editor** in the Supabase dashboard
+2. You should see three tables:
+   - `profiles` (empty until users sign up)
+   - `parking_spots` (25 rows from seed data)
+   - `parking_reports` (empty until users submit reports)
+3. Click on `parking_spots` — you should see 25 San Francisco parking spots
+
+### Step 7: Test Authentication
+
+1. Go to **Authentication** → **Users** in the dashboard
+2. Click **"Add user"** → **"Create new user"**
+3. Enter a test email and password
+4. After creating, go to **Table Editor** → `profiles`
+5. You should see a new row created automatically (via the `handle_new_user` trigger)
+
+---
+
+## Environment Variables Reference
+
+| Variable | Required | Where Used | Description |
+|----------|----------|-----------|-------------|
+| `EXPO_PUBLIC_SUPABASE_URL` | Yes | `apps/mobile` | Your Supabase project URL |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes | `apps/mobile` | Your Supabase anon (public) API key |
+
+These are loaded automatically by Expo when the app starts.
+
+---
+
 ## Tables
 
 | Table | Purpose |
@@ -60,43 +182,7 @@ All tables have RLS enabled:
 - `set_updated_at()` — Automatically updates `updated_at` on row changes for `profiles` and `parking_spots`.
 - `handle_new_user()` — Automatically creates a `profiles` row when a new user signs up via Supabase Auth.
 
-## How to Apply Migrations
-
-### Option A: Supabase CLI (local development)
-
-```bash
-# Link to your Supabase project
-npx supabase link --project-ref YOUR_PROJECT_REF
-
-# Push migrations to remote database
-npx supabase db push
-```
-
-### Option B: Supabase Dashboard (quick setup)
-
-1. Go to your Supabase project dashboard.
-2. Open the **SQL Editor**.
-3. Paste the contents of `migrations/00001_initial_schema.sql`.
-4. Click **Run**.
-
-## How to Run Seed Data
-
-After applying the migration:
-
-### Option A: Supabase CLI
-
-```bash
-npx supabase db reset
-# This applies migrations + seed automatically
-```
-
-### Option B: Supabase Dashboard
-
-1. Open the **SQL Editor**.
-2. Paste the contents of `seed/seed.sql`.
-3. Click **Run**.
-
-## Structure
+## File Structure
 
 ```
 supabase/
@@ -112,3 +198,13 @@ supabase/
 - Seed data uses `source = 'MOCK'` — will be replaced with real DataSF/SFMTA data later.
 - PostGIS is not enabled yet (using lat/lng columns for now). Will add when spatial queries are needed.
 - No Edge Functions yet — will be added for data sync and background jobs.
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| "permission denied for table" | Make sure RLS policies were applied (run the full migration) |
+| Profile not created on signup | Check that the `on_auth_user_created` trigger exists |
+| "relation does not exist" | Migration hasn't been applied yet — run Step 4 |
+| Empty parking_spots table | Seed data hasn't been run — run Step 5 |
+| App shows "Network Error" | Check that `.env` has the correct Supabase URL |
