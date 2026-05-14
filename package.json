@@ -1,0 +1,12 @@
+{
+  "name": "smart-parking",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Smart Parking monorepo — mobile app, website, and shared packages",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "typecheck:shared": "pnpm --filter @smart-parking/shared typecheck",
+    "typecheck:mobile": "pnpm --filter smart-parking-mobile typecheck"
+  },
+  "packageManager": "pnpm@10.22.0"
+}
