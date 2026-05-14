@@ -1,49 +1,65 @@
 /**
- * Parking spot availability status.
+ * Parking data types for the Smart Parking app.
+ *
+ * IMPORTANT: This file is the single source of truth for the data model.
+ * The Supabase database schema (supabase/migrations/) must stay aligned
+ * with these types. If you change a type here, update the migration too.
+ *
+ * Enum values use UPPERCASE to match the database CHECK constraints exactly.
  */
-export type ParkingStatus = "available" | "occupied" | "unknown";
+
+/**
+ * Parking spot availability status.
+ * Matches: parking_spots.status CHECK constraint
+ */
+export type ParkingStatus = "AVAILABLE" | "OCCUPIED" | "UNKNOWN";
 
 /**
  * What kind of parking spot this is.
+ * Matches: parking_spots.parking_type CHECK constraint
  */
 export type ParkingType =
-  | "metered"
-  | "free"
-  | "loading_zone"
-  | "street_sweeping"
-  | "garage"
-  | "unknown";
+  | "METERED"
+  | "FREE"
+  | "LOADING_ZONE"
+  | "STREET_SWEEPING"
+  | "GARAGE"
+  | "UNKNOWN";
 
 /**
  * Where the parking data came from.
+ * Matches: parking_spots.source CHECK constraint
  */
-export type ParkingSource = "mock" | "datasf" | "sfmta" | "user_report";
+export type ParkingSource = "MOCK" | "DATASF" | "SFMTA" | "USER_REPORT";
 
 /**
  * A single parking spot with location and metadata.
+ * Matches: public.parking_spots table columns exactly.
  */
 export interface ParkingSpot {
   id: string;
-  address: string;
+  street_name: string;
+  address: string | null;
   latitude: number;
   longitude: number;
   status: ParkingStatus;
-  type: ParkingType;
+  parking_type: ParkingType;
+  price: string | null;
+  time_limit: string | null;
   source: ParkingSource;
-  price_per_hour: number;
-  restrictions: string | null;
-  last_reported_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 /**
- * A user-submitted report about a parking spot's availability.
+ * A user-submitted report about a parking spot's current status.
+ * Matches: public.parking_reports table columns exactly.
  */
 export interface ParkingReport {
   id: string;
-  spot_id: string;
-  reporter_id: string;
+  user_id: string;
+  parking_spot_id: string;
   status: ParkingStatus;
-  reported_at: string;
+  note: string | null;
+  created_at: string;
 }

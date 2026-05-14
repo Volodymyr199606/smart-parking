@@ -43,12 +43,14 @@ import {
 
 | Type | Description |
 |------|-------------|
-| `ParkingStatus` | `"available"` \| `"occupied"` \| `"unknown"` |
-| `ParkingType` | `"metered"` \| `"free"` \| `"loading_zone"` \| `"street_sweeping"` \| `"garage"` \| `"unknown"` |
-| `ParkingSource` | `"mock"` \| `"datasf"` \| `"sfmta"` \| `"user_report"` |
-| `ParkingSpot` | Full parking spot record |
-| `ParkingReport` | User-submitted availability report |
-| `UserProfile` | Public user profile |
+| `ParkingStatus` | `"AVAILABLE"` \| `"OCCUPIED"` \| `"UNKNOWN"` |
+| `ParkingType` | `"METERED"` \| `"FREE"` \| `"LOADING_ZONE"` \| `"STREET_SWEEPING"` \| `"GARAGE"` \| `"UNKNOWN"` |
+| `ParkingSource` | `"MOCK"` \| `"DATASF"` \| `"SFMTA"` \| `"USER_REPORT"` |
+| `ParkingSpot` | Full parking spot record (matches DB columns exactly) |
+| `ParkingReport` | User-submitted availability report (matches DB columns exactly) |
+| `UserProfile` | Public user profile (matches DB columns exactly) |
+
+> **Note:** Enum values use UPPERCASE to match the database CHECK constraints exactly.
 
 ## Constants
 
@@ -57,9 +59,9 @@ import {
 | `DEFAULT_LATITUDE` | 37.7749 (San Francisco) |
 | `DEFAULT_LONGITUDE` | -122.4194 (San Francisco) |
 | `DEFAULT_SEARCH_RADIUS_METERS` | 500 |
-| `MARKER_COLORS.available` | #22c55e (green) |
-| `MARKER_COLORS.occupied` | #ef4444 (red) |
-| `MARKER_COLORS.unknown` | #a3a3a3 (gray) |
+| `MARKER_COLORS.AVAILABLE` | #22c55e (green) |
+| `MARKER_COLORS.OCCUPIED` | #ef4444 (red) |
+| `MARKER_COLORS.UNKNOWN` | #a3a3a3 (gray) |
 
 ## Utilities
 

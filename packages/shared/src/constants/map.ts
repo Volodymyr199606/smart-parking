@@ -11,9 +11,10 @@ export const DEFAULT_SEARCH_RADIUS_METERS = 500;
 
 /**
  * Marker colors by parking status.
+ * Keys match the ParkingStatus enum values (UPPERCASE).
  */
 export const MARKER_COLORS = {
-  available: "#22c55e",
-  occupied: "#ef4444",
-  unknown: "#a3a3a3",
+  AVAILABLE: "#22c55e",
+  OCCUPIED: "#ef4444",
+  UNKNOWN: "#a3a3a3",
 } as const;

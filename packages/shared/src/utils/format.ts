@@ -2,18 +2,18 @@ import type { ParkingStatus, ParkingType } from "../types";
 import { MARKER_COLORS } from "../constants";
 
 const STATUS_LABELS: Record<ParkingStatus, string> = {
-  available: "Available",
-  occupied: "Occupied",
-  unknown: "Unknown",
+  AVAILABLE: "Available",
+  OCCUPIED: "Occupied",
+  UNKNOWN: "Unknown",
 };
 
 const TYPE_LABELS: Record<ParkingType, string> = {
-  metered: "Metered",
-  free: "Free",
-  loading_zone: "Loading Zone",
-  street_sweeping: "Street Sweeping",
-  garage: "Garage",
-  unknown: "Unknown",
+  METERED: "Metered",
+  FREE: "Free",
+  LOADING_ZONE: "Loading Zone",
+  STREET_SWEEPING: "Street Sweeping",
+  GARAGE: "Garage",
+  UNKNOWN: "Unknown",
 };
 
 /**
@@ -34,7 +34,7 @@ export function formatParkingType(type: ParkingType): string {
  * Returns the hex color for a parking status (for map markers).
  */
 export function getMarkerColor(status: ParkingStatus): string {
-  return MARKER_COLORS[status] ?? MARKER_COLORS.unknown;
+  return MARKER_COLORS[status] ?? MARKER_COLORS.UNKNOWN;
 }
 
 /**

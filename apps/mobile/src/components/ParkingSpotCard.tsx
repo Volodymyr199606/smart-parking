@@ -5,7 +5,7 @@ import { AvailabilityBadge } from "./AvailabilityBadge";
 interface ParkingSpotCardProps {
   streetName: string;
   address?: string;
-  status: "available" | "occupied" | "unknown";
+  status: "AVAILABLE" | "OCCUPIED" | "UNKNOWN";
   parkingType: string;
   price?: string;
   timeLimit?: string;

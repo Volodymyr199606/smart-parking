@@ -2,13 +2,13 @@ import { View, Text, StyleSheet } from "react-native";
 import { colors, spacing, radius, font } from "../constants/theme";
 
 interface AvailabilityBadgeProps {
-  status: "available" | "occupied" | "unknown";
+  status: "AVAILABLE" | "OCCUPIED" | "UNKNOWN";
 }
 
 const badgeConfig = {
-  available: { label: "Available", bg: "#dcfce7", text: colors.available },
-  occupied: { label: "Occupied", bg: "#fee2e2", text: colors.occupied },
-  unknown: { label: "Unknown", bg: "#f3f4f6", text: colors.unknown },
+  AVAILABLE: { label: "Available", bg: "#dcfce7", text: colors.available },
+  OCCUPIED: { label: "Occupied", bg: "#fee2e2", text: colors.occupied },
+  UNKNOWN: { label: "Unknown", bg: "#f3f4f6", text: colors.unknown },
 } as const;
 
 export function AvailabilityBadge({ status }: AvailabilityBadgeProps) {
