@@ -1,10 +1,14 @@
 import { supabase } from "./supabaseClient";
+import type { ParkingSpot } from "@smart-parking/shared";
 
 /**
  * Parking data service for the mobile app.
  *
  * Queries the parking_spots table via Supabase PostgREST.
- * All queries require an authenticated user (enforced by RLS).
+ *
+ * Note: parking_spots has an RLS policy allowing any authenticated user
+ * to read all spots. For the connection test, we use the anon key which
+ * also works since the policy is on the `authenticated` role.
  *
  * Future additions:
  * - Supabase Realtime subscription for live availability updates
@@ -14,17 +18,18 @@ import { supabase } from "./supabaseClient";
  */
 
 /**
- * Fetch all parking spots.
- * Returns spots ordered by most recently updated.
+ * Fetch parking spots from the database.
+ * Returns up to `limit` spots ordered by most recently updated.
  */
-export async function getParkingSpots() {
+export async function getParkingSpots(limit: number = 10): Promise<ParkingSpot[]> {
   const { data, error } = await supabase
     .from("parking_spots")
     .select("*")
-    .order("updated_at", { ascending: false });
+    .order("updated_at", { ascending: false })
+    .limit(limit);
 
   if (error) throw error;
-  return data;
+  return (data ?? []) as ParkingSpot[];
 }
 
 /**
@@ -39,8 +44,7 @@ export async function getNearbyParkingSpots(
   latitude: number,
   longitude: number,
   radiusMeters: number = 500
-) {
-  // Convert radius to approximate degrees (1 degree ≈ 111,000m)
+): Promise<ParkingSpot[]> {
   const degreesOffset = radiusMeters / 111_000;
 
   const { data, error } = await supabase
@@ -53,5 +57,32 @@ export async function getNearbyParkingSpots(
     .order("updated_at", { ascending: false });
 
   if (error) throw error;
-  return data;
+  return (data ?? []) as ParkingSpot[];
+}
+
+/**
+ * Temporary: Test the Supabase connection by fetching a single row.
+ * Returns true if the connection works, false otherwise.
+ *
+ * TODO: Remove this after verifying the connection works.
+ */
+export async function testConnection(): Promise<{
+  connected: boolean;
+  spotCount: number;
+  error?: string;
+}> {
+  try {
+    const { data, error, count } = await supabase
+      .from("parking_spots")
+      .select("*", { count: "exact", head: true });
+
+    if (error) {
+      return { connected: false, spotCount: 0, error: error.message };
+    }
+
+    return { connected: true, spotCount: count ?? 0 };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return { connected: false, spotCount: 0, error: message };
+  }
 }
