@@ -143,14 +143,16 @@ interface ParkingSpot {
 
 function InteractiveParkingMap() {
     const [selectedSpot, setSelectedSpot] = useState<ParkingSpot | null>(null)
+    const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
     const [parkingSpots, setParkingSpots] = useState<ParkingSpot[]>([])
     const [searchQuery, setSearchQuery] = useState("")
     const [showAvailableOnly, setShowAvailableOnly] = useState(false)
     const [isMounted, setIsMounted] = useState(false)
     const spotRefs = useRef<Map<number, HTMLDivElement>>(new Map())
 
-    const selectSpot = useCallback((spot: ParkingSpot) => {
+    const selectSpot = useCallback((spot: ParkingSpot, index: number) => {
         setSelectedSpot(spot)
+        setSelectedIndex(index)
         const el = spotRefs.current.get(spot.id)
         if (el) {
             el.scrollIntoView({ behavior: "smooth", block: "nearest" })
@@ -233,7 +235,7 @@ function InteractiveParkingMap() {
                     {filteredSpots.map((spot, index) => (
                         <button
                             key={spot.id}
-                            onClick={() => selectSpot(spot)}
+                            onClick={() => selectSpot(spot, index)}
                             className={`absolute rounded-full border-2 shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110 z-10 ${
                                 selectedSpot?.id === spot.id
                                     ? "w-10 h-10 border-slate-900 ring-4 ring-slate-900/20 scale-110 z-20"
@@ -260,9 +262,17 @@ function InteractiveParkingMap() {
                     </div>
                 </div>
 
-                {/* Selected spot detail card — top-left of map */}
-                {selectedSpot && (
-                    <div className="absolute top-14 left-4 w-72 bg-white rounded-xl shadow-lg p-4 z-20">
+                {/* Selected spot detail card — positioned next to clicked marker */}
+                {selectedSpot && selectedIndex !== null && (
+                    <div
+                        className="absolute w-64 bg-white rounded-xl shadow-lg p-4 z-30"
+                        style={{
+                            left: `calc(${20 + ((selectedIndex * 15) % 60)}% + 44px)`,
+                            top: `${25 + Math.floor(selectedIndex / 4) * 15}%`,
+                            transform: "translateY(-50%)",
+                            maxHeight: "calc(100% - 16px)",
+                        }}
+                    >
                         <div className="flex justify-between items-start mb-3">
                             <div className="flex-1 min-w-0">
                                 <h3 className="font-medium text-slate-900 mb-1 text-sm">{selectedSpot.address}</h3>
@@ -347,7 +357,7 @@ function InteractiveParkingMap() {
                             Parking Spots ({filteredSpots.filter((s) => s.available).length} available)
                         </h3>
                         <div className="space-y-3">
-                            {filteredSpots.map((spot) => (
+                            {filteredSpots.map((spot, index) => (
                                 <div
                                     key={spot.id}
                                     ref={(el) => {
@@ -359,7 +369,7 @@ function InteractiveParkingMap() {
                                             ? "border-slate-900 bg-slate-50 ring-2 ring-slate-900/10"
                                             : "border-slate-200 hover:border-slate-300"
                                     }`}
-                                    onClick={() => selectSpot(spot)}
+                                    onClick={() => selectSpot(spot, index)}
                                 >
                                     <div className="flex justify-between items-start mb-2">
                                         <div className="flex-1">
