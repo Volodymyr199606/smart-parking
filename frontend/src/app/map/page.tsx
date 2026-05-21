@@ -260,37 +260,9 @@ function InteractiveParkingMap() {
                     </div>
                 </div>
 
-                {/* Selected spot ring highlight on the marker */}
-            </div>
-
-            {/* Sidebar */}
-            <div className="w-64 sm:w-72 md:w-80 flex-shrink-0 border-l border-slate-200 flex flex-col">
-                {/* Search and filters */}
-                <div className="p-4 border-b border-slate-200">
-                    <div className="relative mb-3">
-                        <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-                        <input
-                            type="text"
-                            placeholder="Search by address..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors"
-                        />
-                    </div>
-                    <button
-                        onClick={() => setShowAvailableOnly(!showAvailableOnly)}
-                        className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                            showAvailableOnly ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                        }`}
-                    >
-                        <Filter size={16} className="mr-2" />
-                        Available Only
-                    </button>
-                </div>
-
-                {/* Selected spot detail card */}
+                {/* Selected spot detail card — top-left of map */}
                 {selectedSpot && (
-                    <div className="p-4 border-b border-slate-200 bg-slate-50">
+                    <div className="absolute top-14 left-4 w-72 bg-white rounded-xl shadow-lg p-4 z-20">
                         <div className="flex justify-between items-start mb-3">
                             <div className="flex-1 min-w-0">
                                 <h3 className="font-medium text-slate-900 mb-1 text-sm">{selectedSpot.address}</h3>
@@ -341,6 +313,32 @@ function InteractiveParkingMap() {
                         </div>
                     </div>
                 )}
+            </div>
+
+            {/* Sidebar */}
+            <div className="w-64 sm:w-72 md:w-80 flex-shrink-0 border-l border-slate-200 flex flex-col">
+                {/* Search and filters */}
+                <div className="p-4 border-b border-slate-200">
+                    <div className="relative mb-3">
+                        <Search size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                        <input
+                            type="text"
+                            placeholder="Search by address..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors"
+                        />
+                    </div>
+                    <button
+                        onClick={() => setShowAvailableOnly(!showAvailableOnly)}
+                        className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            showAvailableOnly ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                    >
+                        <Filter size={16} className="mr-2" />
+                        Available Only
+                    </button>
+                </div>
 
                 {/* Spots list */}
                 <div className="flex-1 overflow-y-auto">
