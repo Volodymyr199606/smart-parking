@@ -88,4 +88,18 @@ api.interceptors.response.use(
     }
 );
 
+/**
+ * Ping the backend health endpoint to wake it up from cold start.
+ * Resolves true when the backend responds, false on failure.
+ */
+export async function warmUpBackend(signal?: AbortSignal): Promise<boolean> {
+    if (!baseURL) return false;
+    try {
+        await axios.get(`${baseURL}/`, { timeout: 90000, signal });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 export default api;

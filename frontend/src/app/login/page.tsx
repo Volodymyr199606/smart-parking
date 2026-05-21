@@ -1,14 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
+import { warmUpBackend } from '@/lib/api';
 
-
-
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 3000;
 
 export default function LoginPage() {
     const { login } = useAuth();
@@ -21,6 +22,17 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [showForgotPopup, setShowForgotPopup] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [statusMessage, setStatusMessage] = useState('');
+    const [formError, setFormError] = useState('');
+    const backendReady = useRef(false);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        warmUpBackend(controller.signal).then((ok) => {
+            backendReady.current = ok;
+        });
+        return () => controller.abort();
+    }, []);
 
 
 
@@ -73,55 +85,66 @@ export default function LoginPage() {
         setIsLoading(true);
         setEmailError('');
         setPasswordError('');
-        
-        try {
-            // Use the auth context's login function which properly updates the auth state
-            await login(email, password);
-            
-            // Show success popup
-            setShowPopup(true);
+        setFormError('');
+        setStatusMessage('');
 
-            // The auth context's login function already navigates to /dashboard,
-            // but we'll add a small delay for the popup to show
-            setTimeout(() => {
-                // If we're still on login page (shouldn't happen, but just in case)
-                if (window.location.pathname === '/login') {
-                    router.push('/dashboard');
-                }
-            }, 1000);
-        } catch (error: unknown) {
-            console.error('Login failed:', error);
-            
-            // Handle different types of errors
-            if (error && typeof error === 'object' && 'response' in error) {
-                const axiosError = error as { response?: { status?: number; data?: { message?: string } } };
-                
-                if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
-                    setEmailError('Invalid email or password');
-                    setPasswordError('Please check your credentials and try again');
-                } else if (axiosError.response?.data?.message) {
-                    setEmailError(axiosError.response.data.message);
-                    setPasswordError('Please check your credentials and try again');
-                } else {
-                    setEmailError('Login failed. Please try again.');
-                    setPasswordError('');
-                }
-            } else if (error instanceof Error) {
-                // Network error or other errors
-                if (error.message.includes('Network Error') || error.message.includes('ECONNREFUSED')) {
-                    setEmailError('Cannot connect to server. Please ensure the backend is running.');
-                    setPasswordError('Backend server is not reachable');
-                } else {
-                    setEmailError(error.message || 'An unexpected error occurred');
-                    setPasswordError('Please try again later');
-                }
-            } else {
-                setEmailError('Failed to login. Please try again.');
-                setPasswordError('');
+        const isRetryableError = (err: unknown): boolean => {
+            if (err instanceof Error) {
+                const msg = err.message.toLowerCase();
+                return msg.includes('timeout') || msg.includes('network error');
             }
-        } finally {
-            setIsLoading(false);
+            if (err && typeof err === 'object' && 'code' in err) {
+                return (err as { code?: string }).code === 'ECONNABORTED';
+            }
+            return false;
+        };
+
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                if (attempt > 0) {
+                    setStatusMessage(`Server is waking up… retrying (${attempt}/${MAX_RETRIES})`);
+                    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+                }
+
+                await login(email, password);
+                setStatusMessage('');
+                setShowPopup(true);
+                setTimeout(() => {
+                    if (window.location.pathname === '/login') {
+                        router.push('/dashboard');
+                    }
+                }, 1000);
+                return;
+            } catch (error: unknown) {
+                lastError = error;
+                if (!isRetryableError(error)) break;
+                if (attempt === 0) {
+                    setStatusMessage('Server is starting up, please wait…');
+                }
+            }
         }
+
+        setStatusMessage('');
+        if (lastError && typeof lastError === 'object' && 'response' in lastError) {
+            const axiosError = lastError as { response?: { status?: number; data?: { message?: string } } };
+            if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
+                setEmailError('Invalid email or password');
+            } else if (axiosError.response?.data?.message) {
+                setFormError(axiosError.response.data.message);
+            } else {
+                setFormError('Login failed. Please try again.');
+            }
+        } else if (lastError instanceof Error) {
+            if (isRetryableError(lastError)) {
+                setFormError('The server is still starting up. Please wait a moment and try again.');
+            } else {
+                setFormError(lastError.message || 'An unexpected error occurred');
+            }
+        } else {
+            setFormError('Failed to login. Please try again.');
+        }
+        setIsLoading(false);
     };
 
     return (
@@ -145,6 +168,17 @@ export default function LoginPage() {
                         </div>
 
                         <form onSubmit={handleSubmit} className="space-y-6">
+                            {formError && (
+                                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+                                    {formError}
+                                </div>
+                            )}
+                            {statusMessage && (
+                                <div className="bg-blue-50 border border-blue-200 text-blue-700 rounded-xl px-4 py-3 text-sm flex items-center gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+                                    {statusMessage}
+                                </div>
+                            )}
                             <div className="space-y-2">
                                 <label htmlFor="email" className="text-sm font-medium text-slate-700">
                                     Email

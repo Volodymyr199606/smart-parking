@@ -1,14 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { registerUser } from '@/lib/auth';
+import { warmUpBackend } from '@/lib/api';
 import Link from 'next/link';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Eye, EyeOff } from 'lucide-react';
 
-
-
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 3000;
 
 export default function RegisterForm() {
     const [name, setName] = useState('');
@@ -21,6 +22,17 @@ export default function RegisterForm() {
     const router = useRouter();
     const [showPassword, setShowPassword] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [statusMessage, setStatusMessage] = useState('');
+    const [formError, setFormError] = useState('');
+    const backendReady = useRef(false);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        warmUpBackend(controller.signal).then((ok) => {
+            backendReady.current = ok;
+        });
+        return () => controller.abort();
+    }, []);
 
 
     const validateName = (value: string) => {
@@ -81,60 +93,66 @@ export default function RegisterForm() {
         }
 
         setIsSubmitting(true);
-        try {
-            const response = await registerUser(name, email, password);
-            console.log('Success:', response.data);
-            setShowSuccess(true);
-            setTimeout(() => {
-                router.push('/login');
-            }, 1500);
-        } catch (error: unknown) {
-            if (error && typeof error === 'object' && 'response' in error) {
-                const axiosError = error as { response?: { data?: { error?: string; message?: string; fullName?: string; email?: string; password?: string }; status?: number } };
-                const errorData = axiosError.response?.data;
-                
-                // Handle timeout errors
-                if (error instanceof Error && (error.message.includes('timeout') || error.message.includes('Network Error'))) {
-                    const timeoutError = error as { code?: string; message?: string };
-                    if (timeoutError.code === 'ECONNABORTED' || timeoutError.message?.includes('timeout')) {
-                        alert('Request timed out. The backend server may be starting up (this can take 30-60 seconds on first request). Please try again in a moment.');
-                        console.error('Request timeout:', error);
-                        return;
-                    }
+        setFormError('');
+        setStatusMessage('');
+
+        const isRetryableError = (err: unknown): boolean => {
+            if (err instanceof Error) {
+                const msg = err.message.toLowerCase();
+                return msg.includes('timeout') || msg.includes('network error');
+            }
+            if (err && typeof err === 'object' && 'code' in err) {
+                return (err as { code?: string }).code === 'ECONNABORTED';
+            }
+            return false;
+        };
+
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                if (attempt > 0) {
+                    setStatusMessage(`Server is waking up… retrying (${attempt}/${MAX_RETRIES})`);
+                    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
                 }
-                
-                if (errorData) {
-                    // Handle validation errors from backend
-                    if (errorData.fullName) {
-                        setNameError(errorData.fullName);
-                    }
-                    if (errorData.email) {
-                        setEmailError(errorData.email);
-                    }
-                    if (errorData.password) {
-                        setPasswordError(errorData.password);
-                    }
-                    // Show general error message
-                    const errorMessage = errorData.error || errorData.message || 'Registration failed';
-                    console.error('Registration failed:', errorMessage);
-                    alert(errorMessage);
-                } else {
-                    console.error('Registration failed:', 'Unknown error');
-                }
-            } else if (error instanceof Error) {
-                // Check for API URL configuration errors
-                if (error.message.includes('API URL not configured')) {
-                    alert('Backend API is not configured. Please contact the administrator.\n\nError: ' + error.message);
-                } else if (error.message.includes('timeout') || error.message.includes('Network Error')) {
-                    alert('Request timed out. The backend server may be starting up (this can take 30-60 seconds on first request). Please try again in a moment.');
-                } else {
-                    console.error('Registration failed:', error.message);
-                    alert(error.message);
+
+                const response = await registerUser(name, email, password);
+                console.log('Success:', response.data);
+                setStatusMessage('');
+                setShowSuccess(true);
+                setTimeout(() => router.push('/login'), 1500);
+                return;
+            } catch (error: unknown) {
+                lastError = error;
+                if (!isRetryableError(error)) break;
+                if (attempt === 0) {
+                    setStatusMessage('Server is starting up, please wait…');
                 }
             }
-        } finally {
-            setIsSubmitting(false);
         }
+
+        setStatusMessage('');
+        // Handle the final error
+        if (lastError && typeof lastError === 'object' && 'response' in lastError) {
+            const axiosError = lastError as { response?: { data?: { error?: string; message?: string; fullName?: string; email?: string; password?: string }; status?: number } };
+            const errorData = axiosError.response?.data;
+            if (errorData) {
+                if (errorData.fullName) setNameError(errorData.fullName);
+                if (errorData.email) setEmailError(errorData.email);
+                if (errorData.password) setPasswordError(errorData.password);
+                setFormError(errorData.error || errorData.message || 'Registration failed');
+            } else {
+                setFormError('Registration failed. Please try again.');
+            }
+        } else if (lastError instanceof Error) {
+            if (lastError.message.includes('API URL not configured')) {
+                setFormError('Backend API is not configured. Please contact the administrator.');
+            } else if (isRetryableError(lastError)) {
+                setFormError('The server is still starting up. Please wait a moment and try again.');
+            } else {
+                setFormError(lastError.message);
+            }
+        }
+        setIsSubmitting(false);
     };
 
     return (
@@ -156,6 +174,17 @@ export default function RegisterForm() {
                         </div>
 
                         <form className="space-y-6" onSubmit={handleSubmit}>
+                            {formError && (
+                                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+                                    {formError}
+                                </div>
+                            )}
+                            {statusMessage && (
+                                <div className="bg-blue-50 border border-blue-200 text-blue-700 rounded-xl px-4 py-3 text-sm flex items-center gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+                                    {statusMessage}
+                                </div>
+                            )}
                             {/* Full Name */}
                             <div className="space-y-2">
                                 <label htmlFor="fullName" className="text-sm font-medium text-slate-700">

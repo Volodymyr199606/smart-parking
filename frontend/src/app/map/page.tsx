@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
 import { ArrowLeft, MapPin, Navigation, DollarSign, Search, Filter } from "lucide-react"
@@ -147,6 +147,15 @@ function InteractiveParkingMap() {
     const [searchQuery, setSearchQuery] = useState("")
     const [showAvailableOnly, setShowAvailableOnly] = useState(false)
     const [isMounted, setIsMounted] = useState(false)
+    const spotRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+
+    const selectSpot = useCallback((spot: ParkingSpot) => {
+        setSelectedSpot(spot)
+        const el = spotRefs.current.get(spot.id)
+        if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "nearest" })
+        }
+    }, [])
 
     // Initialize parking spots on client side only to avoid hydration mismatch
     useEffect(() => {
@@ -224,10 +233,12 @@ function InteractiveParkingMap() {
                     {filteredSpots.map((spot, index) => (
                         <button
                             key={spot.id}
-                            onClick={() => setSelectedSpot(spot)}
-                            className={`absolute w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110 z-10 ${
-                                spot.available ? "bg-green-500 hover:bg-green-600" : "bg-red-500 hover:bg-red-600"
-                            }`}
+                            onClick={() => selectSpot(spot)}
+                            className={`absolute rounded-full border-2 shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110 z-10 ${
+                                selectedSpot?.id === spot.id
+                                    ? "w-10 h-10 border-slate-900 ring-4 ring-slate-900/20 scale-110 z-20"
+                                    : "w-8 h-8 border-white"
+                            } ${spot.available ? "bg-green-500 hover:bg-green-600" : "bg-red-500 hover:bg-red-600"}`}
                             style={{
                                 left: `${20 + ((index * 15) % 60)}%`,
                                 top: `${25 + Math.floor(index / 4) * 15}%`,
@@ -249,59 +260,7 @@ function InteractiveParkingMap() {
                     </div>
                 </div>
 
-                {/* Selected spot popup */}
-                {selectedSpot && (
-                    <div className="absolute bottom-4 left-4 right-4 lg:right-auto lg:w-80 bg-white rounded-xl shadow-lg p-4 z-20">
-                        <div className="flex justify-between items-start mb-3">
-                            <div className="flex-1">
-                                <h3 className="font-medium text-slate-900 mb-1">{selectedSpot.address}</h3>
-                                <div className="flex items-center space-x-4 text-sm text-slate-600">
-                                    <div className="flex items-center">
-                                        <DollarSign size={14} className="mr-1" />
-                                        <span>{selectedSpot.price ? `$${selectedSpot.price}/hr` : "Free"}</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                        <MapPin size={14} className="mr-1" />
-                                        <span>{selectedSpot.distance} miles away</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div
-                                className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                    selectedSpot.available ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                                }`}
-                            >
-                                {selectedSpot.available ? "Available" : "Unavailable"}
-                            </div>
-                        </div>
-
-                        {selectedSpot.restrictions && (
-                            <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg">
-                                <p className="text-amber-800 text-xs">{selectedSpot.restrictions}</p>
-                            </div>
-                        )}
-
-                        <div className="flex space-x-3">
-                            <button
-                                onClick={() => getDirections(selectedSpot)}
-                                className="flex-1 bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-lg font-medium text-sm transition-colors flex items-center justify-center"
-                            >
-                                <Navigation size={16} className="mr-2" />
-                                Directions
-                            </button>
-                            <button
-                                onClick={() => setSelectedSpot(null)}
-                                className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg font-medium text-sm transition-colors"
-                            >
-                                Close
-                            </button>
-                        </div>
-
-                        <div className="mt-2 text-xs text-slate-500">
-                            Last updated: {isMounted ? new Date(selectedSpot.lastUpdated).toLocaleTimeString() : "Loading..."}
-                        </div>
-                    </div>
-                )}
+                {/* Selected spot ring highlight on the marker */}
             </div>
 
             {/* Sidebar */}
@@ -329,6 +288,60 @@ function InteractiveParkingMap() {
                     </button>
                 </div>
 
+                {/* Selected spot detail card */}
+                {selectedSpot && (
+                    <div className="p-4 border-b border-slate-200 bg-slate-50">
+                        <div className="flex justify-between items-start mb-3">
+                            <div className="flex-1 min-w-0">
+                                <h3 className="font-medium text-slate-900 mb-1 text-sm">{selectedSpot.address}</h3>
+                                <div className="flex items-center space-x-4 text-sm text-slate-600">
+                                    <div className="flex items-center">
+                                        <DollarSign size={14} className="mr-1 flex-shrink-0" />
+                                        <span>{selectedSpot.price ? `$${selectedSpot.price}/hr` : "Free"}</span>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <MapPin size={14} className="mr-1 flex-shrink-0" />
+                                        <span>{selectedSpot.distance} mi</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div
+                                className={`ml-2 flex-shrink-0 px-2 py-1 rounded-full text-xs font-medium ${
+                                    selectedSpot.available ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                                }`}
+                            >
+                                {selectedSpot.available ? "Available" : "Unavailable"}
+                            </div>
+                        </div>
+
+                        {selectedSpot.restrictions && (
+                            <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                                <p className="text-amber-800 text-xs">{selectedSpot.restrictions}</p>
+                            </div>
+                        )}
+
+                        <div className="flex space-x-2">
+                            <button
+                                onClick={() => getDirections(selectedSpot)}
+                                className="flex-1 bg-slate-900 text-white hover:bg-slate-800 px-3 py-2 rounded-lg font-medium text-xs transition-colors flex items-center justify-center"
+                            >
+                                <Navigation size={14} className="mr-1.5" />
+                                Directions
+                            </button>
+                            <button
+                                onClick={() => setSelectedSpot(null)}
+                                className="px-3 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg font-medium text-xs transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+
+                        <div className="mt-2 text-xs text-slate-400">
+                            Last updated: {isMounted ? new Date(selectedSpot.lastUpdated).toLocaleTimeString() : "Loading..."}
+                        </div>
+                    </div>
+                )}
+
                 {/* Spots list */}
                 <div className="flex-1 overflow-y-auto">
                     <div className="p-4">
@@ -339,12 +352,16 @@ function InteractiveParkingMap() {
                             {filteredSpots.map((spot) => (
                                 <div
                                     key={spot.id}
+                                    ref={(el) => {
+                                        if (el) spotRefs.current.set(spot.id, el)
+                                        else spotRefs.current.delete(spot.id)
+                                    }}
                                     className={`p-3 border rounded-lg cursor-pointer transition-all duration-300 hover:shadow-md ${
                                         selectedSpot?.id === spot.id
-                                            ? "border-slate-900 bg-slate-50"
+                                            ? "border-slate-900 bg-slate-50 ring-2 ring-slate-900/10"
                                             : "border-slate-200 hover:border-slate-300"
                                     }`}
-                                    onClick={() => setSelectedSpot(spot)}
+                                    onClick={() => selectSpot(spot)}
                                 >
                                     <div className="flex justify-between items-start mb-2">
                                         <div className="flex-1">
