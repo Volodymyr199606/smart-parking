@@ -3,18 +3,41 @@ import { useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ScreenContainer, AppButton, AppInput } from "../components";
 import { colors, spacing, font } from "../constants/theme";
+import { useAuth } from "../contexts/AuthContext";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Login">;
 
 export function LoginScreen({ navigation }: Props) {
+  const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = () => {
-    // TODO: Connect to Supabase Auth
-    navigation.navigate("Map");
-  };
+  function validate(): string | null {
+    if (!email.includes("@")) return "Please enter a valid email.";
+    if (password.length < 6) return "Password must be at least 6 characters.";
+    return null;
+  }
+
+  async function handleLogin() {
+    setError(null);
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signIn(email.trim(), password);
+    } catch (err: any) {
+      setError(err.message ?? "Login failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <ScreenContainer>
@@ -24,6 +47,12 @@ export function LoginScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.form}>
+        {error && (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
         <AppInput
           label="Email"
           value={email}
@@ -40,7 +69,11 @@ export function LoginScreen({ navigation }: Props) {
           secureTextEntry
         />
 
-        <AppButton title="Sign In" onPress={handleLogin} />
+        <AppButton
+          title={loading ? "Signing in..." : "Sign In"}
+          onPress={handleLogin}
+          disabled={loading}
+        />
       </View>
 
       <View style={styles.footer}>
@@ -70,6 +103,16 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
+  },
+  errorBox: {
+    backgroundColor: "#fee2e2",
+    borderRadius: 8,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  errorText: {
+    fontSize: font.sizeSm,
+    color: "#dc2626",
   },
   footer: {
     flexDirection: "row",

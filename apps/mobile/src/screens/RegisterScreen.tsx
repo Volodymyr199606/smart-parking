@@ -1,21 +1,45 @@
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
 import { useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ScreenContainer, AppButton, AppInput } from "../components";
 import { colors, spacing, font } from "../constants/theme";
+import { useAuth } from "../contexts/AuthContext";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">;
 
 export function RegisterScreen({ navigation }: Props) {
+  const { signUp } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleRegister = () => {
-    // TODO: Connect to Supabase Auth
-    navigation.navigate("Map");
-  };
+  function validate(): string | null {
+    if (!fullName.trim()) return "Full name is required.";
+    if (!email.includes("@")) return "Please enter a valid email.";
+    if (password.length < 6) return "Password must be at least 6 characters.";
+    return null;
+  }
+
+  async function handleRegister() {
+    setError(null);
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signUp(email.trim(), password, fullName.trim());
+    } catch (err: any) {
+      setError(err.message ?? "Registration failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <ScreenContainer>
@@ -25,6 +49,12 @@ export function RegisterScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.form}>
+        {error && (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
         <AppInput
           label="Full Name"
           value={fullName}
@@ -44,11 +74,15 @@ export function RegisterScreen({ navigation }: Props) {
           label="Password"
           value={password}
           onChangeText={setPassword}
-          placeholder="Create a password"
+          placeholder="At least 6 characters"
           secureTextEntry
         />
 
-        <AppButton title="Create Account" onPress={handleRegister} />
+        <AppButton
+          title={loading ? "Creating account..." : "Create Account"}
+          onPress={handleRegister}
+          disabled={loading}
+        />
       </View>
 
       <View style={styles.footer}>
@@ -78,6 +112,16 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
+  },
+  errorBox: {
+    backgroundColor: "#fee2e2",
+    borderRadius: 8,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  errorText: {
+    fontSize: font.sizeSm,
+    color: "#dc2626",
   },
   footer: {
     flexDirection: "row",

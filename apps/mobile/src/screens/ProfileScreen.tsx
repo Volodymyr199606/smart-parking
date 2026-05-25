@@ -1,12 +1,38 @@
 import { View, Text, StyleSheet } from "react-native";
+import { useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ScreenContainer, AppButton } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
+import { useAuth } from "../contexts/AuthContext";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
 
-export function ProfileScreen({ navigation }: Props) {
+export function ProfileScreen(_props: Props) {
+  const { user, signOut } = useAuth();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const fullName = user?.user_metadata?.full_name ?? "Smart Parker";
+  const email = user?.email ?? "—";
+  const initials = fullName
+    .split(" ")
+    .map((n: string) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+  const memberSince = user?.created_at
+    ? new Date(user.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    : "—";
+
+  async function handleSignOut() {
+    setLoggingOut(true);
+    try {
+      await signOut();
+    } catch {
+      setLoggingOut(false);
+    }
+  }
+
   return (
     <ScreenContainer>
       <View style={styles.header}>
@@ -15,17 +41,17 @@ export function ProfileScreen({ navigation }: Props) {
 
       <View style={styles.card}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>SP</Text>
+          <Text style={styles.avatarText}>{initials}</Text>
         </View>
-        <Text style={styles.name}>Smart Parker</Text>
-        <Text style={styles.email}>user@example.com</Text>
+        <Text style={styles.name}>{fullName}</Text>
+        <Text style={styles.email}>{email}</Text>
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Account</Text>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Member since</Text>
-          <Text style={styles.rowValue}>May 2026</Text>
+          <Text style={styles.rowValue}>{memberSince}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Reports submitted</Text>
@@ -39,9 +65,10 @@ export function ProfileScreen({ navigation }: Props) {
 
       <View style={styles.actions}>
         <AppButton
-          title="Sign Out"
+          title={loggingOut ? "Signing out..." : "Sign Out"}
           variant="outline"
-          onPress={() => navigation.navigate("Welcome")}
+          onPress={handleSignOut}
+          disabled={loggingOut}
         />
       </View>
     </ScreenContainer>
