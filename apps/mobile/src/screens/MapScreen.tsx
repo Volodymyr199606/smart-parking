@@ -4,47 +4,44 @@ import {
   StyleSheet,
   ActivityIndicator,
   Pressable,
-  Dimensions,
+  FlatList,
+  TextInput,
+  ScrollView,
+  RefreshControl,
 } from "react-native";
-import { useEffect, useState, useCallback, useRef } from "react";
-import MapView, { Marker, Region } from "react-native-maps";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { ParkingSpot, ParkingStatus } from "@smart-parking/shared";
-import { formatParkingType, formatParkingStatus } from "@smart-parking/shared";
-import { DEFAULT_LATITUDE, DEFAULT_LONGITUDE, MARKER_COLORS } from "@smart-parking/shared";
-import { AppButton } from "../components";
+import { formatParkingType, formatParkingStatus, MARKER_COLORS } from "@smart-parking/shared";
+import { AppButton, ParkingSpotCard } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
 import { getParkingSpots } from "../services/parkingService";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Map">;
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+type FilterOption = "ALL" | "AVAILABLE" | "OCCUPIED" | "METERED" | "FREE";
 
-const SF_REGION: Region = {
-  latitude: DEFAULT_LATITUDE,
-  longitude: DEFAULT_LONGITUDE,
-  latitudeDelta: 0.025,
-  longitudeDelta: 0.025,
-};
+const FILTERS: { key: FilterOption; label: string }[] = [
+  { key: "ALL", label: "All" },
+  { key: "AVAILABLE", label: "Available" },
+  { key: "OCCUPIED", label: "Occupied" },
+  { key: "METERED", label: "Metered" },
+  { key: "FREE", label: "Free" },
+];
 
 function getMarkerColor(status: ParkingStatus): string {
   return MARKER_COLORS[status] ?? MARKER_COLORS.UNKNOWN;
 }
 
-/**
- * MapScreen — shows parking spots on a real map with markers.
- *
- * MVP: uses react-native-maps with Apple/Google Maps provider.
- * Fetches spots from Supabase and renders colored markers.
- * Tapping a marker shows a bottom detail card.
- */
 export function MapScreen({ navigation }: Props) {
   const [spots, setSpots] = useState<ParkingSpot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedSpot, setSelectedSpot] = useState<ParkingSpot | null>(null);
-  const mapRef = useRef<MapView>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterOption>("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchSpots = useCallback(async () => {
     try {
@@ -55,12 +52,43 @@ export function MapScreen({ navigation }: Props) {
       setError(err.message ?? "Failed to load parking spots.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     fetchSpots();
   }, [fetchSpots]);
+
+  function handleRefresh() {
+    setRefreshing(true);
+    fetchSpots();
+  }
+
+  const filteredSpots = useMemo(() => {
+    let result = spots;
+
+    if (activeFilter === "AVAILABLE") {
+      result = result.filter((s) => s.status === "AVAILABLE");
+    } else if (activeFilter === "OCCUPIED") {
+      result = result.filter((s) => s.status === "OCCUPIED");
+    } else if (activeFilter === "METERED") {
+      result = result.filter((s) => s.parking_type === "METERED");
+    } else if (activeFilter === "FREE") {
+      result = result.filter((s) => s.parking_type === "FREE");
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (s) =>
+          s.street_name.toLowerCase().includes(q) ||
+          (s.address && s.address.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [spots, activeFilter, searchQuery]);
 
   if (loading) {
     return (
@@ -85,27 +113,13 @@ export function MapScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        initialRegion={SF_REGION}
-        onPress={() => setSelectedSpot(null)}
-      >
-        {spots.map((spot) => (
-          <Marker
-            key={spot.id}
-            coordinate={{ latitude: spot.latitude, longitude: spot.longitude }}
-            pinColor={getMarkerColor(spot.status)}
-            onPress={() => setSelectedSpot(spot)}
-          />
-        ))}
-      </MapView>
-
-      {/* Header overlay */}
-      <View style={styles.headerOverlay}>
-        <View style={styles.headerContent}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
           <Text style={styles.headerTitle}>Smart Parking</Text>
-          <Text style={styles.headerSubtitle}>{spots.length} spots nearby</Text>
+          <Text style={styles.headerSubtitle}>
+            {filteredSpots.length} spots in San Francisco
+          </Text>
         </View>
         <Pressable
           style={styles.profileButton}
@@ -115,14 +129,93 @@ export function MapScreen({ navigation }: Props) {
         </Pressable>
       </View>
 
-      {/* Bottom card for selected spot */}
+      {/* Search */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search street or address..."
+          placeholderTextColor={colors.textMuted}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
+
+      {/* Filter chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filtersRow}
+        contentContainerStyle={styles.filtersContent}
+      >
+        {FILTERS.map((f) => (
+          <Pressable
+            key={f.key}
+            style={[styles.chip, activeFilter === f.key && styles.chipActive]}
+            onPress={() => setActiveFilter(f.key)}
+          >
+            <Text style={[styles.chipText, activeFilter === f.key && styles.chipTextActive]}>
+              {f.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {/* Spot list */}
+      {filteredSpots.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>No spots match your filters</Text>
+          <Text style={styles.emptySubtext}>Try a different filter or clear search.</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredSpots}
+          keyExtractor={(item) => item.id}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.accent}
+            />
+          }
+          ListHeaderComponent={
+            <View style={styles.listNote}>
+              <Text style={styles.listNoteText}>
+                Map view coming soon · Showing nearby parking list
+              </Text>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <ParkingSpotCard
+              streetName={item.street_name}
+              address={item.address ?? undefined}
+              status={item.status}
+              parkingType={formatParkingType(item.parking_type)}
+              price={item.price ?? undefined}
+              timeLimit={item.time_limit ?? undefined}
+              onPress={() => setSelectedSpot(item)}
+            />
+          )}
+        />
+      )}
+
+      {/* Bottom detail card */}
       {selectedSpot && (
         <View style={styles.bottomCard}>
-          <View style={styles.cardHeader}>
+          <View style={styles.cardTopRow}>
             <Text style={styles.cardStreet}>{selectedSpot.street_name}</Text>
+            <Pressable onPress={() => setSelectedSpot(null)} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.cardStatusRow}>
             <View style={[styles.statusBadge, { backgroundColor: getMarkerColor(selectedSpot.status) + "20" }]}>
               <View style={[styles.statusDot, { backgroundColor: getMarkerColor(selectedSpot.status) }]} />
-              <Text style={[styles.statusText, { color: getMarkerColor(selectedSpot.status) }]}>
+              <Text style={[styles.statusLabel, { color: getMarkerColor(selectedSpot.status) }]}>
                 {formatParkingStatus(selectedSpot.status)}
               </Text>
             </View>
@@ -137,14 +230,15 @@ export function MapScreen({ navigation }: Props) {
             {selectedSpot.price && <DetailChip label={selectedSpot.price} />}
             {selectedSpot.time_limit && <DetailChip label={selectedSpot.time_limit} />}
           </View>
-        </View>
-      )}
 
-      {/* Empty state overlay */}
-      {spots.length === 0 && (
-        <View style={styles.emptyOverlay}>
-          <Text style={styles.emptyText}>No parking spots found in this area.</Text>
-          <AppButton title="Refresh" onPress={fetchSpots} />
+          <View style={styles.cardActions}>
+            <AppButton
+              title="Directions"
+              variant="secondary"
+              onPress={() => {}}
+              disabled
+            />
+          </View>
         </View>
       )}
     </View>
@@ -153,8 +247,8 @@ export function MapScreen({ navigation }: Props) {
 
 function DetailChip({ label }: { label: string }) {
   return (
-    <View style={styles.chip}>
-      <Text style={styles.chipText}>{label}</Text>
+    <View style={styles.detailChip}>
+      <Text style={styles.detailChipText}>{label}</Text>
     </View>
   );
 }
@@ -162,9 +256,7 @@ function DetailChip({ label }: { label: string }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  map: {
-    flex: 1,
+    backgroundColor: colors.background,
   },
   centered: {
     flex: 1,
@@ -195,30 +287,18 @@ const styles = StyleSheet.create({
     width: 200,
   },
 
-  // Header overlay
-  headerOverlay: {
-    position: "absolute",
-    top: 60,
-    left: spacing.lg,
-    right: spacing.lg,
+  // Header
+  header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-  },
-  headerContent: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    paddingTop: spacing.xxxl,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    paddingBottom: spacing.md,
   },
   headerTitle: {
-    fontSize: font.sizeMd,
-    fontWeight: font.semibold,
+    fontSize: font.sizeXl,
+    fontWeight: font.light,
     color: colors.textPrimary,
   },
   headerSubtitle: {
@@ -231,11 +311,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   profileButtonText: {
     fontSize: font.sizeSm,
@@ -243,10 +320,92 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
 
+  // Search
+  searchContainer: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  searchInput: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    fontSize: font.sizeSm,
+    color: colors.textPrimary,
+  },
+
+  // Filters
+  filtersRow: {
+    maxHeight: 44,
+    marginBottom: spacing.md,
+  },
+  filtersContent: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
+  chip: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipText: {
+    fontSize: font.sizeXs,
+    fontWeight: font.medium,
+    color: colors.textSecondary,
+  },
+  chipTextActive: {
+    color: colors.textOnDark,
+  },
+
+  // List
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 120,
+  },
+  listNote: {
+    backgroundColor: "#f1f5f9",
+    borderRadius: 8,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    alignItems: "center",
+  },
+  listNoteText: {
+    fontSize: font.sizeXs,
+    color: colors.textMuted,
+  },
+
+  // Empty
+  emptyState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  emptyTitle: {
+    fontSize: font.sizeMd,
+    fontWeight: font.medium,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  emptySubtext: {
+    fontSize: font.sizeSm,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+
   // Bottom card
   bottomCard: {
     position: "absolute",
-    bottom: 40,
+    bottom: 30,
     left: spacing.lg,
     right: spacing.lg,
     backgroundColor: colors.surface,
@@ -258,7 +417,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-  cardHeader: {
+  cardTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -270,12 +429,29 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flex: 1,
   },
+  closeButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.background,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeButtonText: {
+    fontSize: font.sizeSm,
+    color: colors.textMuted,
+    fontWeight: font.medium,
+  },
+  cardStatusRow: {
+    marginBottom: spacing.sm,
+  },
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
+    alignSelf: "flex-start",
     gap: 6,
   },
   statusDot: {
@@ -283,7 +459,7 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  statusText: {
+  statusLabel: {
     fontSize: font.sizeXs,
     fontWeight: font.medium,
   },
@@ -296,31 +472,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
+    marginBottom: spacing.lg,
   },
-  chip: {
+  detailChip: {
     backgroundColor: colors.background,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
   },
-  chipText: {
+  detailChipText: {
     fontSize: font.sizeXs,
     color: colors.textSecondary,
     fontWeight: font.medium,
   },
-
-  // Empty overlay
-  emptyOverlay: {
-    position: "absolute",
-    bottom: 100,
-    left: spacing.xl,
-    right: spacing.xl,
-    alignItems: "center",
-  },
-  emptyText: {
-    fontSize: font.sizeSm,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
-    textAlign: "center",
+  cardActions: {
+    marginTop: spacing.sm,
   },
 });
