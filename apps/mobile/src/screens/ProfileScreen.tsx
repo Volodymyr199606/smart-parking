@@ -55,11 +55,11 @@ export function ProfileScreen(_props: Props) {
         </View>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Reports submitted</Text>
-          <Text style={styles.rowValue}>0</Text>
+          <Text style={styles.rowValueMuted}>Coming soon</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Favorite spots</Text>
-          <Text style={styles.rowValue}>0</Text>
+          <Text style={styles.rowValueMuted}>Coming soon</Text>
         </View>
       </View>
 
@@ -143,6 +143,11 @@ const styles = StyleSheet.create({
   rowValue: {
     fontSize: font.sizeMd,
     color: colors.textSecondary,
+  },
+  rowValueMuted: {
+    fontSize: font.sizeSm,
+    color: colors.textMuted,
+    fontStyle: "italic",
   },
   actions: {
     marginTop: "auto",

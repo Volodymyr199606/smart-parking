@@ -1,5 +1,5 @@
 -- Smart Parking: Seed Data
--- 25 realistic mock parking spots around San Francisco.
+-- 26 realistic mock parking spots around San Francisco.
 -- Run this after applying the initial migration.
 
 INSERT INTO public.parking_spots (street_name, address, latitude, longitude, status, parking_type, price, time_limit, source) VALUES

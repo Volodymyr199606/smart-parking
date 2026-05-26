@@ -49,9 +49,13 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...your-key-he
 
 > **Never commit `.env` to git.** Only `.env.example` (with placeholder values) is committed.
 
-### Step 4: Apply the Database Migration
+### Step 4: Apply the Database Migrations
 
 This creates the tables, indexes, RLS policies, and triggers.
+
+There are **2 migrations** to apply in order:
+1. `00001_initial_schema.sql` — Tables, constraints, indexes, RLS, triggers
+2. `00002_allow_spot_status_update.sql` — RLS policy allowing authenticated users to update spot status
 
 **Option A: Supabase Dashboard (recommended for first setup)**
 
@@ -60,6 +64,9 @@ This creates the tables, indexes, RLS policies, and triggers.
 3. Copy and paste the entire contents of `supabase/migrations/00001_initial_schema.sql`
 4. Click **"Run"** (or press Ctrl+Enter)
 5. You should see "Success. No rows returned." — this is correct
+6. Create another new query
+7. Copy and paste `supabase/migrations/00002_allow_spot_status_update.sql`
+8. Click **"Run"**
 
 **Option B: Supabase CLI**
 
@@ -86,7 +93,7 @@ After the migration is applied:
 1. Go to **SQL Editor** → **"New query"**
 2. Copy and paste the contents of `supabase/seed/seed.sql`
 3. Click **"Run"**
-4. You should see "Success. 25 rows affected."
+4. You should see "Success. 26 rows affected."
 
 **Option B: Supabase CLI**
 
@@ -99,9 +106,9 @@ npx supabase db reset
 1. Go to **Table Editor** in the Supabase dashboard
 2. You should see three tables:
    - `profiles` (empty until users sign up)
-   - `parking_spots` (25 rows from seed data)
+   - `parking_spots` (26 rows from seed data)
    - `parking_reports` (empty until users submit reports)
-3. Click on `parking_spots` — you should see 25 San Francisco parking spots
+3. Click on `parking_spots` — you should see 26 San Francisco parking spots
 
 ### Step 7: Test Authentication
 
@@ -174,7 +181,7 @@ These are loaded automatically by Expo when the app starts.
 All tables have RLS enabled:
 
 - **profiles** — Users can only read/update their own profile.
-- **parking_spots** — Any authenticated user can read all spots.
+- **parking_spots** — Any authenticated user can read all spots. Authenticated users can update spot status (via migration 2).
 - **parking_reports** — Users can insert reports (as themselves) and read their own reports.
 
 ## Auto-Triggers
@@ -187,10 +194,11 @@ All tables have RLS enabled:
 ```
 supabase/
 ├── migrations/
-│   └── 00001_initial_schema.sql   → Tables, constraints, indexes, RLS, triggers
+│   ├── 00001_initial_schema.sql              → Tables, constraints, indexes, RLS, triggers
+│   └── 00002_allow_spot_status_update.sql    → RLS policy for spot status updates
 ├── seed/
-│   └── seed.sql                   → 25 mock SF parking spots
-└── README.md                      → This file
+│   └── seed.sql                              → 26 mock SF parking spots
+└── README.md                                 → This file
 ```
 
 ## Notes

@@ -6,67 +6,88 @@ React Native Expo app for iOS and Android. This is the main product.
 
 Help drivers in San Francisco find available street parking in real time.
 
-## Current Screens
+## Current Features
 
-| Screen | Status | Description |
-|--------|--------|-------------|
-| Welcome | Placeholder | Landing screen with Get Started / Sign In buttons |
-| Login | Placeholder | Email + password form (no auth connected yet) |
-| Register | Placeholder | Full name, email, password form |
-| Map | Placeholder | Mock parking spot list (map integration coming) |
-| Profile | Placeholder | User info and sign out |
+| Feature | Status |
+|---------|--------|
+| Welcome screen | Working |
+| Login (Supabase Auth) | Working |
+| Register (Supabase Auth) | Working |
+| Parking spot list with live data | Working |
+| Search by street/address | Working |
+| Filter by status and type | Working |
+| Pull-to-refresh | Working |
+| Location-based loading | Working |
+| Spot detail card with status | Working |
+| Report spot status (available/occupied/unknown) | Working |
+| Realtime updates (live badge) | Working |
+| Get directions (opens Maps app) | Working |
+| Profile with sign out | Working |
+| Map view | Not yet (requires development build) |
 
-## Reusable Components
+## Known Limitations
 
-| Component | Description |
-|-----------|-------------|
-| `ScreenContainer` | Safe area wrapper with consistent padding |
-| `AppButton` | Primary, secondary, and outline button variants |
-| `AppInput` | Labeled text input with error state |
-| `ParkingSpotCard` | Card displaying spot info and availability |
-| `AvailabilityBadge` | Color-coded status badge (green/red/gray) |
+- **No map view** — `react-native-maps` requires a custom development build via EAS. The current MVP uses a list view in Expo Go.
+- **Profile stats** — "Reports submitted" and "Favorite spots" are not yet wired to the database.
+- **No favorites** — planned for next phase.
+
+## Required Environment Variables
+
+Create a `.env` file in this directory:
+
+```env
+EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key-here
+```
+
+Get these from your Supabase project: **Settings → API**.
+
+## How to Run
+
+```bash
+# From the monorepo root
+pnpm install
+
+# Start the app
+cd apps/mobile
+npx expo start
+```
+
+Options:
+- Scan QR code with **Expo Go** on a physical device (same WiFi)
+- Press `a` for Android emulator
+- Press `i` for iOS simulator
+- Use `--tunnel` if LAN doesn't work: `npx expo start --tunnel`
+
+If Expo CLI crashes with network errors, start in offline mode:
+
+```bash
+# Windows
+set EXPO_OFFLINE=1 && npx expo start -c
+
+# macOS/Linux
+EXPO_OFFLINE=1 npx expo start -c
+```
 
 ## Folder Structure
 
 ```
 apps/mobile/
-├── App.tsx                → Entry point
+├── App.tsx                → Entry point (AuthProvider + Navigation)
+├── index.js               → Expo bootstrap
+├── metro.config.js        → Monorepo-aware Metro config
 ├── app.json               → Expo config
 ├── package.json           → Dependencies
-├── tsconfig.json          → TypeScript config
-├── babel.config.js        → Babel config
-├── assets/                → Icons and images (placeholder)
 └── src/
-    ├── screens/           → App screens
-    ├── components/        → Reusable UI components
-    ├── navigation/        → React Navigation setup
-    ├── constants/         → Theme (colors, spacing, fonts)
-    ├── types/             → TypeScript types
-    ├── hooks/             → Custom hooks (future)
-    ├── services/          → API/Supabase services (future)
-    └── utils/             → Utility functions (future)
+    ├── screens/           → WelcomeScreen, LoginScreen, RegisterScreen, MapScreen, ProfileScreen
+    ├── components/        → AppButton, AppInput, ParkingSpotCard, AvailabilityBadge, ScreenContainer
+    ├── navigation/        → RootNavigator (auth-gated stack)
+    ├── contexts/          → AuthContext (Supabase auth state)
+    ├── hooks/             → useRealtimeSpots (live parking updates)
+    ├── services/          → supabaseClient, parkingService, authService
+    ├── constants/         → theme (colors, spacing, fonts), env
+    └── types/             → RootStackParamList, env declarations
 ```
-
-## How to Run
-
-```bash
-cd apps/mobile
-pnpm install
-pnpm start
-```
-
-Then press:
-- `i` for iOS simulator
-- `a` for Android emulator
-- Scan QR code with Expo Go on a physical device
-
-## Next Steps
-
-- [ ] Connect Supabase Auth (login/register)
-- [ ] Add react-native-maps with real SF parking data
-- [ ] Subscribe to Supabase Realtime for live updates
-- [ ] Add favorites feature
-- [ ] Add spot reporting (mark as available/occupied)
 
 ## Design Principles
 
@@ -75,4 +96,3 @@ Then press:
 - Rounded cards and pill buttons
 - Green = available, Red = occupied, Gray = unknown
 - No clutter, no heavy animations
-- Feels like a real startup product

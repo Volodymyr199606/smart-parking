@@ -6,10 +6,8 @@ import { supabase } from "./supabaseClient";
  * Uses Supabase Auth for email/password authentication.
  * Sessions are persisted in AsyncStorage automatically.
  *
- * Future additions:
- * - Google OAuth
- * - Apple Sign-In (required for iOS App Store if OAuth is offered)
- * - Password reset via email
+ * Note: Screens use AuthContext for auth state and actions.
+ * This module provides lower-level functions for non-UI use cases.
  */
 
 /**

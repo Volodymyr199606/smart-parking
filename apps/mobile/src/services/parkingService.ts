@@ -5,16 +5,10 @@ import type { ParkingSpot } from "@smart-parking/shared";
  * Parking data service for the mobile app.
  *
  * Queries the parking_spots table via Supabase PostgREST.
+ * Realtime updates are handled separately by useRealtimeSpots hook.
  *
- * Note: parking_spots has an RLS policy allowing any authenticated user
- * to read all spots. For the connection test, we use the anon key which
- * also works since the policy is on the `authenticated` role.
- *
- * Future additions:
- * - Supabase Realtime subscription for live availability updates
- * - Report a spot as available/occupied
- * - Save/unsave favorite spots
- * - Filter by parking type, price, time limit
+ * Note: parking_spots has RLS policies allowing any authenticated user
+ * to read all spots and update spot status.
  */
 
 /**
