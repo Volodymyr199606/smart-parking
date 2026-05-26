@@ -43,7 +43,7 @@ export async function getParkingSpots(limit: number = 10): Promise<ParkingSpot[]
 export async function getNearbyParkingSpots(
   latitude: number,
   longitude: number,
-  radiusMeters: number = 500
+  radiusMeters: number = 2000
 ): Promise<ParkingSpot[]> {
   const degreesOffset = radiusMeters / 111_000;
 
@@ -61,28 +61,24 @@ export async function getNearbyParkingSpots(
 }
 
 /**
- * Temporary: Test the Supabase connection by fetching a single row.
- * Returns true if the connection works, false otherwise.
- *
- * TODO: Remove this after verifying the connection works.
+ * Submit a parking report and update the spot's status.
+ * Inserts into parking_reports and patches parking_spots.status.
  */
-export async function testConnection(): Promise<{
-  connected: boolean;
-  spotCount: number;
-  error?: string;
-}> {
-  try {
-    const { data, error, count } = await supabase
-      .from("parking_spots")
-      .select("*", { count: "exact", head: true });
+export async function reportParkingSpot(
+  userId: string,
+  parkingSpotId: string,
+  status: "AVAILABLE" | "OCCUPIED" | "UNKNOWN"
+): Promise<void> {
+  const { error: reportError } = await supabase
+    .from("parking_reports")
+    .insert({ user_id: userId, parking_spot_id: parkingSpotId, status });
 
-    if (error) {
-      return { connected: false, spotCount: 0, error: error.message };
-    }
+  if (reportError) throw reportError;
 
-    return { connected: true, spotCount: count ?? 0 };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return { connected: false, spotCount: 0, error: message };
-  }
+  const { error: updateError } = await supabase
+    .from("parking_spots")
+    .update({ status })
+    .eq("id", parkingSpotId);
+
+  if (updateError) throw updateError;
 }
