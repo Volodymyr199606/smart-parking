@@ -16,11 +16,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import * as Location from "expo-location";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { ParkingSpot, ParkingStatus } from "@smart-parking/shared";
-import { formatParkingType, formatParkingStatus, MARKER_COLORS } from "@smart-parking/shared";
+import type { ParkingSpot, ParkingStatus } from "../shared";
+import { formatParkingType, formatParkingStatus, MARKER_COLORS } from "../shared";
 import { AppButton, ParkingSpotCard } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
-import { getNearbyParkingSpots, reportParkingSpot } from "../services/parkingService";
+import { getNearbyParkingSpots, getParkingSpots, reportParkingSpot } from "../services/parkingService";
 import { useAuth } from "../contexts/AuthContext";
 import { useRealtimeSpots, type ConnectionStatus } from "../hooks";
 import type { RootStackParamList } from "../types";
@@ -121,7 +121,11 @@ export function MapScreen({ navigation }: Props) {
   const fetchSpots = useCallback(async (lat: number, lng: number) => {
     try {
       setError(null);
-      const data = await getNearbyParkingSpots(lat, lng, SEARCH_RADIUS_METERS);
+      let data = await getNearbyParkingSpots(lat, lng, SEARCH_RADIUS_METERS);
+      // Fallback: if nothing nearby (e.g. demo user outside SF), show all seeded spots.
+      if (data.length === 0) {
+        data = await getParkingSpots(50);
+      }
       setSpots(data);
     } catch (err: any) {
       setError(err.message ?? "Failed to load parking spots.");

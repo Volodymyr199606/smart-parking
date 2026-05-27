@@ -1,18 +1,10 @@
 const { getDefaultConfig } = require("expo/metro-config");
-const path = require("path");
 
-const projectRoot = __dirname;
-const monorepoRoot = path.resolve(projectRoot, "../..");
+const config = getDefaultConfig(__dirname);
 
-const config = getDefaultConfig(projectRoot);
-
-// Watch the monorepo root so Metro can resolve workspace packages
-config.watchFolders = [monorepoRoot];
-
-// Ensure Metro resolves node_modules from both the app and monorepo root
-config.resolver.nodeModulesPaths = [
-  path.resolve(projectRoot, "node_modules"),
-  path.resolve(monorepoRoot, "node_modules"),
-];
+// Supabase + some deps still use CJS-only entry points; package exports
+// resolution breaks them in Metro and causes "Cannot read property 'default'
+// of undefined" at runtime. Disable to force legacy CJS resolution.
+config.resolver.unstable_enablePackageExports = false;
 
 module.exports = config;

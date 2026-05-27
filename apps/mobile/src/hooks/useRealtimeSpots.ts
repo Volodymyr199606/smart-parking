@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "../services/supabaseClient";
-import type { ParkingSpot } from "@smart-parking/shared";
+import type { ParkingSpot } from "../shared";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 export type ConnectionStatus = "live" | "reconnecting" | "offline";

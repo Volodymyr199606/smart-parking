@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { ParkingSpot } from "@smart-parking/shared";
+import type { ParkingSpot } from "../shared";
 
 /**
  * Parking data service for the mobile app.
