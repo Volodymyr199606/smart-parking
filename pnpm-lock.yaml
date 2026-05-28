@@ -59,6 +59,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@supabase/supabase-js':
+        specifier: ^2.105.4
+        version: 2.105.4
       lucide-react:
         specifier: ^0.462.0
         version: 0.462.0(react@19.1.0)

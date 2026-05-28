@@ -33,14 +33,33 @@ mobile app. Use it to:
 | About | `About` |
 | Footer | `Footer` |
 
+## Required Environment Variables
+
+Create `apps/web/.env.local` (preferred) or `.env`:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key-here
+```
+
+Get these from: Supabase Dashboard → Project Settings → API.
+
+The website uses these to write waitlist signups to the
+`waitlist_signups` table. Without them, the form will show a friendly
+"temporarily unavailable" error.
+
 ## How to Run
 
 ```bash
 # From the monorepo root
 pnpm install
 
-# Start the dev server
+# Set up env (one time)
 cd apps/web
+cp .env.example .env.local
+# edit .env.local with your Supabase credentials
+
+# Start the dev server
 pnpm dev
 ```
 
@@ -66,23 +85,44 @@ apps/web/
     │   ├── layout.tsx      → Root layout + metadata
     │   ├── page.tsx        → Landing page composition
     │   └── globals.css     → Tailwind import + theme tokens
-    └── components/
-        ├── Nav.tsx
-        ├── Hero.tsx
-        ├── Problem.tsx
-        ├── Solution.tsx
-        ├── Features.tsx
-        ├── DemoPreview.tsx
-        ├── Waitlist.tsx
-        ├── About.tsx
-        └── Footer.tsx
+    ├── components/
+    │   ├── Nav.tsx
+    │   ├── Hero.tsx
+    │   ├── Problem.tsx
+    │   ├── Solution.tsx
+    │   ├── Features.tsx
+    │   ├── DemoPreview.tsx
+    │   ├── PhoneDemo.tsx
+    │   ├── Waitlist.tsx
+    │   ├── About.tsx
+    │   └── Footer.tsx
+    └── lib/
+        └── supabase.ts        → Browser-safe Supabase client
 ```
+
+You'll also need a `.env.local` (gitignored) with your Supabase
+credentials. See `.env.example` for the template.
 
 ## Waitlist Form
 
-The form in `Waitlist.tsx` is currently a client-side placeholder that
-simulates a successful submit. Wire it up to a Supabase table or a
-`/api/waitlist` route when you're ready for real signups.
+The form in `Waitlist.tsx` writes directly to the Supabase
+`waitlist_signups` table via `src/lib/supabase.ts` (browser-safe anon
+key, RLS-protected insert-only access).
+
+**Fields:**
+- Full name (optional)
+- Email (required, must include `@`)
+- What interests you most? (optional)
+
+**States handled:**
+- `idle` — fresh form
+- `submitting` — request in flight
+- `success` — first-time signup
+- `already` — email already on the list (treated as success UX)
+- `error` — invalid email, missing config, or network error
+
+**To read signups:** use the Supabase dashboard's Table Editor with the
+service role (anon clients have no SELECT policy by design).
 
 ## Design System
 
@@ -103,3 +143,6 @@ Designed to deploy to Vercel out of the box:
 2. Set the **root directory** to `apps/web`
 3. Build command: `pnpm build` (auto-detected)
 4. Output: `.next` (auto-detected)
+5. Add the two env vars under **Settings → Environment Variables**:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`

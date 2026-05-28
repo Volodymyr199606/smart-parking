@@ -53,20 +53,20 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...your-key-he
 
 This creates the tables, indexes, RLS policies, and triggers.
 
-There are **2 migrations** to apply in order:
+There are **4 migrations** to apply in order:
 1. `00001_initial_schema.sql` — Tables, constraints, indexes, RLS, triggers
 2. `00002_allow_spot_status_update.sql` — RLS policy allowing authenticated users to update spot status
+3. `00003_enable_realtime.sql` — Adds `parking_spots` to the `supabase_realtime` publication
+4. `00004_waitlist_signups.sql` — Waitlist table for the marketing website (insert-only)
 
 **Option A: Supabase Dashboard (recommended for first setup)**
 
 1. In your Supabase project, go to **SQL Editor**
-2. Click **"New query"**
-3. Copy and paste the entire contents of `supabase/migrations/00001_initial_schema.sql`
-4. Click **"Run"** (or press Ctrl+Enter)
-5. You should see "Success. No rows returned." — this is correct
-6. Create another new query
-7. Copy and paste `supabase/migrations/00002_allow_spot_status_update.sql`
-8. Click **"Run"**
+2. For each migration file in order (`00001`, `00002`, `00003`, `00004`):
+   - Click **"New query"**
+   - Copy and paste the entire contents of the migration file
+   - Click **"Run"** (or press Ctrl+Enter)
+   - You should see "Success. No rows returned."
 
 **Option B: Supabase CLI**
 
@@ -138,6 +138,7 @@ These are loaded automatically by Expo when the app starts.
 | `profiles` | User profiles (linked to `auth.users` via id) |
 | `parking_spots` | All parking spot locations and availability |
 | `parking_reports` | User-submitted availability reports |
+| `waitlist_signups` | Marketing-site waitlist signups (insert-only) |
 
 ## Schema Overview
 
@@ -176,6 +177,15 @@ These are loaded automatically by Expo when the app starts.
 | note | text | Optional user note |
 | created_at | timestamptz | Auto-set |
 
+### waitlist_signups
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, auto-generated |
+| full_name | text | Optional |
+| email | text | Required, unique |
+| interest | text | Optional message from the user |
+| created_at | timestamptz | Auto-set |
+
 ## Security (Row Level Security)
 
 All tables have RLS enabled:
@@ -183,6 +193,7 @@ All tables have RLS enabled:
 - **profiles** — Users can only read/update their own profile.
 - **parking_spots** — Any authenticated user can read all spots. Authenticated users can update spot status (via migration 2).
 - **parking_reports** — Users can insert reports (as themselves) and read their own reports.
+- **waitlist_signups** — Anyone (anon + authenticated) can insert. No SELECT policy is defined, so reads are blocked for client roles. Read via the service role from the Supabase dashboard.
 
 ## Auto-Triggers
 
@@ -195,7 +206,9 @@ All tables have RLS enabled:
 supabase/
 ├── migrations/
 │   ├── 00001_initial_schema.sql              → Tables, constraints, indexes, RLS, triggers
-│   └── 00002_allow_spot_status_update.sql    → RLS policy for spot status updates
+│   ├── 00002_allow_spot_status_update.sql    → RLS policy for spot status updates
+│   ├── 00003_enable_realtime.sql             → Realtime publication for parking_spots
+│   └── 00004_waitlist_signups.sql            → Waitlist signups table (insert-only)
 ├── seed/
 │   └── seed.sql                              → 26 mock SF parking spots
 └── README.md                                 → This file

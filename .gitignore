@@ -42,6 +42,9 @@ android/
 # === Supabase ===
 supabase/.temp/
 
+# === Stray / legacy paths (not part of monorepo) ===
+frontend/
+
 # === Archive build artifacts (not needed) ===
 archive/old-backend/target/
 
