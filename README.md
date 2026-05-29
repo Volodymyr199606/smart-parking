@@ -1,12 +1,24 @@
 # Smart Parking
 
-Real-time street parking availability for San Francisco drivers.
+**Real-time street parking for San Francisco — mobile-first, Supabase-powered.**
+
+Smart Parking helps drivers find open spots faster. The **mobile app** (React Native + Expo) is the main product: search nearby parking, filter by availability, get directions, and report status with live updates. The **website** (Next.js) is the landing page, interactive demo, and waitlist for early access.
+
+**Portfolio demo:** See **[DEMO.md](./DEMO.md)** for a full walkthrough, architecture summary, and step-by-step demo script for recruiters and hackathons.
+
+| Surface | Purpose | Demo today |
+|---------|---------|------------|
+| **Mobile app** | Core product for drivers | **Expo Go** — polished list-view MVP |
+| **Website** | Marketing + waitlist | Local or **Vercel** deploy |
+| **Supabase** | Auth, database, realtime | Shared backend for both |
+
+**Note:** The current Expo Go build uses a **list view** (not native map pins). Native map support is prepared for a later **EAS development build**; it is not required to demo the MVP.
 
 ---
 
 ## Project Structure
 
-This is a TypeScript-first monorepo with the following layout:
+This is a TypeScript-first monorepo:
 
 ```
 smart-parking/
@@ -18,8 +30,8 @@ smart-parking/
 ├── supabase/
 │   ├── migrations/    → SQL migration files (4 migrations)
 │   └── seed/          → Seed data for development (26 SF parking spots)
-├── archive/
-│   └── ...            → Previous Java/Spring Boot backend (reference only)
+├── archive/           → Previous Java/Spring stack (reference only)
+├── DEMO.md            → Demo script & portfolio guide
 └── README.md          → This file
 ```
 
@@ -31,8 +43,7 @@ smart-parking/
 | Website | Next.js 15 + Tailwind CSS 4 (TypeScript, React 19) |
 | Backend | Supabase (Postgres, Auth, Realtime) |
 | Database | PostgreSQL via Supabase |
-| Shared | `@smart-parking/shared` workspace package |
-| Deployment | Expo Go (dev) / EAS (production) · Vercel (web) |
+| Deployment | Expo Go (demo) / EAS (native map later) · Vercel (web) |
 
 ## Current MVP Status
 
@@ -45,22 +56,23 @@ smart-parking/
 | Location-based spot loading | Working |
 | Search and filter (status, type) | Working |
 | Profile with user info | Working |
-| List-based spot browsing | Working |
-| Map view (react-native-maps) | Not yet — requires dev build |
-| Marketing website (landing + Supabase waitlist) | Working |
+| List-based spot browsing (Expo Go) | Working |
+| Marketing website + Supabase waitlist | Working |
+| Native map view | EAS dev build later |
 | Favorites | Not yet |
 | Push notifications | Not yet |
 
 ## Architecture
 
 The mobile app connects directly to Supabase:
+
 - **Auth** — email/password signup and login with session persistence
 - **Database** — parking spots and user reports via PostgREST
 - **Realtime** — live updates when spots change status
 
-The app uses a **list view** instead of a map because `react-native-maps` requires a custom development build (not available in Expo Go). Map integration is planned for the next phase.
+The **list view** is the default in Expo Go. Native maps (`react-native-maps`) require a custom EAS development build and are optional for later.
 
-The marketing website connects to the same Supabase project for **waitlist signups** (`waitlist_signups` table). Visitors submit name, email, and an optional interest message from the browser using the public anon key. Row Level Security allows insert only — signups are read in the Supabase dashboard.
+The marketing website uses the same Supabase project for **waitlist signups** (`waitlist_signups` table). Row Level Security allows insert only from the browser.
 
 ## Getting Started
 
@@ -69,7 +81,7 @@ The marketing website connects to the same Supabase project for **waitlist signu
 pnpm install
 ```
 
-Run the mobile app:
+**Mobile (Expo Go — recommended for demos):**
 
 ```bash
 cd apps/mobile
@@ -77,11 +89,11 @@ cp .env.example .env   # Add your Supabase credentials
 npx expo start
 ```
 
-Run the marketing website:
+**Website:**
 
 ```bash
 cd apps/web
-cp .env.example .env.local   # Same Supabase project as mobile (see below)
+cp .env.example .env.local
 pnpm dev
 # Open http://localhost:3000
 ```
@@ -89,24 +101,18 @@ pnpm dev
 ### Website waitlist setup
 
 1. Apply all Supabase migrations including `00004_waitlist_signups.sql` (see [`supabase/README.md`](./supabase/README.md)).
-2. Create `apps/web/.env.local` with your Supabase credentials (copy from [`apps/web/.env.example`](./apps/web/.env.example)):
+2. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `apps/web/.env.local`.
+3. For Vercel: root directory `apps/web`, same env vars in project settings.
 
-   | Variable | Description |
-   |----------|-------------|
-   | `NEXT_PUBLIC_SUPABASE_URL` | Project URL from Supabase → Settings → API |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `anon` `public` key (safe in the browser) |
+## Documentation
 
-3. Start the site and submit the waitlist form on the landing page. New rows appear in **Table Editor → `waitlist_signups`** (dashboard only; the anon key cannot read this table).
-
-For Vercel, set the same two variables under **Project → Settings → Environment Variables** and set the deploy root directory to `apps/web`.
-
-- See [`apps/mobile/README.md`](./apps/mobile/README.md) for mobile setup.
-- See [`apps/web/README.md`](./apps/web/README.md) for website details.
-- See [`supabase/README.md`](./supabase/README.md) for database setup.
-
-## Branch
-
-Active development happens on the `rebuild-next-supabase` branch.
+| Doc | Description |
+|-----|-------------|
+| [**DEMO.md**](./DEMO.md) | Portfolio & hackathon demo guide |
+| [apps/mobile/README.md](./apps/mobile/README.md) | Mobile setup, Expo Go, EAS |
+| [apps/web/README.md](./apps/web/README.md) | Website & waitlist |
+| [supabase/README.md](./supabase/README.md) | Database & migrations |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Detailed architecture (reference) |
 
 ## License
 
