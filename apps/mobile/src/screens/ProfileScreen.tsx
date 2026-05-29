@@ -21,7 +21,10 @@ export function ProfileScreen(_props: Props) {
     .toUpperCase()
     .slice(0, 2);
   const memberSince = user?.created_at
-    ? new Date(user.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    ? new Date(user.created_at).toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric",
+      })
     : "—";
 
   async function handleSignOut() {
@@ -37,9 +40,10 @@ export function ProfileScreen(_props: Props) {
     <ScreenContainer>
       <View style={styles.header}>
         <Text style={styles.title}>Profile</Text>
+        <Text style={styles.subtitle}>Your account and activity</Text>
       </View>
 
-      <View style={styles.card}>
+      <View style={styles.profileCard}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{initials}</Text>
         </View>
@@ -49,29 +53,55 @@ export function ProfileScreen(_props: Props) {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Account</Text>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Member since</Text>
-          <Text style={styles.rowValue}>{memberSince}</Text>
+        <View style={styles.infoCard}>
+          <InfoRow label="Email" value={email} />
+          <InfoRow label="Member since" value={memberSince} isLast />
         </View>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Reports submitted</Text>
-          <Text style={styles.rowValueMuted}>Coming soon</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Favorite spots</Text>
-          <Text style={styles.rowValueMuted}>Coming soon</Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Activity</Text>
+        <View style={styles.infoCard}>
+          <InfoRow label="Reports submitted" value="Coming soon" muted />
+          <InfoRow label="Favorite spots" value="Coming soon" muted isLast />
         </View>
       </View>
 
       <View style={styles.actions}>
         <AppButton
-          title={loggingOut ? "Signing out..." : "Sign Out"}
+          title={loggingOut ? "Signing out..." : "Log out"}
           variant="outline"
           onPress={handleSignOut}
           disabled={loggingOut}
+          loading={loggingOut}
         />
+        <Text style={styles.logoutHint}>You will return to the welcome screen.</Text>
       </View>
     </ScreenContainer>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+  muted,
+  isLast,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+  isLast?: boolean;
+}) {
+  return (
+    <View style={[styles.row, isLast && styles.rowLast]}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text
+        style={[styles.rowValue, muted && styles.rowValueMuted]}
+        numberOfLines={1}
+      >
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -85,7 +115,12 @@ const styles = StyleSheet.create({
     fontWeight: font.light,
     color: colors.textPrimary,
   },
-  card: {
+  subtitle: {
+    marginTop: spacing.xs,
+    fontSize: font.sizeSm,
+    color: colors.textSecondary,
+  },
+  profileCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -95,9 +130,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: colors.primary,
     justifyContent: "center",
     alignItems: "center",
@@ -105,12 +140,12 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     fontSize: font.sizeLg,
-    fontWeight: font.medium,
+    fontWeight: font.semibold,
     color: colors.textOnDark,
   },
   name: {
     fontSize: font.sizeLg,
-    fontWeight: font.medium,
+    fontWeight: font.semibold,
     color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
@@ -119,38 +154,61 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   section: {
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
   },
   sectionTitle: {
-    fontSize: font.sizeSm,
-    fontWeight: font.medium,
+    fontSize: font.sizeXs,
+    fontWeight: font.semibold,
     color: colors.textMuted,
     textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: spacing.md,
+    letterSpacing: 0.8,
+    marginBottom: spacing.sm,
+  },
+  infoCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
   },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    gap: spacing.md,
+  },
+  rowLast: {
+    borderBottomWidth: 0,
   },
   rowLabel: {
-    fontSize: font.sizeMd,
-    color: colors.textPrimary,
+    fontSize: font.sizeSm,
+    color: colors.textSecondary,
+    flex: 1,
   },
   rowValue: {
-    fontSize: font.sizeMd,
-    color: colors.textSecondary,
+    fontSize: font.sizeSm,
+    fontWeight: font.medium,
+    color: colors.textPrimary,
+    flex: 1,
+    textAlign: "right",
   },
   rowValueMuted: {
-    fontSize: font.sizeSm,
     color: colors.textMuted,
+    fontWeight: font.regular,
     fontStyle: "italic",
   },
   actions: {
     marginTop: "auto",
+    paddingTop: spacing.lg,
     paddingBottom: spacing.lg,
+  },
+  logoutHint: {
+    marginTop: spacing.sm,
+    fontSize: font.sizeXs,
+    color: colors.textMuted,
+    textAlign: "center",
   },
 });

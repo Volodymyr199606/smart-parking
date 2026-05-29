@@ -12,6 +12,14 @@ interface ParkingSpotCardProps {
   onPress?: () => void;
 }
 
+function MetaChip({ label }: { label: string }) {
+  return (
+    <View style={styles.metaChip}>
+      <Text style={styles.metaChipText}>{label}</Text>
+    </View>
+  );
+}
+
 export function ParkingSpotCard({
   streetName,
   address,
@@ -21,26 +29,36 @@ export function ParkingSpotCard({
   timeLimit,
   onPress,
 }: ParkingSpotCardProps) {
+  const metaItems = [parkingType, price, timeLimit].filter(Boolean) as string[];
+
   return (
     <TouchableOpacity
       style={styles.card}
       onPress={onPress}
-      activeOpacity={0.7}
+      activeOpacity={0.75}
       disabled={!onPress}
     >
-      <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <Text style={styles.street}>{streetName}</Text>
-          <AvailabilityBadge status={status} />
+      <View style={styles.topRow}>
+        <View style={styles.titleBlock}>
+          <Text style={styles.street} numberOfLines={1}>
+            {streetName}
+          </Text>
+          {address ? (
+            <Text style={styles.address} numberOfLines={2}>
+              {address}
+            </Text>
+          ) : null}
         </View>
-        {address && <Text style={styles.address}>{address}</Text>}
+        <AvailabilityBadge status={status} compact />
       </View>
 
-      <View style={styles.details}>
-        <Text style={styles.detail}>{parkingType}</Text>
-        {price && <Text style={styles.detail}>{price}</Text>}
-        {timeLimit && <Text style={styles.detail}>{timeLimit}</Text>}
-      </View>
+      {metaItems.length > 0 && (
+        <View style={styles.metaRow}>
+          {metaItems.map((item) => (
+            <MetaChip key={item} label={item} />
+          ))}
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -53,32 +71,51 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  header: {
-    marginBottom: spacing.md,
-  },
-  titleRow: {
+  topRow: {
     flexDirection: "row",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    alignItems: "center",
+    gap: spacing.md,
+  },
+  titleBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   street: {
     fontSize: font.sizeMd,
-    fontWeight: font.medium,
+    fontWeight: font.semibold,
     color: colors.textPrimary,
-    flex: 1,
+    marginBottom: spacing.xs,
   },
   address: {
     fontSize: font.sizeSm,
     color: colors.textSecondary,
-    marginTop: spacing.xs,
+    lineHeight: 20,
   },
-  details: {
+  metaRow: {
     flexDirection: "row",
-    gap: spacing.md,
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  detail: {
+  metaChip: {
+    backgroundColor: colors.background,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  metaChipText: {
     fontSize: font.sizeXs,
-    color: colors.textMuted,
+    fontWeight: font.medium,
+    color: colors.textSecondary,
   },
 });
