@@ -42,7 +42,7 @@ export function RegisterScreen({ navigation }: Props) {
   }
 
   return (
-    <ScreenContainer>
+    <ScreenContainer keyboardAware>
       <View style={styles.header}>
         <Text style={styles.title}>Create account</Text>
         <Text style={styles.subtitle}>Start finding parking today</Text>
@@ -76,6 +76,8 @@ export function RegisterScreen({ navigation }: Props) {
           onChangeText={setPassword}
           placeholder="At least 6 characters"
           secureTextEntry
+          returnKeyType="done"
+          onSubmitEditing={handleRegister}
         />
 
         <AppButton

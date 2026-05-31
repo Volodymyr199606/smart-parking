@@ -16,8 +16,13 @@ pnpm install
 
 cd apps/mobile
 cp .env.example .env   # add Supabase credentials
-npx expo start
+pnpm start
+# or: npx expo start --go
 ```
+
+Scan the QR code with **Expo Go** (not the iPhone Camera app).
+
+> **Important:** Because `expo-dev-client` is installed for future EAS builds, you must use `--go` (or `pnpm start`) for Expo Go. Plain `expo start` opens a dev-client QR that Expo Go cannot read.
 
 Scan the QR code with **Expo Go** on your iPhone (same Wi‑Fi).
 
@@ -34,7 +39,16 @@ If Expo CLI has network issues:
 
 ```bash
 # Windows
-set EXPO_OFFLINE=1 && npx expo start -c
+set EXPO_OFFLINE=1 && pnpm start -c
+
+# macOS/Linux
+EXPO_OFFLINE=1 pnpm start -c
+```
+
+If LAN scanning fails, use tunnel mode (still Expo Go):
+
+```bash
+pnpm start:tunnel
 ```
 
 ## Native map (optional, later)
@@ -81,14 +95,14 @@ Get these from your Supabase project: **Settings → API**.
 
 ```bash
 cd apps/mobile
-npx expo start
+pnpm start
 ```
 
 Options:
-- Scan QR code with **Expo Go** on a physical device (same WiFi)
+- Scan QR code with **Expo Go** on a physical device (same WiFi) — use `pnpm start`, not `pnpm start:dev`
 - Press `a` for Android emulator
 - Press `i` for iOS simulator
-- Use `--tunnel` if LAN doesn't work: `npx expo start --tunnel`
+- Use tunnel if LAN doesn't work: `pnpm start:tunnel`
 
 ## EAS Development Build (Map View)
 

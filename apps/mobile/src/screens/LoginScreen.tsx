@@ -40,7 +40,7 @@ export function LoginScreen({ navigation }: Props) {
   }
 
   return (
-    <ScreenContainer>
+    <ScreenContainer keyboardAware>
       <View style={styles.header}>
         <Text style={styles.title}>Welcome back</Text>
         <Text style={styles.subtitle}>Sign in to find parking</Text>
@@ -67,6 +67,8 @@ export function LoginScreen({ navigation }: Props) {
           onChangeText={setPassword}
           placeholder="Your password"
           secureTextEntry
+          returnKeyType="done"
+          onSubmitEditing={handleLogin}
         />
 
         <AppButton

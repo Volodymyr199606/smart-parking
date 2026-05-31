@@ -10,6 +10,9 @@ interface AppInputProps {
   keyboardType?: "default" | "email-address" | "numeric";
   autoCapitalize?: "none" | "sentences" | "words";
   error?: string;
+  returnKeyType?: "done" | "next" | "go" | "send";
+  onSubmitEditing?: () => void;
+  blurOnSubmit?: boolean;
 }
 
 export function AppInput({
@@ -21,6 +24,9 @@ export function AppInput({
   keyboardType = "default",
   autoCapitalize = "sentences",
   error,
+  returnKeyType,
+  onSubmitEditing,
+  blurOnSubmit,
 }: AppInputProps) {
   return (
     <View style={styles.wrapper}>
@@ -34,6 +40,9 @@ export function AppInput({
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        returnKeyType={returnKeyType}
+        onSubmitEditing={onSubmitEditing}
+        blurOnSubmit={blurOnSubmit}
       />
       {error && <Text style={styles.error}>{error}</Text>}
     </View>
