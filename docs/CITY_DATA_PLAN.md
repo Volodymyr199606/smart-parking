@@ -1,7 +1,33 @@
 # City Data Integration Plan — Smart Parking (San Francisco)
 
-> **Status:** Planning only — no ingestion code, no schema migrations, no mobile UI changes in this phase.  
-> **Goal:** Prepare to import real city parking and curb data from DataSF and SFMTA without breaking the current Expo app, auth, realtime, reports, or the 26-row `MOCK` seed in `parking_spots`.
+> **Status:** Ingestion **prototype** on branch `feature/city-data-ingestion`. Mobile MVP unchanged.  
+> **Goal:** Import real city parking/curb data into **separate** tables without breaking Expo Go, auth, realtime, reports, or the 26-row `MOCK` seed in `parking_spots`.
+
+### Current ingestion prototype (active)
+
+| Item | Location |
+|------|----------|
+| Migration | `supabase/migrations/00005_city_parking_data.sql` |
+| Ingest script | `scripts/ingest-sf-parking-data.ts` |
+| Command | `pnpm ingest:sf-parking` (requires service role + migration applied) |
+
+**Tables added (separate from `parking_spots`):**
+
+| Table | Purpose |
+|-------|---------|
+| `city_parking_sources` | Registry of DataSF datasets we import |
+| `city_parking_blocks` | SFMTA metered street blocks + merged regulation fields |
+| `city_parking_meters` | Parking meter points |
+
+**Datasets ingested (v1):**
+
+1. [SFMTA Metered Street Blocks](https://data.sfgov.org/d/27b3-yjjx) (`27b3-yjjx`) → `city_parking_blocks`
+2. [Parking Meters](https://data.sfgov.org/d/8vzz-qzz9) (`8vzz-qzz9`) → `city_parking_meters`
+3. [Parking regulations (blockface map)](https://data.sfgov.org/d/hi6h-neyh) (`hi6h-neyh`) → updates matching `city_parking_blocks` by `blockface_id`
+
+**Why the MVP is unaffected:** The mobile app still reads only `parking_spots` and `parking_reports`. City tables are optional, read-only for clients, and populated by a local script — not wired into the map UI yet.
+
+**Planned later (not in prototype):** street sweeping (`yhqp-riqs`), RPP zones (SFMTA GIS), projection into `parking_spots`, Edge Function cron sync. See §7 legacy design notes and §11.
 
 Related: high-level architecture overview in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §10.
 
@@ -294,8 +320,9 @@ Only after mobile QA:
 
 ## 7. Future Supabase schema (detailed design)
 
-> **Draft migration:** `supabase/migrations/00005_city_data_tables.sql` exists in the repo but **must not be applied** until city ingestion is ready.  
-> Current production tables (`parking_spots`, `parking_reports`, `profiles`, `waitlist_signups`) stay unchanged for MVP.
+> **Prototype migration:** `supabase/migrations/00005_city_parking_data.sql` — apply before running `pnpm ingest:sf-parking`.  
+> Older draft `00005_city_data_tables.sql` was replaced by this schema.  
+> `parking_spots` / `parking_reports` remain unchanged for the mobile MVP.
 
 ### 7.0 Design principles
 

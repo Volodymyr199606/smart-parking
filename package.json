@@ -4,9 +4,17 @@
   "private": true,
   "description": "Smart Parking monorepo — mobile app, website, and shared packages",
   "scripts": {
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && pnpm typecheck:scripts",
     "typecheck:shared": "pnpm --filter @smart-parking/shared typecheck",
-    "typecheck:mobile": "pnpm --filter smart-parking-mobile typecheck"
+    "typecheck:mobile": "pnpm --filter smart-parking-mobile typecheck",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
+    "ingest:sf-parking": "tsx scripts/ingest-sf-parking-data.ts"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.105.4",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
   },
   "packageManager": "pnpm@10.22.0"
 }
