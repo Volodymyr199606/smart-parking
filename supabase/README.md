@@ -167,6 +167,8 @@ These are loaded automatically by Expo when the app starts.
 
 Populated by `pnpm ingest:sf-parking` (service role). **Legal/rule + inventory data** — not live availability. The mobile app still uses `parking_spots` for the map MVP.
 
+**Inspection view:** `city_parking_meters_clean` (`00006`) — read-only flattened meters for SQL Editor checks. Not used by the app.
+
 ## Schema Overview
 
 ### profiles
@@ -237,7 +239,8 @@ supabase/
 │   ├── 00002_allow_spot_status_update.sql    → RLS policy for spot status updates
 │   ├── 00003_enable_realtime.sql             → Realtime publication for parking_spots
 │   ├── 00004_waitlist_signups.sql            → Waitlist signups table (insert-only)
-│   └── 00005_city_parking_data.sql           → City parking tables (optional; for ingest prototype)
+│   ├── 00005_city_parking_data.sql           → City parking tables (optional; for ingest prototype)
+│   └── 00006_city_parking_views.sql            → Read-only inspection view (optional)
 ├── seed/
 │   └── seed.sql                              → 26 mock SF parking spots
 └── README.md                                 → This file

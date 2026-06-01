@@ -9,8 +9,10 @@
  * Requires migration 00005_city_parking_data.sql applied.
  *
  * Usage:
+ *   pnpm ingest:sf-parking:meters     # first run: 100 meters only (default batch)
  *   pnpm ingest:sf-parking
  *   pnpm ingest:sf-parking -- --limit=500
+ *   pnpm ingest:sf-parking -- --full
  *   pnpm ingest:sf-parking -- --dry-run
  *   pnpm ingest:sf-parking -- --only=meters,blocks
  */
@@ -20,6 +22,8 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const SOCRATA_BASE = "https://data.sfgov.org/resource";
 const PAGE_SIZE = 1000;
 const MAX_ROWS_SAFETY = 100_000;
+/** Safe default for first real imports (override with --limit=N or --full). */
+const DEFAULT_INGEST_LIMIT = 100;
 
 type DatasetKey = "blocks" | "meters" | "regulations";
 
@@ -54,6 +58,20 @@ const DATASETS: Record<
 };
 
 type SocrataRow = Record<string, unknown>;
+
+interface MeterMapResult {
+  row: Record<string, unknown> | null;
+  skipReason?: "missing_coordinates" | "missing_meter_id" | "invalid_coordinates";
+}
+
+interface MeterIngestStats {
+  fetched: number;
+  skipped: number;
+  upserted: number;
+  skippedMissingCoordinates: number;
+  skippedMissingMeterId: number;
+  skippedInvalidCoordinates: number;
+}
 
 function log(message: string): void {
   console.log(`[ingest] ${message}`);
@@ -93,14 +111,21 @@ function parseArgs(argv: string[]): {
   dryRun: boolean;
   limit: number | null;
   only: Set<DatasetKey> | null;
+  fullImport: boolean;
 } {
   let dryRun = false;
   let limit: number | null = null;
   let only: Set<DatasetKey> | null = null;
+  let fullImport = false;
+  let limitExplicit = false;
 
   for (const arg of argv) {
     if (arg === "--dry-run") dryRun = true;
-    else if (arg.startsWith("--limit=")) {
+    else if (arg === "--full") fullImport = true;
+    else if (arg === "--meters-only") {
+      only = new Set<DatasetKey>(["meters"]);
+    } else if (arg.startsWith("--limit=")) {
+      limitExplicit = true;
       const n = Number(arg.split("=")[1]);
       if (!Number.isFinite(n) || n < 1) {
         throw new Error(`Invalid --limit value: ${arg}`);
@@ -120,12 +145,59 @@ function parseArgs(argv: string[]): {
   }
 
   const envLimit = process.env.INGEST_LIMIT;
-  if (limit === null && envLimit) {
+  if (!limitExplicit && envLimit) {
     const n = Number(envLimit);
     if (Number.isFinite(n) && n > 0) limit = Math.min(n, MAX_ROWS_SAFETY);
   }
 
-  return { dryRun, limit, only };
+  if (!fullImport && limit === null) {
+    limit = DEFAULT_INGEST_LIMIT;
+  }
+
+  return { dryRun, limit, only, fullImport };
+}
+
+function parseCoordinates(row: SocrataRow): { lat: number; lng: number } | null {
+  let lat = pickNumber(row, ["latitude", "lat", "y"]);
+  let lng = pickNumber(row, ["longitude", "lng", "long", "x"]);
+
+  const shape = row.shape as { coordinates?: number[] } | undefined;
+  if ((lat === null || lng === null) && shape?.coordinates?.length === 2) {
+    lng = shape.coordinates[0];
+    lat = shape.coordinates[1];
+  }
+
+  const location = row.location as
+    | { latitude?: number; longitude?: number }
+    | undefined;
+  if (lat === null && location?.latitude !== undefined) lat = location.latitude;
+  if (lng === null && location?.longitude !== undefined) {
+    lng = location.longitude;
+  }
+
+  if (lat === null || lng === null) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+
+  return { lat, lng };
+}
+
+function buildLocationDescription(row: SocrataRow): string | null {
+  const street = pickString(row, ["street_name", "streetname", "street"]);
+  const num = pickString(row, ["street_num", "streetnum", "street_number"]);
+  const neighborhood = pickString(row, ["analysis_neighborhood", "neighborhood"]);
+
+  if (street && num) return `${num} ${street}`;
+  if (street) return street;
+  if (neighborhood) return neighborhood;
+  return pickString(row, ["location", "address", "location_description"]);
+}
+
+function resolveMeterId(row: SocrataRow): string | null {
+  return (
+    pickString(row, ["post_id", "postid", "meter_id", "meterid"]) ??
+    pickString(row, ["objectid", "object_id", "id"])
+  );
 }
 
 async function fetchSocrataPage(
@@ -197,11 +269,13 @@ function requireEnv(name: string): string {
 
 async function ensureSources(
   supabase: SupabaseClient,
-  dryRun: boolean
+  dryRun: boolean,
+  datasets: DatasetKey[]
 ): Promise<Record<string, string>> {
   const idByKey: Record<string, string> = {};
 
-  for (const def of Object.values(DATASETS)) {
+  for (const key of datasets) {
+    const def = DATASETS[key];
     const row = {
       source_key: def.sourceKey,
       display_name: def.displayName,
@@ -289,46 +363,56 @@ function mapMeterRow(
   sourceId: string,
   importedAt: string,
   blockIdByBlockface: Map<string, string>
-): Record<string, unknown> | null {
-  const lat = pickNumber(row, ["latitude", "lat"]);
-  const lng = pickNumber(row, ["longitude", "lng", "long"]);
-  if (lat === null || lng === null) {
-    return null;
+): MeterMapResult {
+  const coords = parseCoordinates(row);
+  if (!coords) {
+    const lat = pickNumber(row, ["latitude", "lat"]);
+    const lng = pickNumber(row, ["longitude", "lng", "long"]);
+    if (lat !== null || lng !== null) {
+      return { row: null, skipReason: "invalid_coordinates" };
+    }
+    return { row: null, skipReason: "missing_coordinates" };
+  }
+
+  const meterId = resolveMeterId(row);
+  if (!meterId) {
+    return { row: null, skipReason: "missing_meter_id" };
   }
 
   const postId = pickString(row, ["post_id", "postid"]);
-  const objectId = pickString(row, ["objectid", "object_id"]);
-  const externalId = postId ?? objectId;
-  if (!externalId) return null;
-
   const blockfaceId = pickString(row, ["blockface_id", "blockface"]);
+  const streetName = pickString(row, ["street_name", "streetname"]);
+  const locationDescription = buildLocationDescription(row);
 
   return {
-    source_id: sourceId,
-    external_id: externalId,
-    post_id: postId,
-    blockface_id: blockfaceId,
-    block_id: blockfaceId ? blockIdByBlockface.get(blockfaceId) ?? null : null,
-    street_name: pickString(row, ["street_name", "streetname"]),
-    street_num: pickString(row, ["street_num", "streetnum", "street_number"]),
-    latitude: lat,
-    longitude: lng,
-    meter_type: pickString(row, ["meter_type", "metertype"]),
-    cap_color: pickString(row, ["cap_color", "capcolor"]),
-    on_offstreet_type: pickString(row, [
-      "on_offstreet_type",
-      "on_off_str",
-      "onoffstreet",
-    ]),
-    active_meter_flag: pickString(row, [
-      "active_meter_flag",
-      "active_meter",
-      "active",
-    ]),
-    jurisdiction: pickString(row, ["jurisdiction"]),
-    raw_payload: row,
-    imported_at: importedAt,
-    updated_at: importedAt,
+    row: {
+      source_id: sourceId,
+      external_id: meterId,
+      post_id: postId ?? meterId,
+      blockface_id: blockfaceId,
+      block_id: blockfaceId ? blockIdByBlockface.get(blockfaceId) ?? null : null,
+      street_name: streetName ?? locationDescription,
+      street_num: pickString(row, ["street_num", "streetnum", "street_number"]),
+      latitude: coords.lat,
+      longitude: coords.lng,
+      meter_type: pickString(row, ["meter_type", "metertype"]),
+      cap_color: pickString(row, ["cap_color", "capcolor"]),
+      on_offstreet_type: pickString(row, [
+        "on_offstreet_type",
+        "on_off_str",
+        "onoffstreet",
+      ]),
+      active_meter_flag: pickString(row, [
+        "active_meter_flag",
+        "active_meter",
+        "active",
+        "status",
+      ]),
+      jurisdiction: pickString(row, ["jurisdiction"]),
+      raw_payload: row,
+      imported_at: importedAt,
+      updated_at: importedAt,
+    },
   };
 }
 
@@ -412,9 +496,9 @@ async function ingestMeters(
   sourceId: string,
   dryRun: boolean,
   limit: number | null
-): Promise<number> {
+): Promise<MeterIngestStats> {
   const datasetId = DATASETS.meters.datasetId;
-  log(`ingesting meters from ${datasetId}...`);
+  log(`ingesting Parking Meters from DataSF (${datasetId})...`);
 
   const blockIdByBlockface = dryRun
     ? new Map<string, string>()
@@ -423,19 +507,49 @@ async function ingestMeters(
   const rows = await fetchAllRows(datasetId, limit);
   const importedAt = new Date().toISOString();
   const payload: Record<string, unknown>[] = [];
-  let skipped = 0;
+  const stats: MeterIngestStats = {
+    fetched: rows.length,
+    skipped: 0,
+    upserted: 0,
+    skippedMissingCoordinates: 0,
+    skippedMissingMeterId: 0,
+    skippedInvalidCoordinates: 0,
+  };
 
   for (const row of rows) {
-    const mapped = mapMeterRow(row, sourceId, importedAt, blockIdByBlockface);
-    if (mapped) payload.push(mapped);
-    else skipped += 1;
+    const { row: mapped, skipReason } = mapMeterRow(
+      row,
+      sourceId,
+      importedAt,
+      blockIdByBlockface
+    );
+    if (mapped) {
+      payload.push(mapped);
+    } else {
+      stats.skipped += 1;
+      if (skipReason === "missing_coordinates") {
+        stats.skippedMissingCoordinates += 1;
+      } else if (skipReason === "missing_meter_id") {
+        stats.skippedMissingMeterId += 1;
+      } else if (skipReason === "invalid_coordinates") {
+        stats.skippedInvalidCoordinates += 1;
+      }
+    }
   }
 
-  if (skipped > 0) log(`  skipped ${skipped} meters (missing id or coordinates)`);
+  log(`Parking Meters: fetched=${stats.fetched} skipped=${stats.skipped} ready=${payload.length}`);
+  if (stats.skipped > 0) {
+    log(
+      `  skip breakdown: missing_coordinates=${stats.skippedMissingCoordinates} ` +
+        `missing_meter_id=${stats.skippedMissingMeterId} ` +
+        `invalid_coordinates=${stats.skippedInvalidCoordinates}`
+    );
+  }
 
   if (dryRun) {
-    log(`[dry-run] would upsert ${payload.length} meters`);
-    return payload.length;
+    log(`[dry-run] would upsert ${payload.length} meters into city_parking_meters`);
+    stats.upserted = payload.length;
+    return stats;
   }
 
   let upserted = 0;
@@ -446,8 +560,10 @@ async function ingestMeters(
       .upsert(chunk, { onConflict: "source_id,external_id" });
     if (error) throw new Error(`meters upsert: ${error.message}`);
     upserted += chunk.length;
-    log(`  meters upserted ${upserted}/${payload.length}`);
+    log(`  upserted ${upserted}/${payload.length} into city_parking_meters`);
   }
+
+  stats.upserted = upserted;
 
   await supabase
     .from("city_parking_sources")
@@ -458,7 +574,11 @@ async function ingestMeters(
     })
     .eq("id", sourceId);
 
-  return upserted;
+  log(
+    `Parking Meters complete: fetched=${stats.fetched} skipped=${stats.skipped} upserted=${stats.upserted}`
+  );
+
+  return stats;
 }
 
 async function ingestRegulations(
@@ -537,10 +657,13 @@ async function ingestRegulations(
 }
 
 async function main(): Promise<void> {
-  const { dryRun, limit, only } = parseArgs(process.argv.slice(2));
+  const { dryRun, limit, only, fullImport } = parseArgs(process.argv.slice(2));
 
   log("Smart Parking — DataSF ingestion prototype");
-  log(`dryRun=${dryRun} limit=${limit ?? "none"} only=${only ? [...only].join(",") : "all"}`);
+  log(
+    `dryRun=${dryRun} limit=${fullImport ? "full" : (limit ?? DEFAULT_INGEST_LIMIT)} ` +
+      `only=${only ? [...only].join(",") : "all"}`
+  );
 
   if (!dryRun) {
     requireEnv("SUPABASE_URL");
@@ -555,9 +678,12 @@ async function main(): Promise<void> {
         { auth: { persistSession: false, autoRefreshToken: false } }
       );
 
-  const sourceIds = await ensureSources(supabase, dryRun);
-
   const run = (key: DatasetKey) => !only || only.has(key);
+  const datasetsToEnsure: DatasetKey[] = (
+    ["blocks", "meters", "regulations"] as DatasetKey[]
+  ).filter(run);
+
+  const sourceIds = await ensureSources(supabase, dryRun, datasetsToEnsure);
 
   if (run("blocks")) {
     await ingestBlocks(

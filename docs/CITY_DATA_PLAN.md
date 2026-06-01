@@ -19,13 +19,52 @@
 | `city_parking_blocks` | SFMTA metered street blocks + merged regulation fields |
 | `city_parking_meters` | Parking meter points |
 
+**Inspection view (read-only, not in mobile app):**
+
+| View | Purpose |
+|------|---------|
+| `city_parking_meters_clean` | Flattened meters for SQL Editor / API inspection (`00006`) |
+
 **Datasets ingested (v1):**
 
 1. [SFMTA Metered Street Blocks](https://data.sfgov.org/d/27b3-yjjx) (`27b3-yjjx`) → `city_parking_blocks`
-2. [Parking Meters](https://data.sfgov.org/d/8vzz-qzz9) (`8vzz-qzz9`) → `city_parking_meters`
+2. [Parking Meters](https://data.sfgov.org/d/8vzz-qzz9) (`8vzz-qzz9`) → `city_parking_meters` — **first real run:** `pnpm ingest:sf-parking:meters` (100 rows)
 3. [Parking regulations (blockface map)](https://data.sfgov.org/d/hi6h-neyh) (`hi6h-neyh`) → updates matching `city_parking_blocks` by `blockface_id`
 
 **Why the MVP is unaffected:** The mobile app still reads only `parking_spots` and `parking_reports`. City tables are optional, read-only for clients, and populated by a local script — not wired into the map UI yet.
+
+### Inspection view: `city_parking_meters_clean`
+
+Migration `00006_city_parking_views.sql` adds a **read-only** view over `city_parking_meters` joined to `city_parking_sources`. Use it to verify ingest quality in Supabase without reading large `raw_payload` JSON.
+
+| Column | Meaning |
+|--------|---------|
+| `meter_id` | `post_id` or `external_id` |
+| `status` | City `active_meter_flag` (not app availability) |
+| `latitude` / `longitude` | WGS84 coordinates |
+| `location_description` | e.g. `1301 POLK ST` |
+| `last_ingested_at` | Row `imported_at` from last ingest |
+| `source_name` | DataSF dataset display name |
+
+**Example queries (Supabase SQL Editor):**
+
+```sql
+-- Row count after ingest
+SELECT COUNT(*) FROM city_parking_meters_clean;
+
+-- Sample rows
+SELECT meter_id, status, latitude, longitude, location_description, source_name, last_ingested_at
+FROM city_parking_meters_clean
+ORDER BY last_ingested_at DESC
+LIMIT 20;
+
+-- Rows missing location text (data quality check)
+SELECT meter_id, latitude, longitude, last_ingested_at
+FROM city_parking_meters_clean
+WHERE location_description IS NULL;
+```
+
+**Why not in the production app yet:** The Expo Go MVP still maps `parking_spots` only. This view is for operators/developers to inspect city ingest before any future UI or projection work. It uses `security_invoker = true`, so the same RLS read rules as the underlying city tables apply.
 
 **Planned later (not in prototype):** street sweeping (`yhqp-riqs`), RPP zones (SFMTA GIS), projection into `parking_spots`, Edge Function cron sync. See §7 legacy design notes and §11.
 
