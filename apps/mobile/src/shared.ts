@@ -39,6 +39,13 @@ export interface ParkingReport {
   created_at: string;
 }
 
+export interface FavoriteParkingSpot {
+  id: string;
+  user_id: string;
+  parking_spot_id: string;
+  created_at: string;
+}
+
 /** Phase 3 — normalized city inventory row (not live MVP availability). */
 export interface NormalizedParkingLocation {
   id: string;

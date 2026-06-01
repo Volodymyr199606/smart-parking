@@ -58,6 +58,7 @@ There are **4 migrations** to apply for the current MVP (in order):
 2. `00002_allow_spot_status_update.sql` — RLS policy allowing authenticated users to update spot status
 3. `00003_enable_realtime.sql` — Adds `parking_spots` to the `supabase_realtime` publication
 4. `00004_waitlist_signups.sql` — Waitlist table for the marketing website (insert-only)
+5. `00008_favorite_parking_spots.sql` — User favorites for parking spots (mobile app)
 
 > **Migration `00005_city_parking_data.sql`** adds separate city tables (`city_parking_sources`, `city_parking_blocks`, `city_parking_meters`). Apply it when you want to run the ingestion prototype (`pnpm ingest:sf-parking`). It does **not** modify `parking_spots` or the mobile MVP. See [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md).
 

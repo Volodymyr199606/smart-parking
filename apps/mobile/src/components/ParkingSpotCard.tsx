@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Pressable } from "react-native";
 import { colors, spacing, radius, font } from "../constants/theme";
 import { AvailabilityBadge } from "./AvailabilityBadge";
 
@@ -10,6 +10,9 @@ interface ParkingSpotCardProps {
   price?: string;
   timeLimit?: string;
   onPress?: () => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: () => void;
+  favoriteLoading?: boolean;
 }
 
 function MetaChip({ label }: { label: string }) {
@@ -28,6 +31,9 @@ export function ParkingSpotCard({
   price,
   timeLimit,
   onPress,
+  isFavorite = false,
+  onToggleFavorite,
+  favoriteLoading = false,
 }: ParkingSpotCardProps) {
   const metaItems = [parkingType, price, timeLimit].filter(Boolean) as string[];
 
@@ -49,7 +55,22 @@ export function ParkingSpotCard({
             </Text>
           ) : null}
         </View>
-        <AvailabilityBadge status={status} compact />
+        <View style={styles.actionsColumn}>
+          {onToggleFavorite ? (
+            <Pressable
+              style={styles.favoriteButton}
+              onPress={onToggleFavorite}
+              disabled={favoriteLoading}
+              accessibilityLabel={isFavorite ? "Remove from favorites" : "Save to favorites"}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.favoriteIcon, isFavorite && styles.favoriteIconActive]}>
+                {isFavorite ? "\u2665" : "\u2661"}
+              </Text>
+            </Pressable>
+          ) : null}
+          <AvailabilityBadge status={status} compact />
+        </View>
       </View>
 
       {metaItems.length > 0 && (
@@ -86,6 +107,28 @@ const styles = StyleSheet.create({
   titleBlock: {
     flex: 1,
     minWidth: 0,
+  },
+  actionsColumn: {
+    alignItems: "flex-end",
+    gap: spacing.sm,
+  },
+  favoriteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  favoriteIcon: {
+    fontSize: 18,
+    color: colors.textMuted,
+    lineHeight: 20,
+  },
+  favoriteIconActive: {
+    color: "#ef4444",
   },
   street: {
     fontSize: font.sizeMd,

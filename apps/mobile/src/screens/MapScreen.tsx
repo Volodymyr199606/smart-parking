@@ -22,6 +22,7 @@ import { AppButton, ParkingSpotCard, AvailabilityBadge } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
 import { isNativeMapSupported } from "../utils/mapSupport";
 import { getNearbyParkingSpots, getParkingSpots, reportParkingSpot } from "../services/parkingService";
+import { addFavorite, getFavorites, removeFavorite } from "../services/favoritesService";
 import { useAuth } from "../contexts/AuthContext";
 import { useRealtimeSpots, type ConnectionStatus } from "../hooks";
 import type { RootStackParamList } from "../types";
@@ -103,6 +104,9 @@ export function MapScreen({ navigation }: Props) {
   const [reporting, setReporting] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
 
+  const [favoriteSpotIds, setFavoriteSpotIds] = useState<Set<string>>(new Set());
+  const [favoriteTogglingId, setFavoriteTogglingId] = useState<string | null>(null);
+
   const { connectionStatus } = useRealtimeSpots({
     onInsert: (spot) => setSpots((prev) => [spot, ...prev]),
     onUpdate: (spot) => {
@@ -173,6 +177,55 @@ export function MapScreen({ navigation }: Props) {
     if (locationStatus === "loading") return;
     fetchSpots(userLat, userLng);
   }, [locationStatus, userLat, userLng, fetchSpots]);
+
+  const loadFavorites = useCallback(async () => {
+    if (!user) {
+      setFavoriteSpotIds(new Set());
+      return;
+    }
+
+    try {
+      const favorites = await getFavorites();
+      setFavoriteSpotIds(new Set(favorites.map((f) => f.parking_spot_id)));
+    } catch (err: any) {
+      console.warn("Failed to load favorites:", err.message);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadFavorites();
+  }, [loadFavorites]);
+
+  async function handleToggleFavorite(spotId: string) {
+    if (!user) {
+      Alert.alert("Sign in required", "Log in to save favorite parking spots.");
+      return;
+    }
+
+    const alreadyFavorite = favoriteSpotIds.has(spotId);
+    setFavoriteTogglingId(spotId);
+
+    try {
+      if (alreadyFavorite) {
+        await removeFavorite(spotId);
+        setFavoriteSpotIds((prev) => {
+          const next = new Set(prev);
+          next.delete(spotId);
+          return next;
+        });
+      } else {
+        await addFavorite(spotId);
+        setFavoriteSpotIds((prev) => new Set(prev).add(spotId));
+      }
+    } catch (err: any) {
+      Alert.alert(
+        alreadyFavorite ? "Could not remove favorite" : "Could not save favorite",
+        err.message ?? "Please try again."
+      );
+    } finally {
+      setFavoriteTogglingId(null);
+    }
+  }
 
   function handleRefresh() {
     setRefreshing(true);
@@ -506,6 +559,9 @@ export function MapScreen({ navigation }: Props) {
               parkingType={formatParkingType(item.parking_type)}
               price={item.price ?? undefined}
               timeLimit={item.time_limit ?? undefined}
+              isFavorite={favoriteSpotIds.has(item.id)}
+              favoriteLoading={favoriteTogglingId === item.id}
+              onToggleFavorite={() => handleToggleFavorite(item.id)}
               onPress={() => setSelectedSpot(item)}
             />
           )}
@@ -525,16 +581,38 @@ export function MapScreen({ navigation }: Props) {
                 <Text style={styles.cardAddress}>{selectedSpot.address}</Text>
               ) : null}
             </View>
-            <Pressable
-              onPress={() => {
-                setSelectedSpot(null);
-                setReportSuccess(false);
-              }}
-              style={styles.closeButton}
-              accessibilityLabel="Close spot details"
-            >
-              <Text style={styles.closeButtonText}>✕</Text>
-            </Pressable>
+            <View style={styles.cardHeaderActions}>
+              <Pressable
+                style={styles.detailFavoriteButton}
+                onPress={() => handleToggleFavorite(selectedSpot.id)}
+                disabled={favoriteTogglingId === selectedSpot.id}
+                accessibilityLabel={
+                  favoriteSpotIds.has(selectedSpot.id)
+                    ? "Remove from favorites"
+                    : "Save to favorites"
+                }
+                accessibilityRole="button"
+              >
+                <Text
+                  style={[
+                    styles.detailFavoriteIcon,
+                    favoriteSpotIds.has(selectedSpot.id) && styles.detailFavoriteIconActive,
+                  ]}
+                >
+                  {favoriteSpotIds.has(selectedSpot.id) ? "\u2665" : "\u2661"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setSelectedSpot(null);
+                  setReportSuccess(false);
+                }}
+                style={styles.closeButton}
+                accessibilityLabel="Close spot details"
+              >
+                <Text style={styles.closeButtonText}>✕</Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.cardStatusRow}>
@@ -960,6 +1038,29 @@ const styles = StyleSheet.create({
   cardTitleBlock: {
     flex: 1,
     minWidth: 0,
+  },
+  cardHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  detailFavoriteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailFavoriteIcon: {
+    fontSize: 18,
+    color: colors.textMuted,
+    lineHeight: 20,
+  },
+  detailFavoriteIconActive: {
+    color: "#ef4444",
   },
   cardStreet: {
     fontSize: font.sizeLg,
