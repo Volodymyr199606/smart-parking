@@ -53,11 +53,13 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...your-key-he
 
 This creates the tables, indexes, RLS policies, and triggers.
 
-There are **4 migrations** to apply in order:
+There are **4 migrations** to apply for the current MVP (in order):
 1. `00001_initial_schema.sql` — Tables, constraints, indexes, RLS, triggers
 2. `00002_allow_spot_status_update.sql` — RLS policy allowing authenticated users to update spot status
 3. `00003_enable_realtime.sql` — Adds `parking_spots` to the `supabase_realtime` publication
 4. `00004_waitlist_signups.sql` — Waitlist table for the marketing website (insert-only)
+
+> **Do not apply `00005_city_data_tables.sql` yet.** That file is a **planned/future** draft for DataSF/SFMTA curb and zone data. It is kept in the repo for design continuity but must **not** be run in the Supabase SQL Editor or via `supabase db push` until city data ingestion is implemented (Edge Functions or admin scripts). Applying it early only adds empty tables and does not change the mobile app today. See [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md).
 
 **Option A: Supabase Dashboard (recommended for first setup)**
 
@@ -80,9 +82,11 @@ npx supabase login
 # Link to your project (find project ref in dashboard URL or Project Settings)
 npx supabase link --project-ref YOUR_PROJECT_REF
 
-# Push migrations
+# Push migrations (applies ALL pending files including 00005 if present — avoid for MVP)
 npx supabase db push
 ```
+
+For MVP, apply only `00001`–`00004` manually in the SQL Editor, or exclude `00005` until city import is ready.
 
 ### Step 5: Seed the Database with Mock Data
 
@@ -140,6 +144,17 @@ These are loaded automatically by Expo when the app starts.
 | `parking_reports` | User-submitted availability reports |
 | `waitlist_signups` | Marketing-site waitlist signups (insert-only) |
 
+### City data tables (future — migration `00005`, not applied for MVP)
+
+| Table | Purpose |
+|-------|---------|
+| `city_data_imports` | Audit log for DataSF/SFMTA sync runs |
+| `parking_zones` | RPP areas, districts, rate zones (static rules) |
+| `curb_rules` | Blockface parking regulations (static rules) |
+| `street_sweeping_rules` | Street cleaning no-parking windows |
+
+These store **legal/rule data**, not live empty-spot availability. Availability stays on `parking_spots` and `parking_reports`.
+
 ## Schema Overview
 
 ### profiles
@@ -194,6 +209,7 @@ All tables have RLS enabled:
 - **parking_spots** — Any authenticated user can read all spots. Authenticated users can update spot status (via migration 2).
 - **parking_reports** — Users can insert reports (as themselves) and read their own reports.
 - **waitlist_signups** — Anyone (anon + authenticated) can insert. No SELECT policy is defined, so reads are blocked for client roles. Read via the service role from the Supabase dashboard.
+- **city data tables** (`00005`, when applied) — Authenticated users can read. No client write policies; ingestion uses service role only.
 
 ## Auto-Triggers
 
@@ -208,7 +224,8 @@ supabase/
 │   ├── 00001_initial_schema.sql              → Tables, constraints, indexes, RLS, triggers
 │   ├── 00002_allow_spot_status_update.sql    → RLS policy for spot status updates
 │   ├── 00003_enable_realtime.sql             → Realtime publication for parking_spots
-│   └── 00004_waitlist_signups.sql            → Waitlist signups table (insert-only)
+│   ├── 00004_waitlist_signups.sql            → Waitlist signups table (insert-only)
+│   └── 00005_city_data_tables.sql            → FUTURE: city zones/rules (do not apply yet)
 ├── seed/
 │   └── seed.sql                              → 26 mock SF parking spots
 └── README.md                                 → This file
@@ -219,6 +236,7 @@ supabase/
 - Seed data uses `source = 'MOCK'` — will be replaced with real DataSF/SFMTA data later.
 - PostGIS is not enabled yet (using lat/lng columns for now). Will add when spatial queries are needed.
 - No Edge Functions yet — will be added for data sync and background jobs.
+- **`00005_city_data_tables.sql`** is committed as a draft only — see [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md). Do not apply until ingestion is built.
 
 ## Troubleshooting
 
