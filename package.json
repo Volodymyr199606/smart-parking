@@ -10,7 +10,8 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
     "ingest:sf-parking": "tsx scripts/ingest-sf-parking-data.ts",
     "ingest:sf-parking:meters": "tsx scripts/ingest-sf-parking-data.ts --meters-only --limit=100",
-    "check:city-parking": "tsx scripts/check-city-parking-data.ts"
+    "check:city-parking": "tsx scripts/check-city-parking-data.ts",
+    "normalize:city-parking": "tsx scripts/normalize-city-parking.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.105.4",

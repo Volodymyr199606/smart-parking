@@ -68,6 +68,19 @@ WHERE location_description IS NULL;
 
 **Planned later (not in prototype):** street sweeping (`yhqp-riqs`), RPP zones (SFMTA GIS), projection into `parking_spots`, Edge Function cron sync. See §7 legacy design notes and §11.
 
+### Phase 2: Normalized city layer
+
+Migration `00007_normalized_city_parking.sql` adds **`normalized_parking_locations`** — the future canonical city inventory table (not `parking_spots`).
+
+| Command | Purpose |
+|---------|---------|
+| `pnpm normalize:city-parking` | Upsert meters → normalized rows (service role) |
+| `pnpm check:city-parking` | Read-only inspect via `city_parking_meters_clean` |
+
+**Upsert key:** `(source_type, source_id)` e.g. `datasf_parking_meter` + `post_id`.
+
+Not connected to the mobile app yet.
+
 Related: high-level architecture overview in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §10.
 
 ---

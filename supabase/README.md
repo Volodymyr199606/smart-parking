@@ -240,7 +240,8 @@ supabase/
 │   ├── 00003_enable_realtime.sql             → Realtime publication for parking_spots
 │   ├── 00004_waitlist_signups.sql            → Waitlist signups table (insert-only)
 │   ├── 00005_city_parking_data.sql           → City parking tables (optional; for ingest prototype)
-│   └── 00006_city_parking_views.sql            → Read-only inspection view (optional)
+│   ├── 00006_city_parking_views.sql            → Read-only inspection view (optional)
+│   └── 00007_normalized_city_parking.sql       → Normalized city locations (Phase 2)
 ├── seed/
 │   └── seed.sql                              → 26 mock SF parking spots
 └── README.md                                 → This file
