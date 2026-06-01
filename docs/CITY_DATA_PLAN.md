@@ -68,16 +68,39 @@ WHERE location_description IS NULL;
 
 **Planned later (not in prototype):** street sweeping (`yhqp-riqs`), RPP zones (SFMTA GIS), projection into `parking_spots`, Edge Function cron sync. See §7 legacy design notes and §11.
 
-### Phase 2: Normalized city layer
+### Phase 2: Normalized city layer — status
 
-Migration `00007_normalized_city_parking.sql` adds **`normalized_parking_locations`** — the future canonical city inventory table (not `parking_spots`).
+| Item | Status |
+|------|--------|
+| Migration `00007_normalized_city_parking.sql` | **In repo** — apply in Supabase SQL Editor after `00005`/`00006` |
+| Table `normalized_parking_locations` | Canonical city inventory (not `parking_spots`) |
+| Script `scripts/normalize-city-parking.ts` | **Added** — upserts from `city_parking_meters` |
+| Script `scripts/verify-normalized-parking.ts` | **Added** — read-only validation |
+| Mobile app | **Not connected** — Expo Go MVP unchanged |
+
+**Pipeline (run in order):**
+
+```powershell
+# Apply 00005 → 00006 → 00007 in Supabase, then:
+$env:SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY = "your-service-role-key"
+pnpm ingest:sf-parking:meters
+pnpm normalize:city-parking
+pnpm verify:normalized-parking
+pnpm check:city-parking
+```
 
 | Command | Purpose |
 |---------|---------|
 | `pnpm normalize:city-parking` | Upsert meters → normalized rows (service role) |
-| `pnpm check:city-parking` | Read-only inspect via `city_parking_meters_clean` |
+| `pnpm verify:normalized-parking` | Validate row count, coords, duplicates, `raw_source` |
+| `pnpm check:city-parking` | Inspect raw ingest via `city_parking_meters_clean` |
 
 **Upsert key:** `(source_type, source_id)` e.g. `datasf_parking_meter` + `post_id`.
+
+**Verification checklist:** row count > 0; valid lat/lng; no duplicate `(source_type, source_id)`; `active` is boolean; `raw_source` populated; `last_synced_at` set.
+
+**Next step (Phase 3):** Read-only API/service layer (Supabase RPC or Edge Function) to query normalized locations near a point — still **not** wired into the mobile map until a deliberate cutover.
 
 Not connected to the mobile app yet.
 

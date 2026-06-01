@@ -39,6 +39,36 @@ export interface ParkingReport {
   created_at: string;
 }
 
+/** Phase 3 — normalized city inventory row (not live MVP availability). */
+export interface NormalizedParkingLocation {
+  id: string;
+  source_type: string;
+  source_id: string;
+  latitude: number;
+  longitude: number;
+  address: string | null;
+  parking_type: ParkingType;
+  time_limit: string | null;
+  active: boolean;
+  restrictions: string | null;
+  city: string;
+  raw_source: Record<string, unknown>;
+  last_synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Nearby normalized location with client-side distance in miles. */
+export interface NormalizedParkingNearby extends NormalizedParkingLocation {
+  distance_miles: number;
+}
+
+/** Safe read-only result for city parking queries (Phase 3). */
+export interface CityParkingQueryResult<T> {
+  data: T;
+  error: string | null;
+}
+
 export const MARKER_COLORS = {
   AVAILABLE: "#22c55e",
   OCCUPIED: "#ef4444",

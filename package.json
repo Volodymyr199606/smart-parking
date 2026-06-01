@@ -11,7 +11,9 @@
     "ingest:sf-parking": "tsx scripts/ingest-sf-parking-data.ts",
     "ingest:sf-parking:meters": "tsx scripts/ingest-sf-parking-data.ts --meters-only --limit=100",
     "check:city-parking": "tsx scripts/check-city-parking-data.ts",
-    "normalize:city-parking": "tsx scripts/normalize-city-parking.ts"
+    "normalize:city-parking": "tsx scripts/normalize-city-parking.ts",
+    "verify:normalized-parking": "tsx scripts/verify-normalized-parking.ts",
+    "check:city-parking-service": "tsx scripts/check-city-parking-service.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.105.4",
