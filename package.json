@@ -9,7 +9,8 @@
     "typecheck:mobile": "pnpm --filter smart-parking-mobile typecheck",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
     "ingest:sf-parking": "tsx scripts/ingest-sf-parking-data.ts",
-    "ingest:sf-parking:meters": "tsx scripts/ingest-sf-parking-data.ts --meters-only --limit=100"
+    "ingest:sf-parking:meters": "tsx scripts/ingest-sf-parking-data.ts --meters-only --limit=100",
+    "check:city-parking": "tsx scripts/check-city-parking-data.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.105.4",
