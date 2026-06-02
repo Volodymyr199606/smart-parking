@@ -3,3 +3,4 @@ export { LoginScreen } from "./LoginScreen";
 export { RegisterScreen } from "./RegisterScreen";
 export { MapScreen } from "./MapScreen";
 export { ProfileScreen } from "./ProfileScreen";
+export { SettingsScreen } from "./SettingsScreen";

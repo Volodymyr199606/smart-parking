@@ -411,12 +411,20 @@ export function MapScreen({ navigation }: Props) {
             <LiveBadge status={connectionStatus} />
           </View>
         </View>
-        <Pressable
-          style={styles.profileButton}
-          onPress={() => navigation.navigate("Profile")}
-        >
-          <Text style={styles.profileButtonText}>Profile</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            style={styles.headerButton}
+            onPress={() => navigation.navigate("Settings")}
+          >
+            <Text style={styles.headerButtonText}>Settings</Text>
+          </Pressable>
+          <Pressable
+            style={styles.headerButton}
+            onPress={() => navigation.navigate("Profile")}
+          >
+            <Text style={styles.headerButtonText}>Profile</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Location status bar */}
@@ -853,16 +861,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: font.medium,
   },
-  profileButton: {
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  headerButton: {
     backgroundColor: colors.surface,
     borderRadius: radius.full,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  profileButtonText: {
-    fontSize: font.sizeSm,
+  headerButtonText: {
+    fontSize: font.sizeXs,
     fontWeight: font.medium,
     color: colors.textPrimary,
   },

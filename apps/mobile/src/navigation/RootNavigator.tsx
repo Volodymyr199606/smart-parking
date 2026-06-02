@@ -6,6 +6,7 @@ import {
   RegisterScreen,
   MapScreen,
   ProfileScreen,
+  SettingsScreen,
 } from "../screens";
 import { useAuth } from "../contexts/AuthContext";
 import { colors, font } from "../constants/theme";
@@ -46,6 +47,7 @@ export function RootNavigator() {
         <>
           <Stack.Screen name="Map" component={MapScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} options={headerOptions} />
+          <Stack.Screen name="Settings" component={SettingsScreen} options={headerOptions} />
         </>
       ) : (
         <>

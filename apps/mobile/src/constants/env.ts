@@ -12,4 +12,7 @@
 export const ENV = {
   SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL ?? "",
   SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "",
+  /** City data preview UI — defaults off; does not affect parking_spots MVP. */
+  ENABLE_CITY_DATA_PREVIEW:
+    process.env.EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW === "true",
 } as const;

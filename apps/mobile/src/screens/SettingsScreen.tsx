@@ -1,31 +1,25 @@
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ScreenContainer, AppButton } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
 import { useAuth } from "../contexts/AuthContext";
 import type { RootStackParamList } from "../types";
+import {
+  getAppVersion,
+  getCityDataPreviewStatusLabel,
+  getNativeMapStatusLabel,
+  getRealtimeStatusLabel,
+} from "../utils/appStatus";
 
-type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
+type Props = NativeStackScreenProps<RootStackParamList, "Settings">;
 
-export function ProfileScreen({ navigation }: Props) {
+export function SettingsScreen(_props: Props) {
   const { user, signOut } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
 
-  const fullName = user?.user_metadata?.full_name ?? "Smart Parker";
   const email = user?.email ?? "—";
-  const initials = fullName
-    .split(" ")
-    .map((n: string) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
-  const memberSince = user?.created_at
-    ? new Date(user.created_at).toLocaleDateString("en-US", {
-        month: "long",
-        year: "numeric",
-      })
-    : "—";
+  const appVersion = getAppVersion();
 
   async function handleSignOut() {
     setLoggingOut(true);
@@ -39,42 +33,31 @@ export function ProfileScreen({ navigation }: Props) {
   return (
     <ScreenContainer>
       <View style={styles.header}>
-        <Text style={styles.title}>Profile</Text>
-        <Text style={styles.subtitle}>Your account and activity</Text>
-      </View>
-
-      <View style={styles.profileCard}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{initials}</Text>
-        </View>
-        <Text style={styles.name}>{fullName}</Text>
-        <Text style={styles.email}>{email}</Text>
+        <Text style={styles.title}>Settings</Text>
+        <Text style={styles.subtitle}>App preferences and status</Text>
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Account</Text>
         <View style={styles.infoCard}>
-          <InfoRow label="Email" value={email} />
-          <InfoRow label="Member since" value={memberSince} isLast />
+          <InfoRow label="Email" value={email} isLast />
         </View>
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>App</Text>
         <View style={styles.infoCard}>
+          <InfoRow label="Version" value={appVersion} />
+          <InfoRow label="Realtime" value={getRealtimeStatusLabel()} />
           <InfoRow
-            label="Settings"
-            value="View"
-            onPress={() => navigation.navigate("Settings")}
+            label="City data preview"
+            value={getCityDataPreviewStatusLabel()}
           />
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Activity</Text>
-        <View style={styles.infoCard}>
-          <InfoRow label="Reports submitted" value="Coming soon" muted />
-          <InfoRow label="Favorite spots" value="Coming soon" muted isLast />
+          <InfoRow
+            label="Native map"
+            value={getNativeMapStatusLabel()}
+            isLast
+          />
         </View>
       </View>
 
@@ -95,41 +78,20 @@ export function ProfileScreen({ navigation }: Props) {
 function InfoRow({
   label,
   value,
-  muted,
   isLast,
-  onPress,
 }: {
   label: string;
   value: string;
-  muted?: boolean;
   isLast?: boolean;
-  onPress?: () => void;
 }) {
-  const content = (
-    <>
+  return (
+    <View style={[styles.row, isLast && styles.rowLast]}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text
-        style={[styles.rowValue, muted && styles.rowValueMuted]}
-        numberOfLines={1}
-      >
+      <Text style={styles.rowValue} numberOfLines={2}>
         {value}
       </Text>
-    </>
+    </View>
   );
-
-  if (onPress) {
-    return (
-      <Pressable
-        style={[styles.row, isLast && styles.rowLast]}
-        onPress={onPress}
-        accessibilityRole="button"
-      >
-        {content}
-      </Pressable>
-    );
-  }
-
-  return <View style={[styles.row, isLast && styles.rowLast]}>{content}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -144,39 +106,6 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     marginTop: spacing.xs,
-    fontSize: font.sizeSm,
-    color: colors.textSecondary,
-  },
-  profileCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.xl,
-    alignItems: "center",
-    marginBottom: spacing.xl,
-  },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: spacing.md,
-  },
-  avatarText: {
-    fontSize: font.sizeLg,
-    fontWeight: font.semibold,
-    color: colors.textOnDark,
-  },
-  name: {
-    fontSize: font.sizeLg,
-    fontWeight: font.semibold,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
-  },
-  email: {
     fontSize: font.sizeSm,
     color: colors.textSecondary,
   },
@@ -221,11 +150,6 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flex: 1,
     textAlign: "right",
-  },
-  rowValueMuted: {
-    color: colors.textMuted,
-    fontWeight: font.regular,
-    fontStyle: "italic",
   },
   actions: {
     marginTop: "auto",
