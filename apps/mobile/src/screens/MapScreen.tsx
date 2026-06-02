@@ -23,6 +23,7 @@ import { colors, spacing, radius, font } from "../constants/theme";
 import { isNativeMapSupported } from "../utils/mapSupport";
 import { getNearbyParkingSpots, getParkingSpots, reportParkingSpot } from "../services/parkingService";
 import { addFavorite, getFavorites, removeFavorite } from "../services/favoritesService";
+import { trackEvent } from "../services/analyticsService";
 import { useAuth } from "../contexts/AuthContext";
 import { useRealtimeSpots, type ConnectionStatus } from "../hooks";
 import type { RootStackParamList } from "../types";
@@ -161,6 +162,7 @@ export function MapScreen({ navigation }: Props) {
         data = await getParkingSpots(50);
       }
       setSpots(data);
+      trackEvent("parking_list_viewed", { spot_count: data.length });
     } catch (err: any) {
       setError(err.message ?? "Failed to load parking spots.");
     } finally {
@@ -213,9 +215,11 @@ export function MapScreen({ navigation }: Props) {
           next.delete(spotId);
           return next;
         });
+        trackEvent("favorite_removed", { parking_spot_id: spotId });
       } else {
         await addFavorite(spotId);
         setFavoriteSpotIds((prev) => new Set(prev).add(spotId));
+        trackEvent("favorite_added", { parking_spot_id: spotId });
       }
     } catch (err: any) {
       Alert.alert(
@@ -253,6 +257,10 @@ export function MapScreen({ navigation }: Props) {
       setSelectedSpot((prev) => (prev ? { ...prev, status, updated_at: new Date().toISOString() } : null));
       setReportSuccess(true);
       setTimeout(() => setReportSuccess(false), 3000);
+      trackEvent("report_submitted", {
+        parking_spot_id: selectedSpot.id,
+        status,
+      });
     } catch (err: any) {
       Alert.alert("Report failed", err.message ?? "Could not submit report. Try again.");
     } finally {
@@ -299,7 +307,17 @@ export function MapScreen({ navigation }: Props) {
     setViewMode("list");
   }
 
+  function handleSelectSpot(spot: ParkingSpot) {
+    setSelectedSpot(spot);
+    trackEvent("parking_spot_opened", {
+      parking_spot_id: spot.id,
+      parking_type: spot.parking_type,
+    });
+  }
+
   async function openDirections(spot: ParkingSpot) {
+    trackEvent("directions_clicked", { parking_spot_id: spot.id });
+
     const { latitude, longitude } = spot;
     const label = encodeURIComponent(spot.street_name);
 
@@ -505,7 +523,7 @@ export function MapScreen({ navigation }: Props) {
               <ParkingMapView
                 spots={filteredSpots}
                 region={mapRegion}
-                onSelectSpot={setSelectedSpot}
+                onSelectSpot={handleSelectSpot}
                 onMapError={handleMapError}
               />
             )}
@@ -562,7 +580,7 @@ export function MapScreen({ navigation }: Props) {
               isFavorite={favoriteSpotIds.has(item.id)}
               favoriteLoading={favoriteTogglingId === item.id}
               onToggleFavorite={() => handleToggleFavorite(item.id)}
-              onPress={() => setSelectedSpot(item)}
+              onPress={() => handleSelectSpot(item)}
             />
           )}
         />
