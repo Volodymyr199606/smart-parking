@@ -1,9 +1,10 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, Alert } from "react-native";
 import { useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ScreenContainer, AppButton } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
 import { useAuth } from "../contexts/AuthContext";
+import { getErrorMessage } from "../utils/getErrorMessage";
 import type { RootStackParamList } from "../types";
 import {
   getAppVersion,
@@ -25,8 +26,9 @@ export function SettingsScreen(_props: Props) {
     setLoggingOut(true);
     try {
       await signOut();
-    } catch {
+    } catch (err: unknown) {
       setLoggingOut(false);
+      Alert.alert("Sign out failed", getErrorMessage(err, "Please try again."));
     }
   }
 

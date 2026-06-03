@@ -21,6 +21,7 @@ import { formatParkingType } from "../shared";
 import { AppButton, ParkingSpotCard, AvailabilityBadge } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
 import { isNativeMapSupported } from "../utils/mapSupport";
+import { getErrorMessage } from "../utils/getErrorMessage";
 import { getNearbyParkingSpots, getParkingSpots, reportParkingSpot } from "../services/parkingService";
 import { addFavorite, getFavorites, removeFavorite } from "../services/favoritesService";
 import { trackEvent } from "../services/analyticsService";
@@ -107,9 +108,13 @@ export function MapScreen({ navigation }: Props) {
 
   const [favoriteSpotIds, setFavoriteSpotIds] = useState<Set<string>>(new Set());
   const [favoriteTogglingId, setFavoriteTogglingId] = useState<string | null>(null);
+  const [favoritesError, setFavoritesError] = useState<string | null>(null);
 
   const { connectionStatus } = useRealtimeSpots({
-    onInsert: (spot) => setSpots((prev) => [spot, ...prev]),
+    onInsert: (spot) =>
+      setSpots((prev) =>
+        prev.some((s) => s.id === spot.id) ? prev : [spot, ...prev]
+      ),
     onUpdate: (spot) => {
       setSpots((prev) => prev.map((s) => (s.id === spot.id ? spot : s)));
       setSelectedSpot((prev) => (prev?.id === spot.id ? spot : prev));
@@ -124,6 +129,7 @@ export function MapScreen({ navigation }: Props) {
   const [userLat, setUserLat] = useState(DEFAULT_LATITUDE);
   const [userLng, setUserLng] = useState(DEFAULT_LONGITUDE);
   const [usingUserLocation, setUsingUserLocation] = useState(false);
+  const [usingDemoFallback, setUsingDemoFallback] = useState(false);
 
   const requestLocation = useCallback(async () => {
     setLocationStatus("loading");
@@ -160,11 +166,14 @@ export function MapScreen({ navigation }: Props) {
       // Fallback: if nothing nearby (e.g. demo user outside SF), show all seeded spots.
       if (data.length === 0) {
         data = await getParkingSpots(50);
+        setUsingDemoFallback(true);
+      } else {
+        setUsingDemoFallback(false);
       }
       setSpots(data);
       trackEvent("parking_list_viewed", { spot_count: data.length });
-    } catch (err: any) {
-      setError(err.message ?? "Failed to load parking spots.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to load parking spots."));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -183,14 +192,16 @@ export function MapScreen({ navigation }: Props) {
   const loadFavorites = useCallback(async () => {
     if (!user) {
       setFavoriteSpotIds(new Set());
+      setFavoritesError(null);
       return;
     }
 
     try {
       const favorites = await getFavorites();
       setFavoriteSpotIds(new Set(favorites.map((f) => f.parking_spot_id)));
-    } catch (err: any) {
-      console.warn("Failed to load favorites:", err.message);
+      setFavoritesError(null);
+    } catch (err: unknown) {
+      setFavoritesError(getErrorMessage(err, "Could not load favorites."));
     }
   }, [user]);
 
@@ -221,10 +232,10 @@ export function MapScreen({ navigation }: Props) {
         setFavoriteSpotIds((prev) => new Set(prev).add(spotId));
         trackEvent("favorite_added", { parking_spot_id: spotId });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       Alert.alert(
         alreadyFavorite ? "Could not remove favorite" : "Could not save favorite",
-        err.message ?? "Please try again."
+        getErrorMessage(err, "Please try again.")
       );
     } finally {
       setFavoriteTogglingId(null);
@@ -261,8 +272,8 @@ export function MapScreen({ navigation }: Props) {
         parking_spot_id: selectedSpot.id,
         status,
       });
-    } catch (err: any) {
-      Alert.alert("Report failed", err.message ?? "Could not submit report. Try again.");
+    } catch (err: unknown) {
+      Alert.alert("Report failed", getErrorMessage(err, "Could not submit report. Try again."));
     } finally {
       setReporting(false);
     }
@@ -344,8 +355,11 @@ export function MapScreen({ navigation }: Props) {
   function getLocationLabel(): string {
     if (locationStatus === "loading") return "Locating you...";
     if (usingUserLocation) return "Showing spots near your location";
+    if (locationStatus === "error")
+      return "Location unavailable \u00B7 Showing San Francisco";
     if (locationStatus === "denied")
       return "Location denied \u00B7 Showing San Francisco";
+    if (usingDemoFallback) return "No spots nearby \u00B7 Showing all demo spots";
     return "Showing San Francisco parking";
   }
 
@@ -436,6 +450,12 @@ export function MapScreen({ navigation }: Props) {
           </Pressable>
         )}
       </View>
+
+      {favoritesError ? (
+        <View style={styles.favoritesWarning}>
+          <Text style={styles.favoritesWarningText}>{favoritesError}</Text>
+        </View>
+      ) : null}
 
       {!MAP_AVAILABLE && (
         <View style={styles.demoNote}>
@@ -904,6 +924,22 @@ const styles = StyleSheet.create({
     fontSize: font.sizeXs,
     fontWeight: font.medium,
     color: colors.textOnDark,
+  },
+
+  favoritesWarning: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    backgroundColor: "#fef3c7",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#fde68a",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  favoritesWarningText: {
+    fontSize: font.sizeXs,
+    color: "#92400e",
+    textAlign: "center",
   },
 
   demoNote: {

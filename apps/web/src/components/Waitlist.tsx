@@ -44,23 +44,30 @@ export function Waitlist() {
 
     setStatus("submitting");
 
-    const { error } = await supabase.from("waitlist_signups").insert({
-      full_name: fullName.trim() || null,
-      email: email.trim().toLowerCase(),
-      interest: interest.trim() || null,
-    });
+    try {
+      const { error } = await supabase.from("waitlist_signups").insert({
+        full_name: fullName.trim() || null,
+        email: email.trim().toLowerCase(),
+        interest: interest.trim() || null,
+      });
 
-    if (error) {
-      if (error.code === POSTGRES_UNIQUE_VIOLATION) {
-        setStatus("already");
+      if (error) {
+        if (error.code === POSTGRES_UNIQUE_VIOLATION) {
+          setStatus("already");
+          return;
+        }
+        console.error("[waitlist] insert failed:", error.code, error.message);
+        setStatus("error");
+        setErrorMessage("Something went wrong. Please try again.");
         return;
       }
+
+      setStatus("success");
+    } catch (err) {
+      console.error("[waitlist] submit failed:", err);
       setStatus("error");
       setErrorMessage("Something went wrong. Please try again.");
-      return;
     }
-
-    setStatus("success");
   }
 
   const isDone = status === "success" || status === "already";

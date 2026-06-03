@@ -53,20 +53,27 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...your-key-he
 
 This creates the tables, indexes, RLS policies, and triggers.
 
-There are **4 migrations** to apply for the current MVP (in order):
-1. `00001_initial_schema.sql` — Tables, constraints, indexes, RLS, triggers
-2. `00002_allow_spot_status_update.sql` — RLS policy allowing authenticated users to update spot status
-3. `00003_enable_realtime.sql` — Adds `parking_spots` to the `supabase_realtime` publication
-4. `00004_waitlist_signups.sql` — Waitlist table for the marketing website (insert-only)
-5. `00008_favorite_parking_spots.sql` — User favorites for parking spots (mobile app)
-6. `00009_analytics_events.sql` — Append-only product analytics events (mobile app)
+There are **10 migrations** to apply for the current MVP (in order):
 
-> **Migration `00005_city_parking_data.sql`** adds separate city tables (`city_parking_sources`, `city_parking_blocks`, `city_parking_meters`). Apply it when you want to run the ingestion prototype (`pnpm ingest:sf-parking`). It does **not** modify `parking_spots` or the mobile MVP. See [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md).
+| # | File | Purpose |
+|---|------|---------|
+| 1 | `00001_initial_schema.sql` | Tables, constraints, indexes, RLS, triggers |
+| 2 | `00002_allow_spot_status_update.sql` | Legacy UPDATE policy (removed by 00010) |
+| 3 | `00003_enable_realtime.sql` | Adds `parking_spots` to realtime publication |
+| 4 | `00004_waitlist_signups.sql` | Waitlist table (web insert-only) |
+| 5 | `00005_city_parking_data.sql` | City ingest tables (optional prototype) |
+| 6 | `00006_city_parking_views.sql` | City data views (optional) |
+| 7 | `00007_normalized_city_parking.sql` | Normalized city locations (optional) |
+| 8 | `00008_favorite_parking_spots.sql` | User favorites (mobile) |
+| 9 | `00009_analytics_events.sql` | Append-only analytics (mobile) |
+| 10 | `00010_stabilization_rls_and_report_rpc.sql` | Atomic report RPC; removes broad spot UPDATE |
+
+> **City migrations (00005–00007)** are optional. See [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md). They do **not** modify `parking_spots` or the Expo Go list MVP.
 
 **Option A: Supabase Dashboard (recommended for first setup)**
 
 1. In your Supabase project, go to **SQL Editor**
-2. For each migration file in order (`00001`, `00002`, `00003`, `00004`):
+2. For each migration file in order (`00001` through `00010`):
    - Click **"New query"**
    - Copy and paste the entire contents of the migration file
    - Click **"Run"** (or press Ctrl+Enter)

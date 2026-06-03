@@ -28,7 +28,7 @@ smart-parking/
 ├── packages/
 │   └── shared/        → Shared TypeScript types, constants, helpers
 ├── supabase/
-│   ├── migrations/    → SQL migration files (4 migrations)
+│   ├── migrations/    → SQL migration files (00001–00010)
 │   └── seed/          → Seed data for development (26 SF parking spots)
 ├── archive/           → Previous Java/Spring stack (reference only)
 ├── DEMO.md            → Demo script & portfolio guide
@@ -58,8 +58,10 @@ smart-parking/
 | Profile with user info | Working |
 | List-based spot browsing (Expo Go) | Working |
 | Marketing website + Supabase waitlist | Working |
+| Favorites (heart toggle on map/list) | Working |
+| Basic analytics events | Working |
+| Settings screen | Working |
 | Native map view | EAS dev build later |
-| Favorites | Not yet |
 | Push notifications | Not yet |
 
 ## Architecture

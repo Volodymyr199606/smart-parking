@@ -16,3 +16,8 @@ export const ENV = {
   ENABLE_CITY_DATA_PREVIEW:
     process.env.EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW === "true",
 } as const;
+
+/** True when both required Supabase env vars are set. */
+export function isSupabaseConfigured(): boolean {
+  return Boolean(ENV.SUPABASE_URL && ENV.SUPABASE_ANON_KEY);
+}

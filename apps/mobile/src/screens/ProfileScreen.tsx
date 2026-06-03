@@ -1,9 +1,10 @@
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet, Pressable, Alert } from "react-native";
 import { useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ScreenContainer, AppButton } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
 import { useAuth } from "../contexts/AuthContext";
+import { getErrorMessage } from "../utils/getErrorMessage";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
@@ -31,8 +32,9 @@ export function ProfileScreen({ navigation }: Props) {
     setLoggingOut(true);
     try {
       await signOut();
-    } catch {
+    } catch (err: unknown) {
       setLoggingOut(false);
+      Alert.alert("Sign out failed", getErrorMessage(err, "Please try again."));
     }
   }
 
@@ -73,8 +75,8 @@ export function ProfileScreen({ navigation }: Props) {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Activity</Text>
         <View style={styles.infoCard}>
-          <InfoRow label="Reports submitted" value="Coming soon" muted />
-          <InfoRow label="Favorite spots" value="Coming soon" muted isLast />
+          <InfoRow label="Reports submitted" value="Use map view" muted />
+          <InfoRow label="Favorite spots" value="Tap heart on map" muted isLast />
         </View>
       </View>
 

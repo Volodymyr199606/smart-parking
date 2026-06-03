@@ -12,7 +12,8 @@ export function DemoPreview() {
         </h2>
         <p className="mt-4 text-base text-slate-600 sm:text-lg">
           A guided tour of the mobile app — search, filter, view spot details,
-          report status, and get directions. All wired to live Supabase data.
+          report status, and get directions. Interactive preview with sample
+          data (live app uses Supabase).
         </p>
       </div>
 

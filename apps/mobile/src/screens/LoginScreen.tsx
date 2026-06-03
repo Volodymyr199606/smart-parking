@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ScreenContainer, AppButton, AppInput } from "../components";
 import { colors, spacing, font } from "../constants/theme";
 import { useAuth } from "../contexts/AuthContext";
+import { getErrorMessage } from "../utils/getErrorMessage";
 import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Login">;
@@ -32,8 +33,8 @@ export function LoginScreen({ navigation }: Props) {
     setLoading(true);
     try {
       await signIn(email.trim(), password);
-    } catch (err: any) {
-      setError(err.message ?? "Login failed. Please try again.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Login failed. Please try again."));
     } finally {
       setLoading(false);
     }

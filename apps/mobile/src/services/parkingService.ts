@@ -7,8 +7,8 @@ import type { ParkingSpot } from "../shared";
  * Queries the parking_spots table via Supabase PostgREST.
  * Realtime updates are handled separately by useRealtimeSpots hook.
  *
- * Note: parking_spots has RLS policies allowing any authenticated user
- * to read all spots and update spot status.
+ * Note: reports use report_parking_spot RPC (migration 00010) for atomic
+ * insert + status update. parking_spots has SELECT-only client access.
  */
 
 /**
@@ -48,31 +48,25 @@ export async function getNearbyParkingSpots(
     .lte("latitude", latitude + degreesOffset)
     .gte("longitude", longitude - degreesOffset)
     .lte("longitude", longitude + degreesOffset)
-    .order("updated_at", { ascending: false });
+    .order("updated_at", { ascending: false })
+    .limit(100);
 
   if (error) throw error;
   return (data ?? []) as ParkingSpot[];
 }
 
 /**
- * Submit a parking report and update the spot's status.
- * Inserts into parking_reports and patches parking_spots.status.
+ * Submit a parking report and update the spot's status atomically via RPC.
  */
 export async function reportParkingSpot(
-  userId: string,
+  _userId: string,
   parkingSpotId: string,
   status: "AVAILABLE" | "OCCUPIED" | "UNKNOWN"
 ): Promise<void> {
-  const { error: reportError } = await supabase
-    .from("parking_reports")
-    .insert({ user_id: userId, parking_spot_id: parkingSpotId, status });
+  const { error } = await supabase.rpc("report_parking_spot", {
+    p_parking_spot_id: parkingSpotId,
+    p_status: status,
+  });
 
-  if (reportError) throw reportError;
-
-  const { error: updateError } = await supabase
-    .from("parking_spots")
-    .update({ status })
-    .eq("id", parkingSpotId);
-
-  if (updateError) throw updateError;
+  if (error) throw error;
 }
