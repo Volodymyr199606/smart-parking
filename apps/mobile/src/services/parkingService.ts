@@ -7,8 +7,8 @@ import type { ParkingSpot } from "../shared";
  * Queries the parking_spots table via Supabase PostgREST.
  * Realtime updates are handled separately by useRealtimeSpots hook.
  *
- * Note: reports use report_parking_spot RPC (migration 00010) for atomic
- * insert + status update. parking_spots has SELECT-only client access.
+ * Note: status changes use update_parking_spot_status RPC (migration 00010).
+ * parking_spots has no client UPDATE policy — SELECT only via RLS.
  */
 
 /**
@@ -56,17 +56,23 @@ export async function getNearbyParkingSpots(
 }
 
 /**
- * Submit a parking report and update the spot's status atomically via RPC.
+ * Submit a parking report and update spot status via secure RPC (status only).
  */
 export async function reportParkingSpot(
-  _userId: string,
+  userId: string,
   parkingSpotId: string,
   status: "AVAILABLE" | "OCCUPIED" | "UNKNOWN"
 ): Promise<void> {
-  const { error } = await supabase.rpc("report_parking_spot", {
-    p_parking_spot_id: parkingSpotId,
-    p_status: status,
+  const { error: reportError } = await supabase
+    .from("parking_reports")
+    .insert({ user_id: userId, parking_spot_id: parkingSpotId, status });
+
+  if (reportError) throw reportError;
+
+  const { error: updateError } = await supabase.rpc("update_parking_spot_status", {
+    spot_id: parkingSpotId,
+    new_status: status,
   });
 
-  if (error) throw error;
+  if (updateError) throw updateError;
 }

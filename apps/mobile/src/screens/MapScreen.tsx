@@ -31,7 +31,7 @@ import type { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Map">;
 
-type FilterOption = "ALL" | "AVAILABLE" | "OCCUPIED" | "METERED" | "FREE";
+type FilterOption = "ALL" | "AVAILABLE" | "OCCUPIED" | "METERED" | "FREE" | "FAVORITES";
 
 const FILTERS: { key: FilterOption; label: string }[] = [
   { key: "ALL", label: "All" },
@@ -39,6 +39,7 @@ const FILTERS: { key: FilterOption; label: string }[] = [
   { key: "OCCUPIED", label: "Occupied" },
   { key: "METERED", label: "Metered" },
   { key: "FREE", label: "Free" },
+  { key: "FAVORITES", label: "Favorites" },
 ];
 
 const DEFAULT_LATITUDE = 37.7749;
@@ -290,6 +291,8 @@ export function MapScreen({ navigation }: Props) {
       result = result.filter((s) => s.parking_type === "METERED");
     } else if (activeFilter === "FREE") {
       result = result.filter((s) => s.parking_type === "FREE");
+    } else if (activeFilter === "FAVORITES") {
+      result = result.filter((s) => favoriteSpotIds.has(s.id));
     }
 
     if (searchQuery.trim()) {
@@ -302,7 +305,7 @@ export function MapScreen({ navigation }: Props) {
     }
 
     return result;
-  }, [spots, activeFilter, searchQuery]);
+  }, [spots, activeFilter, searchQuery, favoriteSpotIds]);
 
   const mapRegion = useMemo(
     () => ({
@@ -406,6 +409,8 @@ export function MapScreen({ navigation }: Props) {
   }
 
   const filtersActive = hasActiveFilters(searchQuery, activeFilter);
+  const favoritesFilterEmpty =
+    activeFilter === "FAVORITES" && favoriteSpotIds.size === 0;
 
   function clearFilters() {
     setSearchQuery("");
@@ -530,11 +535,13 @@ export function MapScreen({ navigation }: Props) {
         filteredSpots.length === 0 ? (
           <View style={styles.emptyState}>
             <StatePanel
-              title="No spots on the map"
+              title={favoritesFilterEmpty ? "No favorite spots yet" : "No spots on the map"}
               message={
-                filtersActive
-                  ? "No parking matches your current search or filter."
-                  : "No parking spots are available in this area right now."
+                favoritesFilterEmpty
+                  ? "Tap the heart on a parking spot to save it."
+                  : filtersActive
+                    ? "No parking matches your current search or filter."
+                    : "No parking spots are available in this area right now."
               }
               action={
                 filtersActive ? (
@@ -563,13 +570,15 @@ export function MapScreen({ navigation }: Props) {
       {filteredSpots.length === 0 ? (
         <View style={styles.emptyState}>
           <StatePanel
-            title="No spots found"
+            title={favoritesFilterEmpty ? "No favorite spots yet" : "No spots found"}
             message={
-              filtersActive
-                ? "Try clearing your search or choosing a different filter."
-                : usingUserLocation
-                  ? "No parking spots were found near your location."
-                  : "Enable location or browse San Francisco demo spots."
+              favoritesFilterEmpty
+                ? "Tap the heart on a parking spot to save it."
+                : filtersActive
+                  ? "Try clearing your search or choosing a different filter."
+                  : usingUserLocation
+                    ? "No parking spots were found near your location."
+                    : "Enable location or browse San Francisco demo spots."
             }
             action={
               filtersActive ? (

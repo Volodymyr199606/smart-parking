@@ -66,7 +66,7 @@ There are **10 migrations** to apply for the current MVP (in order):
 | 7 | `00007_normalized_city_parking.sql` | Normalized city locations (optional) |
 | 8 | `00008_favorite_parking_spots.sql` | User favorites (mobile) |
 | 9 | `00009_analytics_events.sql` | Append-only analytics (mobile) |
-| 10 | `00010_stabilization_rls_and_report_rpc.sql` | Atomic report RPC; removes broad spot UPDATE |
+| 10 | `00010_secure_parking_spot_status_update.sql` | Secure status RPC; removes broad spot UPDATE |
 
 > **City migrations (00005–00007)** are optional. See [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md). They do **not** modify `parking_spots` or the Expo Go list MVP.
 
