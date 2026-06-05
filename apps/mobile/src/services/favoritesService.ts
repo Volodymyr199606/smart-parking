@@ -38,6 +38,25 @@ export async function getFavorites(): Promise<FavoriteParkingSpot[]> {
   return (data ?? []) as FavoriteParkingSpot[];
 }
 
+/** Count favorites for the current user. Returns 0 when not logged in. */
+export async function getFavoritesCount(): Promise<number> {
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError) throw authError;
+  if (!user) return 0;
+
+  const { count, error } = await supabase
+    .from("favorite_parking_spots")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 /** Save a parking spot to the current user's favorites. */
 export async function addFavorite(parkingSpotId: string): Promise<void> {
   const userId = await requireUserId();

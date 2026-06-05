@@ -76,3 +76,22 @@ export async function reportParkingSpot(
 
   if (updateError) throw updateError;
 }
+
+/** Count parking reports submitted by the current user. Returns 0 when not logged in. */
+export async function getReportsCount(): Promise<number> {
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError) throw authError;
+  if (!user) return 0;
+
+  const { count, error } = await supabase
+    .from("parking_reports")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+  return count ?? 0;
+}
