@@ -22,6 +22,11 @@ import { AppButton, ParkingSpotCard, AvailabilityBadge } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
 import { isNativeMapSupported } from "../utils/mapSupport";
 import { getErrorMessage } from "../utils/getErrorMessage";
+import {
+  removeSpotById,
+  replaceSpotById,
+  upsertSpotById,
+} from "../utils/parkingSpotsState";
 import { getNearbyParkingSpots, getParkingSpots, reportParkingSpot } from "../services/parkingService";
 import { addFavorite, getFavorites, removeFavorite } from "../services/favoritesService";
 import { trackEvent } from "../services/analyticsService";
@@ -112,16 +117,13 @@ export function MapScreen({ navigation }: Props) {
   const [favoritesError, setFavoritesError] = useState<string | null>(null);
 
   const { connectionStatus } = useRealtimeSpots({
-    onInsert: (spot) =>
-      setSpots((prev) =>
-        prev.some((s) => s.id === spot.id) ? prev : [spot, ...prev]
-      ),
+    onInsert: (spot) => setSpots((prev) => upsertSpotById(prev, spot)),
     onUpdate: (spot) => {
-      setSpots((prev) => prev.map((s) => (s.id === spot.id ? spot : s)));
+      setSpots((prev) => replaceSpotById(prev, spot));
       setSelectedSpot((prev) => (prev?.id === spot.id ? spot : prev));
     },
     onDelete: (id) => {
-      setSpots((prev) => prev.filter((s) => s.id !== id));
+      setSpots((prev) => removeSpotById(prev, id));
       setSelectedSpot((prev) => (prev?.id === id ? null : prev));
     },
   });
