@@ -13,6 +13,7 @@ interface ParkingSpotCardProps {
   isFavorite?: boolean;
   onToggleFavorite?: () => void;
   favoriteLoading?: boolean;
+  favoriteDisabled?: boolean;
 }
 
 function MetaChip({ label }: { label: string }) {
@@ -34,6 +35,7 @@ export function ParkingSpotCard({
   isFavorite = false,
   onToggleFavorite,
   favoriteLoading = false,
+  favoriteDisabled = false,
 }: ParkingSpotCardProps) {
   const metaItems = [parkingType, price, timeLimit].filter(Boolean) as string[];
 
@@ -60,7 +62,7 @@ export function ParkingSpotCard({
             <Pressable
               style={styles.favoriteButton}
               onPress={onToggleFavorite}
-              disabled={favoriteLoading}
+              disabled={favoriteLoading || favoriteDisabled}
               accessibilityLabel={isFavorite ? "Remove from favorites" : "Save to favorites"}
               accessibilityRole="button"
             >

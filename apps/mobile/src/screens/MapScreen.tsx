@@ -204,7 +204,9 @@ export function MapScreen({ navigation }: Props) {
       setFavoriteSpotIds(new Set(favorites.map((f) => f.parking_spot_id)));
       setFavoritesError(null);
     } catch (err: unknown) {
-      setFavoritesError(getErrorMessage(err, "Could not load favorites."));
+      setFavoritesError(
+        getErrorMessage(err, "Couldn't load favorites. Please try again.")
+      );
     }
   }, [user]);
 
@@ -215,6 +217,9 @@ export function MapScreen({ navigation }: Props) {
   async function handleToggleFavorite(spotId: string) {
     if (!user) {
       Alert.alert("Sign in required", "Log in to save favorite parking spots.");
+      return;
+    }
+    if (favoritesError) {
       return;
     }
 
@@ -618,6 +623,7 @@ export function MapScreen({ navigation }: Props) {
               timeLimit={item.time_limit ?? undefined}
               isFavorite={favoriteSpotIds.has(item.id)}
               favoriteLoading={favoriteTogglingId === item.id}
+              favoriteDisabled={Boolean(favoritesError)}
               onToggleFavorite={() => handleToggleFavorite(item.id)}
               onPress={() => handleSelectSpot(item)}
             />
@@ -642,7 +648,9 @@ export function MapScreen({ navigation }: Props) {
               <Pressable
                 style={styles.detailFavoriteButton}
                 onPress={() => handleToggleFavorite(selectedSpot.id)}
-                disabled={favoriteTogglingId === selectedSpot.id}
+                disabled={
+                  favoriteTogglingId === selectedSpot.id || Boolean(favoritesError)
+                }
                 accessibilityLabel={
                   favoriteSpotIds.has(selectedSpot.id)
                     ? "Remove from favorites"

@@ -27,8 +27,9 @@ export function SettingsScreen(_props: Props) {
     try {
       await signOut();
     } catch (err: unknown) {
-      setLoggingOut(false);
       Alert.alert("Sign out failed", getErrorMessage(err, "Please try again."));
+    } finally {
+      setLoggingOut(false);
     }
   }
 
