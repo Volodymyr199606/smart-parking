@@ -101,7 +101,7 @@ For deeper technical detail, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md
 | 1 | Open app in Expo Go | No app store build required for demo |
 | 2 | Register or log in | Supabase Auth, session persistence |
 | 3 | View parking list | Live data from `parking_spots` (26 seeded SF spots) |
-| 4 | Search / filter | By street, Available, Occupied, Metered, Free |
+| 4 | Search / filter | By street, Available, Occupied, Metered, Free, **Favorites** |
 | 5 | Tap a spot | Detail card with status, price, time limit |
 | 6 | Get directions | Opens native Maps app |
 | 7 | Report status | Inserts `parking_reports`, updates spot |
@@ -146,12 +146,16 @@ See [`apps/web/README.md`](./apps/web/README.md).
 
 ## Supabase Backend Explanation
 
-**Migrations (apply in order):**
+**Migrations (apply in order through `00010`):**
 
 1. `00001_initial_schema.sql` — profiles, parking_spots, parking_reports, RLS, triggers
-2. `00002_allow_spot_status_update.sql` — authenticated users can update spot status
+2. `00002_allow_spot_status_update.sql` — legacy UPDATE policy (removed by 00010)
 3. `00003_enable_realtime.sql` — realtime on `parking_spots`
 4. `00004_waitlist_signups.sql` — website waitlist (insert-only for anon)
+5. `00005`–`00007` — optional city data prototype tables/views
+6. `00008_favorite_parking_spots.sql` — user favorites
+7. `00009_analytics_events.sql` — analytics events
+8. `00010_secure_parking_spot_status_update.sql` — secure report RPC
 
 **Key tables:**
 
@@ -198,14 +202,12 @@ Be transparent with reviewers — these are intentional scope cuts for speed.
 
 | Area | Limitation |
 |------|------------|
-| Mobile map | **List view in Expo Go.** Native map pins need an EAS development build (not required for current demo). |
-| Data | 26 **mock** SF spots (`source = MOCK`), not live city APIs yet |
-| Map UI | No `react-native-maps` in Expo Go; code path exists for future EAS build |
-| Profile | “Reports submitted” and favorites — coming soon |
-| Favorites | Not implemented |
+| Mobile map | **List view in Expo Go.** Native map pins need an EAS development build (postponed; not required for current demo). |
+| Data | Seeded SF spots in `parking_spots`; city API sync is a separate prototype |
+| Profile / favorites | **Implemented** — favorites, favorites filter, profile stats |
 | Push notifications | Not implemented |
 | Payments | Not implemented |
-| City APIs | DataSF / SFMTA integration planned |
+| City APIs | DataSF / SFMTA ingestion prototype in `scripts/` (optional migrations 00005–00007) |
 | MCP / AI layer | Planned post-MVP |
 
 ---
