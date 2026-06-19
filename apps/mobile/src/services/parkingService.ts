@@ -11,6 +11,9 @@ import type { ParkingSpot } from "../shared";
  * parking_spots has no client UPDATE policy — SELECT only via RLS.
  */
 
+/** Cap nearby queries so list rendering stays responsive as city data grows. */
+const NEARBY_PARKING_QUERY_LIMIT = 100;
+
 /**
  * Fetch parking spots from the database.
  * Returns up to `limit` spots ordered by most recently updated.
@@ -31,6 +34,7 @@ export async function getParkingSpots(limit: number = 10): Promise<ParkingSpot[]
  *
  * Uses latitude/longitude bounding box filtering.
  * A rough approximation: 0.005 degrees ≈ 500m at SF latitude.
+ * Returns at most NEARBY_PARKING_QUERY_LIMIT rows (most recently updated first).
  *
  * Future: replace with PostGIS ST_DWithin for accurate radius queries.
  */
@@ -49,7 +53,7 @@ export async function getNearbyParkingSpots(
     .gte("longitude", longitude - degreesOffset)
     .lte("longitude", longitude + degreesOffset)
     .order("updated_at", { ascending: false })
-    .limit(100);
+    .limit(NEARBY_PARKING_QUERY_LIMIT);
 
   if (error) throw error;
   return (data ?? []) as ParkingSpot[];
