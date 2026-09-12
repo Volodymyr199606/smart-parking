@@ -32,3 +32,11 @@ export type { ParkingLocation } from "./location";
 export type { ParkingCandidate } from "./candidate";
 
 export type { ParkingCandidateSearchRequest, ParkingSearchConstraints } from "./search";
+
+export type {
+  ParkingRule,
+  ParkingRuleKind,
+  ParkingRuleSchedule,
+  ParkingTimeWindow,
+  DayOfWeek,
+} from "./rule";

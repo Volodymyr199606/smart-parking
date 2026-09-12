@@ -9,3 +9,6 @@
 
 export type { ParkingSpotRow, NormalizedLocationRow } from "./parking";
 export { mapParkingSpotToCandidate, mapNormalizedLocationToCandidate } from "./parking";
+
+export type { CityParkingBlockRow } from "./regulation";
+export { mapCityRegulationRowToParkingRules } from "./regulation";

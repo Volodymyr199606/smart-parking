@@ -553,8 +553,38 @@ Mobile Runtime Integration — IMPLEMENTED (V1), apps/mobile/src/services/candid
     service only powers an additive "City parking data (preview)" section,
     shown only when EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW is on
         ↓
-[FUTURE] Deterministic Parking Services
-  - isLegalToParkNow(location, time) — needs a curb-rule model (not built)
+Parking Regulation Model — IMPLEMENTED (V1), packages/shared/src/domain/rule.ts
+  - ParkingRule       (a known regulation/restriction — describes what
+    applies, never whether a specific arrival/departure is legal)
+  - ParkingRuleKind   ("METERED" | "TIME_LIMIT" | "OTHER" — narrow on
+    purpose; only what city_parking_blocks can support deterministically
+    today, see docs/CITY_DATA_PLAN.md "Regulation data — current
+    capabilities")
+  - ParkingRuleSchedule / ParkingTimeWindow / DayOfWeek (REPRESENTS
+    applicability — days/time-window/all-day/maxDurationMinutes/timezone,
+    all independently nullable; no evaluation function anywhere)
+  - Reuses ParkingEvidence for provenance — no duplicate provenance type
+        ↓
+Regulation Adapter — IMPLEMENTED (V1), packages/shared/src/adapters/regulation.ts
+  - mapCityRegulationRowToParkingRules(row: CityParkingBlockRow) → ParkingRule[]
+    (zero or more: TIME_LIMIT when hour_limit is a valid positive number;
+    OTHER when regulation_type/agency/permit_area/days_of_week/hours carry
+    any information, preserved verbatim; empty array otherwise)
+  - Does NOT produce METERED — reviewed and corrected: the first version
+    inferred METERED from "this row lives in city_parking_blocks", which
+    is an unverified inference about the ingestion pipeline, not a fact
+    proven on the row. METERED is reserved for a future, separate adapter
+    over city_parking_meters (the structurally reliable meter-inventory
+    table) — meter inventory and regulation are distinct concepts
+  - NOT wired to any live Supabase query yet — city_parking_blocks isn't
+    fetched by any mobile code today; a future milestone adds that fetcher
+        ↓
+[FUTURE] Legality Engine
+  - isLegalToParkNow(location, time) / evaluateLegality(candidate, rules, interval)
+    — takes a ParkingCandidate + ParkingRule[] and a requested
+    arrival/departure interval, returns ParkingLegality. Not built —
+    no arrival/departure evaluation, schedule matching, or max-stay
+    enforcement exists anywhere in this codebase yet.
   - isReportedAvailable(location)
   - getNearbyOptions(userLocation, criteria) — ParkingSearchConstraints contract exists; no implementation
         ↓
@@ -572,7 +602,9 @@ Mobile Runtime Integration — IMPLEMENTED (V1), apps/mobile/src/services/candid
 
 `apps/mobile` now depends on `@smart-parking/shared` as a real pnpm workspace runtime dependency (`apps/mobile/src/services/candidateService.ts` is the only mobile file that imports it as a value; everywhere else uses `import type`, which Metro never needs to resolve). This was verified, not assumed: `npx expo export --platform android` was run with the integration in place, and the resulting bundle's sourcemap was inspected to confirm `packages/shared/src/index.ts`, `adapters/parking.ts`, `services/parking.ts`, and `services/distance.ts` are genuinely present in the module graph. `apps/web` still does not import any of the three.
 
-This integration is intentionally additive: the existing `parking_spots` list/map in `MapScreen` is untouched and still calls `getNearbyParkingSpots`/`getParkingSpots` directly. `findParkingCandidates` currently only powers a small, separately-rendered "City parking data (preview)" section, gated by the existing `EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW` flag, which is OFF by default and was already wired to a Settings status row before this milestone. City candidates always carry `availability.status = "UNKNOWN"` and `legality.status = "UNKNOWN"` — normalized city inventory is never treated as proof of a legal, open space. Curb-rule ingestion, legality evaluation, freshness calculation, ranking, agent tools, and MCP remain entirely unbuilt.
+This integration is intentionally additive: the existing `parking_spots` list/map in `MapScreen` is untouched and still calls `getNearbyParkingSpots`/`getParkingSpots` directly. `findParkingCandidates` currently only powers a small, separately-rendered "City parking data (preview)" section, gated by the existing `EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW` flag, which is OFF by default and was already wired to a Settings status row before this milestone. City candidates always carry `availability.status = "UNKNOWN"` and `legality.status = "UNKNOWN"` — normalized city inventory is never treated as proof of a legal, open space.
+
+A deterministic regulation model (`ParkingRule`, `packages/shared/src/domain/rule.ts`) and its adapter (`mapCityRegulationRowToParkingRules`, `packages/shared/src/adapters/regulation.ts`) are also implemented. A `ParkingRule` describes a *regulation* ("2-hour limit") — never a legality verdict; `ParkingLegality.status` remains `"UNKNOWN"` everywhere, unchanged. The adapter only produces `TIME_LIMIT` (from the real `hour_limit` column) and `OTHER` (when other regulation fields carry unclassified information); it does **not** produce `METERED` — an earlier version incorrectly inferred that from table membership rather than a verified field, and was corrected before commit. `METERED` remains a valid `ParkingRuleKind`, reserved for a future adapter over `city_parking_meters` (the structurally reliable meter-inventory table); meter inventory and regulation are kept as distinct concepts. The adapter is not wired to any live query: `city_parking_blocks` (where regulation fields are actually ingested — see `docs/CITY_DATA_PLAN.md`) isn't fetched by any mobile code today. Legality evaluation, schedule matching, max-stay enforcement, street-sweeping ingestion, freshness calculation, ranking, agent tools, and MCP remain entirely unbuilt.
 
 **Important:** MCP is an optional access interface at the boundary — not where business logic lives. Core parking services must be deterministic and independently testable without MCP.
 

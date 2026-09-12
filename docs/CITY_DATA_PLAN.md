@@ -107,6 +107,23 @@ pnpm check:city-parking
 
 Related: high-level architecture overview in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §10.
 
+### Regulation data — current capabilities (Parking Regulation Model V1)
+
+**What is actually ingested today:** exactly one regulation dataset — DataSF's [Parking regulations (blockface map)](https://data.sfgov.org/d/hi6h-neyh) (`hi6h-neyh`), via `ingestRegulations()` in `scripts/ingest-sf-parking-data.ts`. It is merged (`UPDATE`, not its own table) onto existing `public.city_parking_blocks` rows matched by `blockface_id`, populating `regulation_type`, `agency`, `days_of_week` (raw text), `hours` (raw text), `hour_limit` (integer, hours), and `permit_area`. Regulation rows whose `blockface_id` doesn't match an already-ingested block are dropped without being persisted anywhere (not even raw) — counted as `unmatched` in the script's log output only.
+
+**Data gap:** `scripts/normalize-city-parking.ts` normalizes `city_parking_meters` only — it never reads `city_parking_blocks`, so none of the regulation fields above reach `normalized_parking_locations`. `normalized_parking_locations.time_limit` exists as a column but is hardcoded `null` by the normalization script; `restrictions` is built only from meter fields (`cap_color`/`on_offstreet_type`/`jurisdiction`/`meter_type`), never from block regulation fields. Net effect: real, ingested regulation data (`hour_limit`, `regulation_type`, etc.) is currently invisible to every downstream consumer (`normalized_parking_locations`, `ParkingCandidate`, the mobile app).
+
+**Street sweeping does not exist anywhere in this repo** — no table, no ingestion script, no seed data. `STREET_SWEEPING` is only a placeholder value in the `normalized_parking_locations.parking_type` CHECK constraint and the mobile `ParkingType` union; nothing ever sets it. §7's `street_sweeping_rules` design below was never built (see §7.4) — DataSF's `yhqp-riqs` schedule dataset is not ingested.
+
+**New in this milestone:** a deterministic domain representation for known regulations, independent of the (not-yet-built) legality engine:
+
+- `ParkingRule` / `ParkingRuleKind` (`"METERED" | "TIME_LIMIT" | "OTHER"`) / `ParkingRuleSchedule` / `ParkingTimeWindow` / `DayOfWeek` — `packages/shared/src/domain/rule.ts`.
+- `mapCityRegulationRowToParkingRules(row: CityParkingBlockRow)` — `packages/shared/src/adapters/regulation.ts`. Maps a `city_parking_blocks` row to zero or more `ParkingRule`s: a `TIME_LIMIT` rule when `hour_limit` is a real positive number; an `OTHER` rule when `regulation_type`/`agency`/`permit_area`/`days_of_week`/`hours` carry any information (preserved verbatim, not classified); an empty array when the row has none of the above.
+
+**Regulation Model V1 review — a mistake was caught and fixed before commit:** the first version of this adapter emitted a `METERED` rule for *every* `city_parking_blocks` row, reasoning that the table is populated exclusively from DataSF's "SFMTA Metered Street Blocks" dataset. On review, that's an inference about which ingestion pipeline produced the row (via an unresolved `source_id` foreign key), not a fact verified on the row itself — exactly the kind of unverified inference this module must avoid. It was removed. `city_parking_blocks`-derived rules can now only be `TIME_LIMIT` or `OTHER`. `"METERED"` remains a valid `ParkingRuleKind` value, reserved for a future, separate adapter over `city_parking_meters` (the structurally reliable meter-inventory table — see "Meter data" above) — not built in this milestone. Meter inventory ("there is a meter here") and regulation ("a payment/time rule applies") are kept as distinct concepts, never collapsed into one kind.
+
+A `ParkingRule` describes a regulation ("what applies"), never a legality verdict ("is parking legal now") — that evaluation is a future legality-engine milestone; every `ParkingLegality` in this codebase still reports `status: "UNKNOWN"`. `days_of_week` and `hours` are preserved verbatim via `ParkingRule.rawText` rather than parsed into `ParkingRuleSchedule` — there is no confirmed, safe parsing rule for either field's format, so `schedule.daysOfWeek` / `schedule.timeWindow` stay `null` (unknown) rather than guessed. This adapter is **not wired to any live Supabase query** — `city_parking_blocks` still isn't fetched by any mobile code; wiring a fetcher is deferred to a future milestone.
+
 ---
 
 ## Table of Contents
