@@ -30,6 +30,12 @@ import {
 import { getNearbyParkingSpots, getParkingSpots, reportParkingSpot } from "../services/parkingService";
 import { addFavorite, getFavorites, removeFavorite } from "../services/favoritesService";
 import { trackEvent } from "../services/analyticsService";
+import {
+  findNearbyParkingCandidates,
+  isCityProvenance,
+  type ParkingPreviewCandidate,
+} from "../services/candidateService";
+import { isCityDataPreviewEnabled } from "../utils/appStatus";
 import { useAuth } from "../contexts/AuthContext";
 import { useRealtimeSpots, type ConnectionStatus } from "../hooks";
 import type { RootStackParamList } from "../types";
@@ -68,6 +74,13 @@ function formatDisplayPrice(price: string): string {
   return price.startsWith("$") ? price : `$${price}`;
 }
 
+/** Compact human-readable distance for the city-data preview cards (e.g. "320 m", "1.4 km"). */
+function formatPreviewDistance(distanceMeters: number | null): string {
+  if (distanceMeters === null) return "";
+  if (distanceMeters < 1000) return `${Math.round(distanceMeters)} m away`;
+  return `${(distanceMeters / 1000).toFixed(1)} km away`;
+}
+
 function hasActiveFilters(searchQuery: string, activeFilter: FilterOption): boolean {
   return searchQuery.trim().length > 0 || activeFilter !== "ALL";
 }
@@ -97,6 +110,9 @@ const MAP_AVAILABLE = isNativeMapSupported();
 const ParkingMapView = MAP_AVAILABLE
   ? require("../components/ParkingMapView").ParkingMapView
   : null;
+
+/** City-data preview (EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW) — additive only; never affects the parking_spots flow below. */
+const CITY_DATA_PREVIEW_ENABLED = isCityDataPreviewEnabled();
 
 export function MapScreen({ navigation }: Props) {
   const { user } = useAuth();
@@ -133,6 +149,13 @@ export function MapScreen({ navigation }: Props) {
   const [userLng, setUserLng] = useState(DEFAULT_LONGITUDE);
   const [usingUserLocation, setUsingUserLocation] = useState(false);
   const [usingDemoFallback, setUsingDemoFallback] = useState(false);
+
+  // City-data preview (additive, non-authoritative). Entirely separate from
+  // `spots`/`loading`/`error` above — a failure here must never affect the
+  // primary parking_spots experience (see findNearbyParkingCandidates).
+  const [cityPreviewCandidates, setCityPreviewCandidates] = useState<ParkingPreviewCandidate[]>([]);
+  const [cityPreviewLoading, setCityPreviewLoading] = useState(false);
+  const [cityPreviewError, setCityPreviewError] = useState<string | null>(null);
 
   const requestLocation = useCallback(async () => {
     setLocationStatus("loading");
@@ -191,6 +214,43 @@ export function MapScreen({ navigation }: Props) {
     if (locationStatus === "loading") return;
     fetchSpots(userLat, userLng);
   }, [locationStatus, userLat, userLng, fetchSpots]);
+
+  // City-data preview: independent fetch, independent state. Runs only
+  // when the flag is on; its failure is reported locally and never
+  // touches `spots`/`error`/`loading` above, so the normal parking_spots
+  // experience keeps working even if this fails.
+  useEffect(() => {
+    if (!CITY_DATA_PREVIEW_ENABLED) return;
+    if (locationStatus === "loading") return;
+
+    let cancelled = false;
+    setCityPreviewLoading(true);
+    setCityPreviewError(null);
+
+    // sources: ["CITY"] only — this preview must never query parking_spots,
+    // since it never renders parking_spots candidates (see candidateService.ts).
+    findNearbyParkingCandidates(userLat, userLng, SEARCH_RADIUS_METERS, {
+      sources: ["CITY"],
+    })
+      .then((candidates) => {
+        if (cancelled) return;
+        // Defensive: explicitly identify CITY-provenance candidates via
+        // ParkingEvidence.sourceCategory rather than trusting that the
+        // requested sources alone guarantee purity (see isCityProvenance).
+        setCityPreviewCandidates(candidates.filter(isCityProvenance));
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setCityPreviewError(getErrorMessage(err, "Couldn't load city parking data preview."));
+      })
+      .finally(() => {
+        if (!cancelled) setCityPreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [locationStatus, userLat, userLng]);
 
   const loadFavorites = useCallback(async () => {
     if (!user) {
@@ -474,6 +534,44 @@ export function MapScreen({ navigation }: Props) {
           <Text style={styles.demoNoteText}>
             Map view coming soon · Showing nearby parking list
           </Text>
+        </View>
+      )}
+
+      {/* City data preview — additive only, never replaces the parking_spots list above/below. */}
+      {CITY_DATA_PREVIEW_ENABLED && (
+        <View style={styles.cityPreviewSection}>
+          <Text style={styles.cityPreviewTitle}>City parking data (preview)</Text>
+          <Text style={styles.cityPreviewSubtitle}>
+            Inventory from city data · Availability unknown
+          </Text>
+
+          {cityPreviewLoading ? (
+            <ActivityIndicator size="small" color={colors.accent} style={styles.cityPreviewSpinner} />
+          ) : cityPreviewError ? (
+            <Text style={styles.cityPreviewError}>{cityPreviewError}</Text>
+          ) : cityPreviewCandidates.length === 0 ? (
+            <Text style={styles.cityPreviewEmpty}>No city parking data found nearby.</Text>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.cityPreviewRow}
+            >
+              {cityPreviewCandidates.slice(0, 8).map((candidate) => (
+                <View key={candidate.location.id} style={styles.cityPreviewCard}>
+                  <Text style={styles.cityPreviewCardTitle} numberOfLines={2}>
+                    {candidate.location.address ??
+                      candidate.location.streetName ??
+                      "Unnamed location"}
+                  </Text>
+                  <Text style={styles.cityPreviewCardDistance}>
+                    {formatPreviewDistance(candidate.distanceMeters)}
+                  </Text>
+                  <AvailabilityBadge status={candidate.availability.status} compact />
+                </View>
+              ))}
+            </ScrollView>
+          )}
         </View>
       )}
 
@@ -976,6 +1074,58 @@ const styles = StyleSheet.create({
     color: "#1d4ed8",
     textAlign: "center",
     fontWeight: font.medium,
+  },
+
+  // City data preview (additive, non-authoritative — see docs/CITY_DATA_PLAN.md)
+  cityPreviewSection: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  cityPreviewTitle: {
+    fontSize: font.sizeXs,
+    fontWeight: font.semibold,
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  cityPreviewSubtitle: {
+    fontSize: font.sizeXs,
+    color: colors.textMuted,
+    marginTop: 2,
+    marginBottom: spacing.sm,
+  },
+  cityPreviewSpinner: {
+    alignSelf: "flex-start",
+  },
+  cityPreviewError: {
+    fontSize: font.sizeXs,
+    color: colors.textSecondary,
+  },
+  cityPreviewEmpty: {
+    fontSize: font.sizeXs,
+    color: colors.textMuted,
+  },
+  cityPreviewRow: {
+    gap: spacing.sm,
+  },
+  cityPreviewCard: {
+    width: 160,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  cityPreviewCardTitle: {
+    fontSize: font.sizeSm,
+    fontWeight: font.medium,
+    color: colors.textPrimary,
+  },
+  cityPreviewCardDistance: {
+    fontSize: font.sizeXs,
+    color: colors.textMuted,
+    marginBottom: 2,
   },
 
   fieldLabel: {

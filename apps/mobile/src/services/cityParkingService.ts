@@ -4,12 +4,20 @@ import type {
   NormalizedParkingLocation,
   NormalizedParkingNearby,
 } from "../shared";
+// Type-only import: erased at compile time, so this carries no Metro/runtime
+// resolution risk (see candidateService.ts for the one file that imports
+// @smart-parking/shared as a runtime value).
+import type { domain, adapters } from "@smart-parking/shared";
+import { computeBoundingBoxDegrees } from "../utils/geoBoundingBox";
 
 /**
  * Read-only city parking service (Phase 3).
  *
  * Queries normalized_parking_locations only — separate from parking_spots MVP.
- * Not wired to UI yet; safe to import in future map/list experiments.
+ * `getNormalizedParkingNearby` / `getNormalizedParkingByCity` /
+ * `getActiveNormalizedParking` below are not wired to any UI. The newer
+ * `fetchNearbyNormalizedLocationRows` (bottom of file) IS wired — it feeds
+ * the city-data preview via candidateService.ts + findParkingCandidates.
  */
 
 const NORMALIZED_TABLE = "normalized_parking_locations";
@@ -92,15 +100,15 @@ export async function getNormalizedParkingNearby(
   }
 
   const radiusMeters = radiusMiles * METERS_PER_MILE;
-  const degreesOffset = radiusMeters / 111_000;
+  const box = computeBoundingBoxDegrees(latitude, longitude, radiusMeters);
 
   const { data, error } = await supabase
     .from(NORMALIZED_TABLE)
     .select(NORMALIZED_SELECT)
-    .gte("latitude", latitude - degreesOffset)
-    .lte("latitude", latitude + degreesOffset)
-    .gte("longitude", longitude - degreesOffset)
-    .lte("longitude", longitude + degreesOffset);
+    .gte("latitude", box.minLat)
+    .lte("latitude", box.maxLat)
+    .gte("longitude", box.minLng)
+    .lte("longitude", box.maxLng);
 
   if (error) {
     return queryError(error.message);
@@ -151,6 +159,48 @@ export async function getNormalizedParkingByCity(
     data: (data ?? []).map((row) => mapRow(row as Record<string, unknown>)),
     error: null,
   };
+}
+
+/**
+ * Fetches `normalized_parking_locations` rows shaped for the shared
+ * deterministic candidate service (packages/shared/src/services/parking.ts
+ * `FetchNormalizedLocationRows`). Uses the same corrected bounding-box
+ * prefilter as `getNormalizedParkingNearby` above, but returns raw mapped
+ * rows with NO client-side distance/radius filtering of its own — the
+ * shared candidate service applies its own exact-radius haversine filter
+ * over whatever this returns (see packages/shared/src/services/distance.ts).
+ * `NormalizedParkingLocation` (apps/mobile/src/shared.ts) is a structural
+ * superset of `adapters.NormalizedLocationRow`, so `mapRow`'s existing
+ * output satisfies the shared contract without further mapping.
+ *
+ * Throws on Supabase error (matching parkingService.ts's convention) —
+ * required because the shared fetcher contract expects a plain
+ * `Promise<Row[]>`, not this file's own `CityParkingQueryResult` wrapper.
+ */
+export async function fetchNearbyNormalizedLocationRows(
+  origin: domain.GeoPoint,
+  radiusMeters: number
+): Promise<adapters.NormalizedLocationRow[]> {
+  if (!isValidCoordinate(origin.latitude, origin.longitude)) {
+    throw new Error("Invalid latitude or longitude.");
+  }
+
+  const box = computeBoundingBoxDegrees(origin.latitude, origin.longitude, radiusMeters);
+
+  const { data, error } = await supabase
+    .from(NORMALIZED_TABLE)
+    .select(NORMALIZED_SELECT)
+    .gte("latitude", box.minLat)
+    .lte("latitude", box.maxLat)
+    .gte("longitude", box.minLng)
+    .lte("longitude", box.maxLng)
+    .limit(DEFAULT_NEARBY_LIMIT);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row) => mapRow(row as Record<string, unknown>));
 }
 
 /**

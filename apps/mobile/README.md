@@ -101,7 +101,7 @@ See [`.env.example`](./.env.example) for all supported variables:
 |----------|----------|-------------|
 | `EXPO_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon (public) key |
-| `EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW` | No | City data preview in Settings (default `false`) |
+| `EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW` | No | Shows a status row in Settings, and a small "City parking data (preview)" section on the Map screen with normalized city inventory (availability always shown as unknown — never "Available"). Default `false`; does not change the primary `parking_spots` list/map. |
 | `EXPO_PUBLIC_ENABLE_MAP` | No | Native map toggle for EAS builds (default on) |
 | `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` | No | Android Google Maps key for EAS builds |
 

@@ -4,10 +4,10 @@ Shared TypeScript types, constants, and utility functions intended for the monor
 
 > **Current consumption status:**
 >
-> - **`apps/mobile`** — does **not** import from `@smart-parking/shared`. The mobile app uses an inlined copy at `apps/mobile/src/shared.ts` to avoid monorepo resolution issues with Expo Go / Metro. The two files have drifted (mobile adds `FavoriteParkingSpot`, `NormalizedParkingLocation`, and `CityParkingQueryResult`; this package retains `UserProfile` and `formatUpdatedAt`).
+> - **`apps/mobile`** — imports the `domain`/`adapters`/`services` namespaces from `@smart-parking/shared` as a normal pnpm workspace dependency (added to `apps/mobile/package.json`). `apps/mobile/src/services/candidateService.ts` is the only file that imports it as a runtime **value** (`services.findParkingCandidates`); every other mobile file that needs a shared type uses `import type`, which Metro never has to resolve. Metro's `unstable_enablePackageExports` is disabled in `apps/mobile/metro.config.js` (for unrelated CJS-package reasons), so resolution falls back to this package's `"main"` field — confirmed working via `npx expo export --platform android`, whose bundle sourcemap includes `packages/shared/src/index.ts`, `adapters/parking.ts`, `services/parking.ts`, and `services/distance.ts` as real bundled modules. The **legacy exports** at the bottom of `src/index.ts` (`ParkingSpot`, `ParkingStatus`, etc.) are still **not** used by mobile — it keeps its own inlined copy at `apps/mobile/src/shared.ts` for those, and the two have drifted (mobile adds `FavoriteParkingSpot`, `NormalizedParkingLocation`, `CityParkingQueryResult`). Only `domain`/`adapters`/`services` are consumed at runtime.
 > - **`apps/web`** — does **not** import from `@smart-parking/shared`. The website is self-contained.
 >
-> This package typechecks (`pnpm typecheck:shared`) and is part of the monorepo workspace, but is not consumed by any app at runtime. Consolidating types here (and resolving Expo Go import constraints) is deferred to a future refactor.
+> This package typechecks (`pnpm typecheck:shared`) and is part of the monorepo workspace. Its `domain`/`adapters`/`services` namespaces are consumed at runtime by `apps/mobile` (see above); the legacy top-level exports are not consumed by any app. Consolidating those remaining legacy types (and revisiting the Expo Go import constraint they were originally added to work around) is deferred to a future refactor.
 
 ## Domain model (V1)
 
@@ -27,7 +27,7 @@ import { domain, adapters } from "@smart-parking/shared";
 const candidate: domain.ParkingCandidate = adapters.mapParkingSpotToCandidate(spotRow);
 ```
 
-Like the rest of this package, `src/domain/` and `src/adapters/` are not yet imported by `apps/mobile` or `apps/web`.
+`src/domain/` and `src/adapters/` are imported by `apps/mobile` (see "Current consumption status" above via `import type`, plus real value usage inside `apps/mobile/src/services/candidateService.ts`). Neither is imported by `apps/web`.
 
 ## Deterministic parking service (V1)
 
@@ -42,7 +42,11 @@ const candidates = await services.findParkingCandidates(
 );
 ```
 
-Not yet wired into `apps/mobile` or `apps/web`.
+Wired into `apps/mobile` via `apps/mobile/src/services/candidateService.ts`
+(`findNearbyParkingCandidates`), which supplies `fetchNearbyParkingSpotRows`
+(`parkingService.ts`) and, when the city-data preview flag is on,
+`fetchNearbyNormalizedLocationRows` (`cityParkingService.ts`) as the
+injected fetchers. Not imported by `apps/web`.
 
 ## Structure
 

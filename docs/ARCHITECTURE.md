@@ -533,8 +533,25 @@ Parking Candidate Service — IMPLEMENTED (V1), packages/shared/src/services/
   - deps.fetchNearbySpots / fetchNearbyNormalizedLocations are injected by
     the caller (dependency injection) — this package still has no
     Supabase dependency; callers reuse their own existing queries
-  - Applies exact-radius distance filtering on whatever rows the fetcher
-    returns; does not fix any prefilter inaccuracy upstream of it
+  - Applies exact-radius (haversine) distance filtering on whatever rows
+    the fetcher returns
+        ↓
+Mobile Runtime Integration — IMPLEMENTED (V1), apps/mobile/src/services/candidateService.ts
+  - apps/mobile depends on @smart-parking/shared as a normal pnpm workspace
+    package (added to apps/mobile/package.json); Metro resolves and bundles
+    it via the package's "main" field (verified with `expo export`)
+  - fetchNearbyParkingSpotRows (parkingService.ts) / fetchNearbyNormalizedLocationRows
+    (cityParkingService.ts) are the injected fetchers — apps/mobile still
+    owns all Supabase access; packages/shared never does
+  - Both fetchers use a corrected bounding-box prefilter
+    (apps/mobile/src/utils/geoBoundingBox.ts) that scales the longitude
+    offset by 1/cos(latitude) — the old `radiusMeters / 111_000` offset
+    applied to both axes under-covered the east-west extent by ~20% at
+    San Francisco's latitude
+  - MapScreen's existing parking_spots list/map is UNCHANGED — it still
+    calls getNearbyParkingSpots/getParkingSpots directly. The candidate
+    service only powers an additive "City parking data (preview)" section,
+    shown only when EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW is on
         ↓
 [FUTURE] Deterministic Parking Services
   - isLegalToParkNow(location, time) — needs a curb-rule model (not built)
@@ -551,7 +568,11 @@ Parking Candidate Service — IMPLEMENTED (V1), packages/shared/src/services/
 [FUTURE] MCP interface (optional external layer)
 ```
 
-**Status:** The pure domain model is implemented in `packages/shared/src/domain/` (no framework or storage dependencies). Database-row mapping adapters are implemented separately in `packages/shared/src/adapters/`, which depends on `domain` — never the reverse. A deterministic retrieval service, `packages/shared/src/services/` (`findParkingCandidates`), sits on top of both. None of the three are yet imported by `apps/mobile` or `apps/web` — no UI or service currently constructs a `ParkingCandidate`. Curb-rule ingestion, legality evaluation, freshness calculation, ranking, agent tools, and MCP remain entirely unbuilt.
+**Status:** The pure domain model is implemented in `packages/shared/src/domain/` (no framework or storage dependencies). Database-row mapping adapters are implemented separately in `packages/shared/src/adapters/`, which depends on `domain` — never the reverse. A deterministic retrieval service, `packages/shared/src/services/` (`findParkingCandidates`), sits on top of both.
+
+`apps/mobile` now depends on `@smart-parking/shared` as a real pnpm workspace runtime dependency (`apps/mobile/src/services/candidateService.ts` is the only mobile file that imports it as a value; everywhere else uses `import type`, which Metro never needs to resolve). This was verified, not assumed: `npx expo export --platform android` was run with the integration in place, and the resulting bundle's sourcemap was inspected to confirm `packages/shared/src/index.ts`, `adapters/parking.ts`, `services/parking.ts`, and `services/distance.ts` are genuinely present in the module graph. `apps/web` still does not import any of the three.
+
+This integration is intentionally additive: the existing `parking_spots` list/map in `MapScreen` is untouched and still calls `getNearbyParkingSpots`/`getParkingSpots` directly. `findParkingCandidates` currently only powers a small, separately-rendered "City parking data (preview)" section, gated by the existing `EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW` flag, which is OFF by default and was already wired to a Settings status row before this milestone. City candidates always carry `availability.status = "UNKNOWN"` and `legality.status = "UNKNOWN"` — normalized city inventory is never treated as proof of a legal, open space. Curb-rule ingestion, legality evaluation, freshness calculation, ranking, agent tools, and MCP remain entirely unbuilt.
 
 **Important:** MCP is an optional access interface at the boundary — not where business logic lives. Core parking services must be deterministic and independently testable without MCP.
 

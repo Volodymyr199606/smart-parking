@@ -1,6 +1,6 @@
 ﻿# City Data Integration Plan — Smart Parking (San Francisco)
 
-> **Status:** Phase 1–3 ingestion prototype is **merged into `main`**. Mobile app MVP is unchanged — it still reads only `parking_spots` (26 mock rows). City tables are populated by local scripts and are not yet wired to the mobile UI.
+> **Status:** Phase 1–3 ingestion prototype is **merged into `main`**. The `parking_spots` MVP experience (list/map/filters/reporting/realtime/favorites) is unchanged and still reads only `parking_spots`. City data now has one additive, non-authoritative UI path: a "City parking data (preview)" section in `MapScreen`, gated by `EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW` (default **off**), that reads `normalized_parking_locations` through `packages/shared`'s deterministic candidate service. See "Mobile Runtime Integration" in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §13. City candidates always have `availability.status = "UNKNOWN"` — never inferred as available.
 >
 > **Goal:** Import real city parking/curb data into **separate** tables without breaking Expo Go, auth, realtime, reports, or the 26-row `MOCK` seed in `parking_spots`.
 
@@ -77,7 +77,7 @@ WHERE location_description IS NULL;
 | Table `normalized_parking_locations` | **Implemented** — canonical city inventory (not `parking_spots`) |
 | Script `scripts/normalize-city-parking.ts` | **Implemented** — upserts from `city_parking_meters` |
 | Script `scripts/verify-normalized-parking.ts` | **Implemented** — read-only validation |
-| Mobile app | **Not connected** — Expo Go MVP unchanged; `cityParkingService.ts` exists but is not called by any screen |
+| Mobile app | **Preview-only, flag-gated** — `cityParkingService.ts`'s `fetchNearbyNormalizedLocationRows` feeds `MapScreen`'s "City parking data (preview)" section via `packages/shared`'s `findParkingCandidates`, only when `EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW=true`. The primary `parking_spots` list/map is untouched. `getNormalizedParkingNearby`/`getNormalizedParkingByCity`/`getActiveNormalizedParking` remain unused by any screen. |
 
 **Pipeline (run in order):**
 
@@ -101,9 +101,9 @@ pnpm check:city-parking
 
 **Verification checklist:** row count > 0; valid lat/lng; no duplicate `(source_type, source_id)`; `active` is boolean; `raw_source` populated; `last_synced_at` set.
 
-**Phase 3 — Read-only service layer:** `apps/mobile/src/services/cityParkingService.ts` is **implemented** — it provides `getNormalizedParkingNearby`, `getNormalizedParkingByCity`, and `getActiveNormalizedParking` queries over `normalized_parking_locations`. This service uses the anon key (public read RLS). It is **not called by any screen** — wiring it to the mobile list/map is the next deliberate integration step.
+**Phase 3 — Read-only service layer:** `apps/mobile/src/services/cityParkingService.ts` is **implemented** — it provides `getNormalizedParkingNearby`, `getNormalizedParkingByCity`, `getActiveNormalizedParking`, and (new) `fetchNearbyNormalizedLocationRows` queries over `normalized_parking_locations`. This service uses the anon key (public read RLS). Only `fetchNearbyNormalizedLocationRows` is called by a screen today — it feeds `MapScreen`'s city-data preview section (flag-gated, off by default) via `packages/shared`'s `findParkingCandidates`. The other three exports remain unused by any screen.
 
-Not connected to the mobile app yet.
+**Mobile runtime integration (this milestone):** `apps/mobile` now depends on `@smart-parking/shared` as a real pnpm workspace package (`apps/mobile/src/services/candidateService.ts` calls `findParkingCandidates`, wiring `fetchNearbyParkingSpotRows` + `fetchNearbyNormalizedLocationRows` as the injected fetchers). Both fetchers use a corrected bounding-box prefilter (`apps/mobile/src/utils/geoBoundingBox.ts`) that accounts for longitude degrees shrinking with latitude — the previous `radiusMeters / 111_000` offset applied to both axes under-covered the east-west extent by ~20% at SF's latitude. The shared service still applies its own exact-radius haversine filter over whatever the prefilter returns.
 
 Related: high-level architecture overview in [`ARCHITECTURE.md`](./ARCHITECTURE.md) §10.
 
