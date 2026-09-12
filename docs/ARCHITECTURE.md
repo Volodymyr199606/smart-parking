@@ -525,6 +525,17 @@ Database Adapters — IMPLEMENTED (V1), packages/shared/src/adapters/ (only plac
   - mapParkingSpotToCandidate, mapNormalizedLocationToCandidate
   - Dependency direction: adapters → domain (never the reverse)
         ↓
+Parking Candidate Service — IMPLEMENTED (V1), packages/shared/src/services/
+  - findParkingCandidates(request: ParkingCandidateSearchRequest, deps) → ParkingCandidate[]
+  - request is location + radius only — NOT the broader ParkingSearchConstraints
+    (that stays reserved for a future findLegalParking-style service; see
+    packages/shared/src/domain/search.ts)
+  - deps.fetchNearbySpots / fetchNearbyNormalizedLocations are injected by
+    the caller (dependency injection) — this package still has no
+    Supabase dependency; callers reuse their own existing queries
+  - Applies exact-radius distance filtering on whatever rows the fetcher
+    returns; does not fix any prefilter inaccuracy upstream of it
+        ↓
 [FUTURE] Deterministic Parking Services
   - isLegalToParkNow(location, time) — needs a curb-rule model (not built)
   - isReportedAvailable(location)
@@ -540,7 +551,7 @@ Database Adapters — IMPLEMENTED (V1), packages/shared/src/adapters/ (only plac
 [FUTURE] MCP interface (optional external layer)
 ```
 
-**Status:** The pure domain model is implemented in `packages/shared/src/domain/` (no framework or storage dependencies). Database-row mapping adapters are implemented separately in `packages/shared/src/adapters/`, which depends on `domain` — never the reverse. Neither is yet imported by `apps/mobile` or `apps/web` — no UI or service currently constructs a `ParkingCandidate`. Curb-rule ingestion, legality evaluation, freshness calculation, search/ranking, agent tools, and MCP remain entirely unbuilt.
+**Status:** The pure domain model is implemented in `packages/shared/src/domain/` (no framework or storage dependencies). Database-row mapping adapters are implemented separately in `packages/shared/src/adapters/`, which depends on `domain` — never the reverse. A deterministic retrieval service, `packages/shared/src/services/` (`findParkingCandidates`), sits on top of both. None of the three are yet imported by `apps/mobile` or `apps/web` — no UI or service currently constructs a `ParkingCandidate`. Curb-rule ingestion, legality evaluation, freshness calculation, ranking, agent tools, and MCP remain entirely unbuilt.
 
 **Important:** MCP is an optional access interface at the boundary — not where business logic lives. Core parking services must be deterministic and independently testable without MCP.
 

@@ -11,7 +11,11 @@ Shared TypeScript types, constants, and utility functions intended for the monor
 
 ## Domain model (V1)
 
-`src/domain/` holds a framework-independent, **storage-independent** parking domain model: `ParkingLocation`, `ParkingLegality`, `ParkingAvailability`, `ParkingEvidence`, `ParkingCandidate`, `ParkingSearchConstraints`. It has no React, Supabase, LLM, or database-row dependencies of any kind. See `src/domain/index.ts` and `docs/ARCHITECTURE.md` §13 for details and status.
+`src/domain/` holds a framework-independent, **storage-independent** parking domain model: `ParkingLocation`, `ParkingLegality`, `ParkingAvailability`, `ParkingEvidence`, `ParkingCandidate`, `ParkingCandidateSearchRequest`, `ParkingSearchConstraints`. It has no React, Supabase, LLM, or database-row dependencies of any kind. See `src/domain/index.ts` and `docs/ARCHITECTURE.md` §13 for details and status.
+
+Two search-request types exist at different layers — do not mix them up:
+- `ParkingCandidateSearchRequest` (location + radius only) — what `findParkingCandidates` actually accepts and enforces.
+- `ParkingSearchConstraints` (adds arrival/departure/walking-distance/metered preference) — reserved for a future `findLegalParking`-style service once a rule-evaluation engine exists; not accepted by `findParkingCandidates` today.
 
 `src/adapters/` holds the pure mapping functions from `parking_spots` / `normalized_parking_locations` rows to `ParkingCandidate`. This is the only part of the package allowed to know about storage-shaped (snake_case) row types. Dependencies point one way only: `adapters` → `domain`. The domain model never imports from `adapters`.
 
@@ -24,6 +28,21 @@ const candidate: domain.ParkingCandidate = adapters.mapParkingSpotToCandidate(sp
 ```
 
 Like the rest of this package, `src/domain/` and `src/adapters/` are not yet imported by `apps/mobile` or `apps/web`.
+
+## Deterministic parking service (V1)
+
+`src/services/` holds `findParkingCandidates(request: ParkingCandidateSearchRequest, deps)` — retrieves rows via caller-supplied fetch functions (dependency injection, no Supabase client of its own), maps them through `adapters`, applies an exact-radius distance filter to the fetched rows, and returns sorted `ParkingCandidate[]`. It depends on `domain` and `adapters` only; it adds no new runtime dependency to this package. `request` only accepts location + radius — every field it has is enforced, unlike the broader `ParkingSearchConstraints`. See `src/services/parking.ts` for the full contract, an illustrative usage example, and documented radius-completeness caveats.
+
+```typescript
+import { services } from "@smart-parking/shared";
+
+const candidates = await services.findParkingCandidates(
+  { origin: { latitude, longitude }, radiusMeters: 2000 },
+  { fetchNearbySpots: myFetchFn }
+);
+```
+
+Not yet wired into `apps/mobile` or `apps/web`.
 
 ## Structure
 

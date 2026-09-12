@@ -36,3 +36,9 @@ export * as domain from "./domain";
 // pure domain model never depends on storage-shaped row types.
 // Usage: import { adapters } from "@smart-parking/shared";
 export * as adapters from "./adapters";
+
+// Deterministic parking candidate service (V1) — retrieves + maps rows into
+// ParkingCandidate[] via injected fetch functions. Adds no Supabase
+// dependency to this package; callers supply their own query functions.
+// Usage: import { services } from "@smart-parking/shared";
+export * as services from "./services";
