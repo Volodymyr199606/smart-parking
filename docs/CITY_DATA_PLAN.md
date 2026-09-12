@@ -1,6 +1,7 @@
-# City Data Integration Plan — Smart Parking (San Francisco)
+﻿# City Data Integration Plan — Smart Parking (San Francisco)
 
-> **Status:** Ingestion **prototype** on branch `feature/city-data-ingestion`. Mobile MVP unchanged.  
+> **Status:** Phase 1–3 ingestion prototype is **merged into `main`**. Mobile app MVP is unchanged — it still reads only `parking_spots` (26 mock rows). City tables are populated by local scripts and are not yet wired to the mobile UI.
+>
 > **Goal:** Import real city parking/curb data into **separate** tables without breaking Expo Go, auth, realtime, reports, or the 26-row `MOCK` seed in `parking_spots`.
 
 ### Current ingestion prototype (active)
@@ -72,11 +73,11 @@ WHERE location_description IS NULL;
 
 | Item | Status |
 |------|--------|
-| Migration `00007_normalized_city_parking.sql` | **In repo** — apply in Supabase SQL Editor after `00005`/`00006` |
-| Table `normalized_parking_locations` | Canonical city inventory (not `parking_spots`) |
-| Script `scripts/normalize-city-parking.ts` | **Added** — upserts from `city_parking_meters` |
-| Script `scripts/verify-normalized-parking.ts` | **Added** — read-only validation |
-| Mobile app | **Not connected** — Expo Go MVP unchanged |
+| Migration `00007_normalized_city_parking.sql` | **In repo and merged** — apply in Supabase SQL Editor after `00005`/`00006` |
+| Table `normalized_parking_locations` | **Implemented** — canonical city inventory (not `parking_spots`) |
+| Script `scripts/normalize-city-parking.ts` | **Implemented** — upserts from `city_parking_meters` |
+| Script `scripts/verify-normalized-parking.ts` | **Implemented** — read-only validation |
+| Mobile app | **Not connected** — Expo Go MVP unchanged; `cityParkingService.ts` exists but is not called by any screen |
 
 **Pipeline (run in order):**
 
@@ -100,7 +101,7 @@ pnpm check:city-parking
 
 **Verification checklist:** row count > 0; valid lat/lng; no duplicate `(source_type, source_id)`; `active` is boolean; `raw_source` populated; `last_synced_at` set.
 
-**Next step (Phase 3):** Read-only API/service layer (Supabase RPC or Edge Function) to query normalized locations near a point — still **not** wired into the mobile map until a deliberate cutover.
+**Phase 3 — Read-only service layer:** `apps/mobile/src/services/cityParkingService.ts` is **implemented** — it provides `getNormalizedParkingNearby`, `getNormalizedParkingByCity`, and `getActiveNormalizedParking` queries over `normalized_parking_locations`. This service uses the anon key (public read RLS). It is **not called by any screen** — wiring it to the mobile list/map is the next deliberate integration step.
 
 Not connected to the mobile app yet.
 
@@ -893,11 +894,12 @@ End-to-end pipeline (design only — no Edge Function code yet):
 
 ### Recommended next steps (implementation — not now)
 
-1. Add `supabase/migrations/00005_city_data_tables.sql` from §7.1–7.4 only.
-2. Add `supabase/migrations/00006_parking_spots_city_columns.sql` (additive).
-3. Implement Edge Function + local dry-run script.
-4. Add RPC `get_parking_context_near(lat, lng, radius_m)`.
-5. Mobile: spot detail “Restrictions” section (separate task).
+1. ~~Add `supabase/migrations/00005_city_data_tables.sql`~~ — **Done** (replaced by `00005_city_parking_data.sql`, `00006_city_parking_views.sql`, `00007_normalized_city_parking.sql`, all merged into `main`).
+2. ~~Local ingest + normalize scripts~~ — **Done** (`scripts/ingest-sf-parking-data.ts`, `scripts/normalize-city-parking.ts`, `scripts/verify-normalized-parking.ts` implemented).
+3. Wire `cityParkingService.ts` into the mobile list/map — the next concrete integration step.
+4. Implement Edge Function `sync-city-parking` for scheduled server-side ingest.
+5. Add RPC `get_parking_context_near(lat, lng, radius_m)` for combined context queries.
+6. Mobile: spot detail "Restrictions" section once curb-rule tables are populated.
 
 ### What to commit in this phase
 
@@ -944,4 +946,4 @@ End-to-end pipeline (design only — no Edge Function code yet):
 
 ---
 
-*Last updated: schema design phase — May 2026. No migrations applied.*
+*Last updated: September 2026. Migrations 00005-00007 applied (city data ingestion prototype merged into main). Migrations 00008-00010 applied (favorites, analytics, secure RPC). Mobile app still reads parking_spots only.*

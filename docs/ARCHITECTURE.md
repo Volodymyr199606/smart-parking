@@ -1,798 +1,563 @@
-# Smart Parking — Architecture Document
+# Smart Parking — Architecture Reference
 
-> This document defines the new architecture for the Smart Parking project rebuild.
-> It replaces the previous Java/Spring Boot/MySQL stack with a TypeScript-first approach
-> using Next.js (website), React Native Expo (mobile app), and Supabase (backend).
+> **Document status:** Current implementation as of the Expo SDK 54 / Next.js 15 monorepo.
+> Previously this document described planned architecture; it now reflects what is actually built.
+> Future / planned items are clearly labelled **[FUTURE]**.
 
 ---
 
 ## Table of Contents
 
-1. [Product Vision](#1-product-vision)
-2. [Why We Are Switching](#2-why-we-are-switching)
-3. [New High-Level Architecture](#3-new-high-level-architecture)
+1. [Product Overview](#1-product-overview)
+2. [Repository Structure](#2-repository-structure)
+3. [High-Level Architecture](#3-high-level-architecture)
 4. [Mobile App Architecture](#4-mobile-app-architecture)
 5. [Website Architecture](#5-website-architecture)
-6. [Supabase Backend / Data Architecture](#6-supabase-backend--data-architecture)
-7. [Database Schema Proposal](#7-database-schema-proposal)
-8. [Authentication Design](#8-authentication-design)
-9. [Realtime Design](#9-realtime-design)
-10. [City Data Integration Plan (DataSF / SFMTA)](#10-city-data-integration-plan-datasf--sfmta)
-11. [Future MCP Integration Plan](#11-future-mcp-integration-plan)
-12. [Security and Permissions (RLS)](#12-security-and-permissions-rls)
-13. [MVP Roadmap](#13-mvp-roadmap)
-14. [Non-Goals for MVP](#14-non-goals-for-mvp)
-15. [UI/UX Design Principles](#15-uiux-design-principles)
+6. [Supabase Backend](#6-supabase-backend)
+7. [Database Schema](#7-database-schema)
+8. [Authentication](#8-authentication)
+9. [Realtime](#9-realtime)
+10. [City Data Pipeline](#10-city-data-pipeline)
+11. [Security and RLS](#11-security-and-rls)
+12. [UI/UX Principles](#12-uiux-principles)
+13. [Future Architecture Direction](#13-future-architecture-direction)
 
 ---
 
-## 1. Product Vision
+## 1. Product Overview
 
-Smart Parking is a mobile-first application that helps drivers in San Francisco find available street parking in real time.
-
-**Core value proposition:** Open the app, see nearby open spots on a map, navigate to one, and park — all in under 30 seconds.
+Smart Parking helps drivers in San Francisco find nearby street parking faster.
 
 **Two surfaces:**
-- **Mobile App (React Native Expo)** — The primary product. Used by drivers on the go to find, navigate to, and report parking spots.
-- **Website (Next.js)** — A marketing and subscription surface. Landing page, product demo, waitlist signup, and future subscription management.
+- **Mobile app** (`apps/mobile`) — Core product. Drivers find, report, and navigate to parking spots on the go.
+- **Website** (`apps/web`) — Marketing landing page, animated product demo (scripted, not live data), and Supabase-backed waitlist.
 
-**Target user:** Everyday drivers in San Francisco who waste time circling blocks looking for parking.
-
----
-
-## 2. Why We Are Switching
-
-### Previous Stack
-| Layer | Technology | Pain Points |
-|-------|-----------|-------------|
-| Frontend | Next.js + React + Leaflet | Tightly coupled to backend REST API, web-only |
-| Backend | Java 21 + Spring Boot 3.4 | Heavy setup, slow iteration, complex deployment |
-| Database | PostgreSQL (via Render) | Manual schema management, no built-in auth |
-| Auth | Custom JWT + Spring Security | Custom implementation, hard to maintain |
-| Realtime | WebSocket + STOMP (planned) | Never fully implemented, complex config |
-| Deployment | Render (backend) + Vercel (frontend) | Cold starts, two platforms to manage |
-
-### New Stack
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Mobile App | React Native Expo | Cross-platform iOS/Android from one TypeScript codebase |
-| Website | Next.js 14+ | Fast, SEO-friendly marketing site with React |
-| Backend | Supabase | Managed Postgres, Auth, Realtime, Storage, Edge Functions — all in one |
-| Language | TypeScript everywhere | One language, shared types, faster development |
-| Maps | React Native Maps (mobile) + Mapbox/Leaflet (web demo) | Native performance on mobile |
-| Deployment | Expo EAS (mobile) + Vercel (website) + Supabase (backend) | Simple, managed, no cold starts |
-
-### Key Reasons for the Switch
-
-1. **Speed of development** — No more writing Java boilerplate, DTOs, services, and controllers for simple CRUD.
-2. **One language** — TypeScript everywhere eliminates context-switching between Java and TypeScript.
-3. **Mobile-first** — The real product is a mobile app. React Native Expo gives us iOS + Android from one codebase.
-4. **Managed infrastructure** — Supabase handles auth, database, realtime, and storage. No server to maintain.
-5. **Simpler deployment** — No more Render cold starts. Supabase is always on. Expo handles app builds.
-6. **Built-in realtime** — Supabase Realtime replaces the unfinished WebSocket/STOMP setup.
-7. **Built-in auth** — Supabase Auth replaces custom JWT implementation.
-8. **Row Level Security** — Database-level permissions replace Spring Security annotations.
-9. **Cost** — Supabase free tier is generous. No paid Render/Railway needed for MVP.
+**Target user:** Everyday SF drivers who want to reduce time spent searching for street parking.
 
 ---
 
-## 3. New High-Level Architecture
+## 2. Repository Structure
+
+A TypeScript-first pnpm monorepo (`pnpm@10.22.0`):
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        CLIENTS                               │
-├─────────────────────────┬───────────────────────────────────┤
-│                         │                                    │
-│   📱 Mobile App         │   🌐 Website                      │
-│   React Native Expo     │   Next.js (Vercel)                │
-│   iOS + Android         │   Landing / Demo / Waitlist       │
-│                         │                                    │
-└────────────┬────────────┴──────────────┬────────────────────┘
-             │                           │
-             │      Supabase Client      │
-             │      (supabase-js)        │
-             │                           │
-┌────────────▼───────────────────────────▼────────────────────┐
-│                      SUPABASE                                │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│   🔐 Auth          PostgreSQL         ⚡ Realtime           │
-│   Email/Password   + PostGIS          Spot updates          │
-│   OAuth            Tables + RLS       Availability changes  │
-│                                                              │
-│   📦 Storage       🔧 Edge Functions  📊 Dashboard          │
-│   User avatars     Data sync jobs     Monitoring            │
-│   (future)         City data import   Usage analytics       │
-│                                                              │
-└─────────────────────────────┬───────────────────────────────┘
-                              │
-                    ┌─────────▼─────────┐
-                    │  External Data     │
-                    │  DataSF / SFMTA    │
-                    │  (future import)   │
-                    └───────────────────┘
+smart-parking/
+├── apps/
+│   ├── mobile/          → React Native Expo app (iOS + Android) — main product
+│   └── web/             → Next.js marketing website (landing + waitlist)
+├── packages/
+│   └── shared/          → Shared types/constants/utils (not currently imported by either app — see §4.5)
+├── supabase/
+│   ├── migrations/      → 10 SQL migration files (00001–00010)
+│   ├── scripts/         → Idempotent helper SQL for safe re-application
+│   └── seed/            → 26 mock SF parking spots
+├── scripts/             → City data ingestion pipeline (TypeScript, service-role only)
+├── docs/                → Architecture and city data planning
+├── archive/             → Previous Java/Spring + Leaflet stack (reference only, not used)
+├── DEMO.md              → Demo script and portfolio guide
+└── README.md            → Project overview
 ```
+
+---
+
+## 3. High-Level Architecture
+
+```
+┌──────────────────────────┐     ┌──────────────────────────┐
+│   📱 Mobile App          │     │   🌐 Marketing Website   │
+│   React Native + Expo    │     │   Next.js 15 (Vercel)    │
+│   iOS + Android          │     │   Landing + Waitlist     │
+│   apps/mobile            │     │   apps/web               │
+└────────────┬─────────────┘     └────────────┬─────────────┘
+             │                                │
+             │       @supabase/supabase-js    │
+             └──────────────┬─────────────────┘
+                            ▼
+             ┌──────────────────────────────┐
+             │          SUPABASE            │
+             │  Auth · PostgreSQL · RLS     │
+             │  Realtime (parking_spots)    │
+             └──────────────┬───────────────┘
+                            │
+             ┌──────────────▼───────────────┐
+             │   City Data (offline/batch)  │
+             │   DataSF / SFMTA → scripts/  │
+             │   → city tables (read-only)  │
+             └──────────────────────────────┘
+```
+
+**Key design decisions:**
+- No custom backend server — clients talk to Supabase directly via PostgREST
+- Row Level Security enforces permissions in the database, not in application middleware
+- City data ingestion runs from local scripts with service-role access — no Edge Functions yet
+- Mobile list view works in Expo Go without native binaries; native map is prepared for an EAS build later
 
 ---
 
 ## 4. Mobile App Architecture
 
-### Overview
-The mobile app is the primary product surface. It must be fast, clean, and feel like a real startup app.
+### 4.1 Tech stack
 
-### Tech Stack
-- **Framework:** React Native with Expo (managed workflow)
-- **Navigation:** Expo Router (file-based routing)
-- **State Management:** React Context + Zustand (lightweight)
-- **Maps:** react-native-maps (Apple Maps on iOS, Google Maps on Android)
-- **Backend Client:** @supabase/supabase-js
-- **UI Library:** Custom components (no heavy UI libraries)
-- **Icons:** lucide-react-native or expo-vector-icons
+| Concern | Technology |
+|---|---|
+| Framework | React Native + Expo (SDK 54, managed workflow) |
+| Language | TypeScript 5.9 |
+| Navigation | `@react-navigation/native` + `@react-navigation/native-stack` (React Navigation v7) |
+| State management | React Context only (`AuthContext`) — no Zustand or Redux |
+| Auth | Supabase Auth via `@supabase/supabase-js`, session stored in AsyncStorage |
+| Realtime | Supabase Realtime (`postgres_changes` subscription on `parking_spots`) |
+| Location | `expo-location` (foreground permission) |
+| Maps | `react-native-maps` 1.20.1 (implemented, disabled in Expo Go — see §4.4) |
+| UI | Custom components — no third-party UI library |
 
-### Folder Structure
+### 4.2 Folder structure
+
 ```
-mobile/
-├── app/                    # Expo Router screens
-│   ├── (tabs)/             # Tab navigation
-│   │   ├── map.tsx         # Main map screen
-│   │   ├── search.tsx      # Search for spots
-│   │   ├── favorites.tsx   # Saved spots
-│   │   └── profile.tsx     # User profile
-│   ├── (auth)/             # Auth screens
-│   │   ├── login.tsx
-│   │   └── register.tsx
-│   ├── spot/[id].tsx       # Spot detail
-│   └── _layout.tsx         # Root layout
-├── components/             # Reusable components
-│   ├── ui/                 # Base UI (Button, Card, Input)
-│   ├── map/                # Map-specific components
-│   └── spots/              # Parking spot cards/lists
-├── lib/                    # Utilities
-│   ├── supabase.ts         # Supabase client init
-│   ├── types.ts            # Shared TypeScript types
-│   └── constants.ts        # App constants
-├── hooks/                  # Custom hooks
-│   ├── useAuth.ts
-│   ├── useNearbySpots.ts
-│   └── useRealtimeSpots.ts
-├── contexts/               # React contexts
-│   └── auth-context.tsx
-├── assets/                 # Images, fonts
-├── app.json                # Expo config
-├── tsconfig.json
-└── package.json
+apps/mobile/
+├── App.tsx                  → Entry point; checks env vars, wraps AuthProvider + NavigationContainer
+├── index.js                 → Expo entry (registers App)
+├── app.config.js            → Expo config (EAS project ID, Google Maps key wiring, splash)
+├── eas.json                 → EAS build profiles (development / preview / production)
+├── src/
+│   ├── shared.ts            → Inlined types, constants, utilities (replaces @smart-parking/shared)
+│   ├── components/          → Reusable UI components
+│   │   ├── AppButton.tsx
+│   │   ├── AppInput.tsx
+│   │   ├── AvailabilityBadge.tsx
+│   │   ├── ConfigErrorScreen.tsx  → Shown when Supabase env vars are missing
+│   │   ├── ParkingMapView.tsx     → react-native-maps wrapper with error boundary
+│   │   ├── ParkingSpotCard.tsx
+│   │   └── ScreenContainer.tsx
+│   ├── constants/
+│   │   ├── env.ts           → ENV object + isSupabaseConfigured()
+│   │   └── theme.ts         → Colors, spacing, radius, font tokens
+│   ├── contexts/
+│   │   └── AuthContext.tsx  → Supabase Auth state, signUp/signIn/signOut
+│   ├── hooks/
+│   │   └── useRealtimeSpots.ts → parking_spots INSERT/UPDATE/DELETE subscription
+│   ├── navigation/
+│   │   └── RootNavigator.tsx   → Auth-gated native stack (Welcome/Login/Register vs Map/Profile/Settings)
+│   ├── screens/
+│   │   ├── MapScreen.tsx        → Main screen: list + map toggle, search, filters, detail card, reports
+│   │   ├── ProfileScreen.tsx    → User info, favorites count, reports count, logout
+│   │   ├── SettingsScreen.tsx   → App version, realtime/map status, logout
+│   │   ├── LoginScreen.tsx
+│   │   ├── RegisterScreen.tsx
+│   │   └── WelcomeScreen.tsx
+│   ├── services/
+│   │   ├── supabaseClient.ts    → Supabase client (AsyncStorage auth persistence)
+│   │   ├── parkingService.ts    → getNearbyParkingSpots, getParkingSpots, reportParkingSpot, getReportsCount
+│   │   ├── favoritesService.ts  → addFavorite, removeFavorite, getFavorites, getFavoritesCount
+│   │   ├── analyticsService.ts  → trackEvent (fire-and-forget, never throws)
+│   │   ├── cityParkingService.ts → getNormalizedParkingNearby, getNormalizedParkingByCity (not wired to UI yet)
+│   │   └── authService.ts       → Thin wrappers over Supabase Auth
+│   ├── types/
+│   │   └── index.ts             → RootStackParamList navigation types
+│   └── utils/
+│       ├── appStatus.ts         → getAppVersion, map/city/realtime status labels
+│       ├── getErrorMessage.ts   → Safe error → string helper
+│       ├── mapSupport.ts        → isNativeMapSupported() (false in Expo Go)
+│       └── parkingSpotsState.ts → upsertSpotById, replaceSpotById, removeSpotById (dedup helpers)
+└── assets/                  → App icons, splash image
 ```
 
-### Key Screens
-1. **Map Screen** — Full-screen map with colored markers (green/red). User location. Tap marker for details.
-2. **Search Screen** — Search by address or area. Filter by price, availability, restrictions.
-3. **Spot Detail** — Address, price, restrictions, availability status. "Navigate" button opens native maps.
-4. **Favorites** — List of saved spots with live availability status.
-5. **Profile** — Account info, preferences, logout.
-6. **Auth Screens** — Clean login/register with email+password (and future OAuth).
+### 4.3 Navigation
+
+Auth-gated native stack via `RootNavigator.tsx`:
+
+```
+Unauthenticated:
+  Welcome → Login → Register
+
+Authenticated:
+  Map (default) → Profile (header back)
+              → Settings (header back)
+```
+
+There is no tab bar and no Expo Router. Navigation is entirely React Navigation native stack.
+
+### 4.4 Map implementation and Expo Go limitation
+
+`react-native-maps` is installed and `ParkingMapView` is fully implemented with colored pin markers, an error boundary, and a map/list view toggle in `MapScreen`. However:
+
+- `isNativeMapSupported()` in `mapSupport.ts` returns `false` when `Constants.appOwnership === "expo"` (i.e. running inside Expo Go)
+- In Expo Go the app renders a list-only view and shows a banner: *"Map view coming soon · Showing nearby parking list"*
+- The native map requires an **EAS development build** and a Google Maps API key for Android (`EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` in `apps/mobile/.env`)
+- `eas.json` and `app.config.js` are configured with a real EAS project ID; no build has been published yet
+
+### 4.5 Types and shared package
+
+The mobile app **does not import from `@smart-parking/shared`**. It uses `apps/mobile/src/shared.ts` — an inlined copy — because Metro bundler in Expo Go has difficulty resolving workspace packages. The inlined file includes types that the shared package does not have (`FavoriteParkingSpot`, `NormalizedParkingLocation`, `CityParkingQueryResult`). Reconciling the two is a deferred refactor.
+
+### 4.6 City parking service (implemented but not wired to UI)
+
+`cityParkingService.ts` provides three read-only query functions over `normalized_parking_locations`:
+- `getNormalizedParkingNearby(lat, lng, radiusMiles)` — bounding box + client-side haversine
+- `getNormalizedParkingByCity(city)` — city name filter
+- `getActiveNormalizedParking()` — active inventory flag
+
+These functions are not called by any screen. They are available for future integration when the city-data cutover is deliberately made.
 
 ---
 
 ## 5. Website Architecture
 
-### Overview
-The website is NOT the app. It is a polished startup landing page for marketing, demo, and subscription management.
+### 5.1 Tech stack
 
-### Tech Stack
-- **Framework:** Next.js 14+ (App Router)
-- **Styling:** Tailwind CSS
-- **Deployment:** Vercel
-- **Backend Client:** @supabase/supabase-js (for waitlist, auth)
-- **Animations:** Framer Motion (subtle, minimal)
+| Concern | Technology |
+|---|---|
+| Framework | Next.js 15 (App Router) |
+| Language | TypeScript 5.7 |
+| Styling | Tailwind CSS v4 — CSS-first via `@tailwindcss/postcss`; no `tailwind.config` file |
+| Icons | `lucide-react` |
+| Backend | Supabase (`@supabase/supabase-js`) — waitlist only |
+| Deployment | Vercel (root directory: `apps/web`) |
 
-### Folder Structure
+### 5.2 Folder structure
+
 ```
-website/
+apps/web/
+├── next.config.ts           → outputFileTracingRoot set to monorepo root
+├── postcss.config.mjs       → @tailwindcss/postcss only
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx            # Landing page
-│   │   ├── demo/page.tsx       # Interactive demo
-│   │   ├── waitlist/page.tsx   # Waitlist signup
-│   │   ├── pricing/page.tsx    # Subscription plans
-│   │   ├── privacy/page.tsx    # Privacy policy
-│   │   ├── terms/page.tsx      # Terms of service
-│   │   └── layout.tsx          # Root layout
+│   │   ├── layout.tsx       → Root layout, metadata
+│   │   ├── page.tsx         → Landing page (all sections)
+│   │   ├── home/page.tsx    → redirect("/") alias
+│   │   └── globals.css      → @import "tailwindcss" + @theme brand tokens
 │   ├── components/
-│   │   ├── ui/                 # Button, Card, Input
-│   │   ├── landing/            # Hero, Features, CTA
-│   │   └── layout/             # Header, Footer
-│   ├── lib/
-│   │   ├── supabase.ts         # Supabase client
-│   │   └── types.ts            # Shared types
-│   └── styles/
-│       └── globals.css
-├── public/                     # Static assets
-├── tailwind.config.ts
-├── tsconfig.json
-└── package.json
+│   │   ├── Nav.tsx, Hero.tsx, Problem.tsx, Solution.tsx
+│   │   ├── Features.tsx, About.tsx, Footer.tsx
+│   │   ├── DemoPreview.tsx  → Section wrapper for PhoneDemo
+│   │   ├── PhoneDemo.tsx    → Scripted animated phone mockup (hardcoded spots, no live data)
+│   │   └── Waitlist.tsx     → Email form → waitlist_signups insert
+│   └── lib/
+│       └── supabase.ts      → createClient; returns null if env vars missing (no crash)
 ```
 
-### Key Pages
-1. **Landing Page** — Hero, feature highlights, social proof, CTA to download app or join waitlist.
-2. **Demo** — Interactive map demo (web-only preview of the app experience).
-3. **Waitlist** — Email capture form. Stores in Supabase `waitlist` table.
-4. **Pricing** — Future subscription tiers (free, pro, team).
-5. **Privacy Policy / Terms** — Legal pages.
+### 5.3 Landing page sections
+
+The single `/` route renders these sections in order:
+Nav → Hero → Problem → Solution → Features → DemoPreview → Waitlist → About → Footer
+
+### 5.4 Demo section
+
+The `PhoneDemo` component is a **scripted animation**, not a live product interface:
+- Spots are hardcoded arrays — no Supabase queries
+- A timer loop auto-cycles filters, selects a spot, simulates report, and shows a toast
+- User interaction buttons have no `onClick` handlers — the demo cannot be driven by the viewer
+- The section headline ("Real data, real spots, today") overstates it; the demo shows sample data
+
+### 5.5 Waitlist
+
+`Waitlist.tsx` inserts `{ full_name, email, interest }` into `waitlist_signups`. Handles idle / submitting / success / already-registered (Postgres `23505`) / error states. If Supabase env vars are absent the form degrades to a friendly error message; the build does not fail.
+
+### 5.6 Deployment
+
+No `vercel.json` exists. Vercel project settings must specify:
+- Root directory: `apps/web`
+- Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+The web app imports no workspace packages, so no special monorepo transpilation is needed.
 
 ---
 
-## 6. Supabase Backend / Data Architecture
+## 6. Supabase Backend
 
-### Why Supabase
-Supabase provides everything we need in one managed platform:
-- **PostgreSQL** — Full relational database with PostGIS for geospatial queries.
-- **Auth** — Email/password, OAuth, magic links. No custom JWT needed.
-- **Realtime** — Subscribe to database changes. Spots update live.
-- **Edge Functions** — Serverless TypeScript functions for background jobs.
-- **Row Level Security (RLS)** — Database-level permissions. No middleware needed.
-- **Storage** — File uploads (future: user avatars, spot photos).
+Supabase provides everything the apps need without a custom server:
 
-### Supabase Client Setup
-Both the mobile app and website use the same Supabase project:
+| Service | Used for |
+|---|---|
+| **Auth** | Email/password signup and login; session tokens returned to clients |
+| **PostgreSQL** | All persistent data via PostgREST |
+| **Realtime** | `parking_spots` INSERT/UPDATE/DELETE broadcast to mobile clients |
+| **Row Level Security** | Database-enforced permissions (no app middleware) |
+| **Dashboard** | Manual migration apply; seed SQL; admin reads |
 
-```typescript
-import { createClient } from '@supabase/supabase-js'
+**Not currently used:** Storage, Edge Functions, scheduled functions, PostGIS.
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL   // or NEXT_PUBLIC_
-const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
-
-export const supabase = createClient(supabaseUrl, supabaseKey)
-```
-
-### Data Flow
-```
-Mobile App / Website
-        │
-        ▼
-  supabase-js client
-        │
-        ├── Auth requests → Supabase Auth
-        ├── Data queries → PostgreSQL (via PostgREST)
-        ├── Realtime subscriptions → Supabase Realtime
-        └── File uploads → Supabase Storage
-```
+Both clients (`apps/mobile` and `apps/web`) connect using the **anon key**. The **service role key** is used only by local ingestion scripts and must never appear in client code or be committed to source control.
 
 ---
 
-## 7. Database Schema Proposal
+## 7. Database Schema
 
-### Tables
+All 10 migrations are applied in order. Summary of tables:
 
-#### `profiles` (extends Supabase auth.users)
+### parking_spots
 | Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | Primary key, references auth.users(id) |
+|---|---|---|
+| id | uuid | PK |
+| street_name | text | Required |
+| address | text | Optional full address |
+| latitude | double precision | GPS latitude |
+| longitude | double precision | GPS longitude |
+| status | text | `AVAILABLE` \| `OCCUPIED` \| `UNKNOWN` |
+| parking_type | text | `METERED` \| `FREE` \| `LOADING_ZONE` \| `STREET_SWEEPING` \| `GARAGE` \| `UNKNOWN` |
+| price | text | Display string, e.g. `"$3.50/hr"` |
+| time_limit | text | Display string, e.g. `"2 hours"` |
+| source | text | `MOCK` \| `DATASF` \| `SFMTA` \| `USER_REPORT` |
+| created_at | timestamptz | Auto-set |
+| updated_at | timestamptz | Auto-updated via `set_updated_at()` trigger |
+
+> **No PostGIS.** Location is stored as plain `latitude`/`longitude` columns. Nearby queries use a bounding-box approximation (`radiusMeters / 111_000` degrees offset). PostGIS would be added in a later migration.
+
+### profiles
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK, references `auth.users(id)` |
 | full_name | text | Display name |
-| avatar_url | text | Profile picture URL (nullable) |
+| email | text | User email |
 | created_at | timestamptz | Auto-set |
-| updated_at | timestamptz | Auto-set |
+| updated_at | timestamptz | Auto-updated via trigger |
 
-#### `parking_spots`
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | Primary key |
-| address | text | Street address |
-| latitude | float8 | GPS latitude |
-| longitude | float8 | GPS longitude |
-| location | geography(Point, 4326) | PostGIS point for spatial queries |
-| available | boolean | Current availability |
-| price_per_hour | numeric(5,2) | Price in USD (0 = free) |
-| restrictions | text | Time limits, rules (nullable) |
-| spot_type | text | street, garage, lot |
-| source | text | manual, datasf, sfmta |
-| last_reported_at | timestamptz | Last time availability was reported |
-| created_at | timestamptz | Auto-set |
-| updated_at | timestamptz | Auto-set |
+Auto-created by `handle_new_user()` trigger on `auth.users` INSERT.
 
-#### `favorites`
+### parking_reports
 | Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | Primary key |
-| user_id | uuid | References profiles(id) |
-| spot_id | uuid | References parking_spots(id) |
+|---|---|---|
+| id | uuid | PK |
+| user_id | uuid | References `auth.users` |
+| parking_spot_id | uuid | References `parking_spots` |
+| status | text | `AVAILABLE` \| `OCCUPIED` \| `UNKNOWN` |
+| note | text | Optional user note |
 | created_at | timestamptz | Auto-set |
 
-#### `availability_reports`
+### waitlist_signups
 | Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | Primary key |
-| spot_id | uuid | References parking_spots(id) |
-| reporter_id | uuid | References profiles(id) |
-| available | boolean | Reported status |
-| reported_at | timestamptz | When the report was made |
-
-#### `waitlist` (website only)
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | Primary key |
-| email | text | Unique |
-| source | text | landing, demo, referral |
+|---|---|---|
+| id | uuid | PK |
+| full_name | text | Optional |
+| email | text | Required, unique |
+| interest | text | Optional message |
 | created_at | timestamptz | Auto-set |
 
-### PostGIS Spatial Queries
+### favorite_parking_spots (migration 00008)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| user_id | uuid | References `auth.users` (CASCADE) |
+| parking_spot_id | uuid | References `parking_spots` (CASCADE) |
+| created_at | timestamptz | Auto-set |
+
+UNIQUE on `(user_id, parking_spot_id)`.
+
+### analytics_events (migration 00009)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| user_id | uuid | References `auth.users` — nullable |
+| event_name | text | e.g. `parking_spot_opened`, `directions_clicked` |
+| event_payload | jsonb | Structured metadata |
+| created_at | timestamptz | Auto-set |
+
+Append-only; no SELECT policy for clients.
+
+### City data tables (migrations 00005–00007, optional)
+
+See [§10 City Data Pipeline](#10-city-data-pipeline) and [`docs/CITY_DATA_PLAN.md`](./CITY_DATA_PLAN.md).
+
+### Secure status-update RPC (migration 00010)
+
 ```sql
--- Find spots within 500m of a location
-SELECT * FROM parking_spots
-WHERE ST_DWithin(
-  location,
-  ST_SetSRID(ST_MakePoint(-122.4194, 37.7749), 4326)::geography,
-  500
-)
-AND available = true
-ORDER BY location <-> ST_SetSRID(ST_MakePoint(-122.4194, 37.7749), 4326)::geography;
+-- Called by the mobile app instead of a direct UPDATE:
+SELECT update_parking_spot_status(spot_id := $1, new_status := $2);
 ```
+
+`SECURITY DEFINER` function. Validates `new_status` is one of the three allowed values. Replaces the broad UPDATE policy from migration 00002 (which 00010 drops). Clients cannot update any other column.
 
 ---
 
-## 8. Authentication Design
+## 8. Authentication
 
-### Approach
-Use Supabase Auth entirely. No custom JWT logic.
+Supabase email/password auth. No OAuth, no magic link (not yet implemented).
 
-### Supported Methods (MVP)
-- Email + password (signup, login)
-- Password reset via email
+**Session lifecycle:**
+1. App starts → `supabase.auth.getSession()` restores session from AsyncStorage
+2. `onAuthStateChange` listener keeps `AuthContext` in sync
+3. Tokens auto-refresh via `supabase-js`
+4. Logout → `supabase.auth.signOut()`, clears AsyncStorage
 
-### Future Methods
-- Google OAuth
-- Apple Sign-In (required for iOS App Store)
-- Magic link (passwordless)
-
-### Auth Flow
-```
-1. User opens app → Check Supabase session
-2. No session → Show login/register screen
-3. User registers → Supabase creates auth.users row + triggers profile creation
-4. User logs in → Supabase returns session with access_token + refresh_token
-5. All API calls include access_token automatically via supabase-js
-6. Token refresh is handled by supabase-js automatically
-7. Logout → Clear session locally and on server
-```
-
-### Profile Creation Trigger
-A Postgres function auto-creates a `profiles` row when a new user signs up:
-
-```sql
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, full_name)
-  VALUES (NEW.id, NEW.raw_user_meta_data->>'full_name');
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-```
+`App.tsx` renders `ConfigErrorScreen` when `EXPO_PUBLIC_SUPABASE_URL` or `EXPO_PUBLIC_SUPABASE_ANON_KEY` are missing, preventing a crash on misconfiguration.
 
 ---
 
-## 9. Realtime Design
+## 9. Realtime
 
-### How Supabase Realtime Works
-Supabase Realtime uses PostgreSQL's replication features to broadcast row-level changes to subscribed clients via WebSocket.
+`useRealtimeSpots` hook in `apps/mobile/src/hooks/`:
 
-### What We Subscribe To
-- **Parking spot availability changes** — When a spot's `available` field changes, all nearby clients see the update instantly.
-
-### Client Subscription (Mobile App)
-```typescript
-const channel = supabase
-  .channel('spot-updates')
-  .on(
-    'postgres_changes',
-    {
-      event: 'UPDATE',
-      schema: 'public',
-      table: 'parking_spots',
-      filter: `available=eq.true`
-    },
-    (payload) => {
-      // Update local state with new spot data
-      updateSpotInState(payload.new)
-    }
-  )
+```
+supabase.channel("parking_spots_changes")
+  .on("postgres_changes", { event: "INSERT", table: "parking_spots" }, onInsert)
+  .on("postgres_changes", { event: "UPDATE", table: "parking_spots" }, onUpdate)
+  .on("postgres_changes", { event: "DELETE", table: "parking_spots" }, onDelete)
   .subscribe()
 ```
 
-### Realtime Use Cases
-1. **Spot becomes available** — Map marker turns green for all nearby users.
-2. **Spot becomes occupied** — Map marker turns red for all nearby users.
-3. **New spot added** — Appears on map for nearby users.
+- Only `parking_spots` is in the Supabase Realtime publication (migration `00003`)
+- `MapScreen` drives `setSpots` state from these callbacks (insert/update/replace, remove by id)
+- Dedup helpers in `parkingSpotsState.ts` prevent duplicate entries on reconnection
+- `connectionStatus` (`live` / `reconnecting` / `offline`) is surfaced as a badge in the map header
 
-### Performance Considerations
-- Subscribe only to spots within the user's visible map area.
-- Unsubscribe when user navigates away from the map.
-- Use Supabase Realtime filters to limit broadcast scope.
+Realtime events are not broadcast for `parking_reports`, `favorites`, or city tables.
 
 ---
 
-## 10. City Data Integration Plan (DataSF / SFMTA)
+## 10. City Data Pipeline
 
-### Data Sources
-- **DataSF Open Data** — San Francisco open data portal with parking meter locations, time limits, and pricing.
-- **SFMTA** — Real-time parking availability from sensors (limited availability).
+### What exists today
 
-### Integration Strategy (Post-MVP)
-1. **Phase 1: Static Import** — Download parking meter location data from DataSF. Import into `parking_spots` table with `source = 'datasf'`.
-2. **Phase 2: Scheduled Sync** — Supabase Edge Function runs on a cron schedule to fetch updated data from DataSF APIs.
-3. **Phase 3: Real-Time Feed** — If SFMTA provides real-time sensor data, subscribe to their feed and update `available` status in real time.
+The city data pipeline is an **offline ingestion prototype** — not a real-time feed and not wired into the mobile UI.
 
-### DataSF Datasets of Interest
-- Parking Meters (locations, rates, time limits)
-- Street Sweeping Schedule (temporary no-parking zones)
-- Parking Citations (hot zones to avoid)
-- SFMTA Real-time Parking (sensor data, limited coverage)
-
-### Edge Function for Data Import
-```typescript
-// supabase/functions/sync-datasf/index.ts
-import { createClient } from '@supabase/supabase-js'
-
-Deno.serve(async () => {
-  const response = await fetch('https://data.sfgov.org/resource/xxxx.json')
-  const meters = await response.json()
-
-  // Transform and upsert into parking_spots
-  const spots = meters.map(transformMeterToSpot)
-  await supabase.from('parking_spots').upsert(spots, { onConflict: 'source_id' })
-
-  return new Response('Sync complete')
-})
 ```
+DataSF Socrata API          scripts/ingest-sf-parking-data.ts
+(public HTTP/JSON)    →     (service-role, runs locally)
+                            ↓
+                      city_parking_sources
+                      city_parking_blocks
+                      city_parking_meters
+                            ↓
+                      scripts/normalize-city-parking.ts
+                            ↓
+                      normalized_parking_locations
+                            ↓
+                      (mobile app does NOT read this yet)
+```
+
+### Data sources ingested
+
+| DataSF dataset | ID | Target table |
+|---|---|---|
+| SFMTA Metered Street Blocks | `27b3-yjjx` | `city_parking_blocks` |
+| Parking Meters | `8vzz-qzz9` | `city_parking_meters` |
+| Parking Regulations (blockface map) | `hi6h-neyh` | `city_parking_blocks` (merged) |
+
+### Ingestion scripts
+
+| Command | Script | What it does |
+|---|---|---|
+| `pnpm ingest:sf-parking` | `scripts/ingest-sf-parking-data.ts` | Full DataSF ingest (all configured datasets) |
+| `pnpm ingest:sf-parking:meters` | same, `--meters-only --limit=100` | Safe test batch of 100 meters |
+| `pnpm normalize:city-parking` | `scripts/normalize-city-parking.ts` | Upserts `city_parking_meters` → `normalized_parking_locations` |
+| `pnpm verify:normalized-parking` | `scripts/verify-normalized-parking.ts` | Read-only validation of normalized rows |
+| `pnpm check:city-parking` | `scripts/check-city-parking-data.ts` | Inspects `city_parking_meters_clean` view |
+| `pnpm check:city-parking-service` | `scripts/check-city-parking-service.ts` | Tests `cityParkingService.ts` queries |
+
+All ingest scripts require `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the repo-root `.env`.
+
+### Critical data distinction
+
+City data describes **parking infrastructure and regulations** — not live occupancy:
+
+| Question | Data type | Source |
+|---|---|---|
+| "Can I legally park here at 4pm Tuesday?" | Static legal/rule | City tables (curb rules, sweeping schedules — *not yet imported*) |
+| "Did someone report this space open recently?" | Estimated availability | `parking_spots.status` + `parking_reports` |
+| "Is the meter sensor showing a free space right now?" | True realtime occupancy | *Not available citywide from DataSF/SFMTA today* |
+
+**The `active` field on `normalized_parking_locations`** is the city's meter-active flag — not an indication that a parking space is currently unoccupied. Never display it as live availability.
+
+### What the mobile app uses today
+
+The mobile app reads only `parking_spots` (26 mock rows, `source = 'MOCK'`). Status reflects user reports and Supabase Realtime updates. City tables are populated but not queried by any screen.
+
+`cityParkingService.ts` is implemented and typechecks, but is imported by no screen. It is available for a deliberate UI integration step.
 
 ---
 
-## 11. Future MCP Integration Plan
+## 11. Security and RLS
 
-### What is MCP?
-MCP (Model Context Protocol) is a standard for connecting AI models to external data and tools. It would allow an AI assistant to query parking data, check availability, and help users find spots via natural language.
+See [`supabase/README.md`](../supabase/README.md) for the full RLS table. Key principles:
 
-### Why MCP is Not Core
-MCP is an **access layer**, not application logic. The app works without it. MCP is added later as an optional interface for AI-powered features.
-
-### Planned MCP Tools (Future)
-| Tool | Description |
-|------|-------------|
-| `find_parking` | Search for available spots near a location |
-| `check_availability` | Check if a specific spot is currently available |
-| `get_restrictions` | Get parking rules for a spot or area |
-| `report_availability` | Report a spot as available or occupied |
-| `get_favorites` | Get user's saved parking spots |
-
-### Architecture with MCP
-```
-AI Assistant (Claude, etc.)
-        │
-        ▼
-   MCP Server (Edge Function or standalone)
-        │
-        ▼
-   Supabase PostgreSQL (same data the app uses)
-```
-
-### Implementation Plan
-1. Build the app first without MCP.
-2. After MVP, create a Supabase Edge Function that exposes MCP-compatible tool endpoints.
-3. The MCP server reads from the same `parking_spots` table.
-4. No changes to the app are needed — MCP is purely additive.
+- Every table has RLS enabled
+- Client roles (anon, authenticated) can only perform explicitly granted operations
+- `parking_spots` has **no client UPDATE path** — all status changes go through `update_parking_spot_status()` RPC (migration 00010)
+- City tables are read-only for all client roles; ingest requires service role
+- The service role key must never be shipped in client apps or committed to source control
+- Favorites and reports are scoped to `auth.uid()` — no cross-user access
 
 ---
 
-## 12. Security and Permissions (RLS)
+## 12. UI/UX Principles
 
-### Row Level Security Philosophy
-Every table has RLS enabled. Users can only read/write data they're authorized to access. The database enforces this — not the application code.
+### Mobile
 
-### RLS Policies
+- Clean, minimal, no visual clutter
+- White/light backgrounds, generous spacing
+- System fonts (SF Pro on iOS, Roboto on Android)
+- Rounded elements — 8/12/16px radius, full-radius buttons
+- Subtle drop shadows on cards, no harsh borders
+- Palette: gray text, blue accents, green (available), red (occupied), amber (warnings)
+- Every screen handles: loading, empty, success, and error states
+- Touch targets minimum 44px; bottom-aligned actions for thumb reach
 
-#### `profiles`
-```sql
--- Users can read their own profile
-CREATE POLICY "Users can view own profile"
-  ON profiles FOR SELECT
-  USING (auth.uid() = id);
+### Website
 
--- Users can update their own profile
-CREATE POLICY "Users can update own profile"
-  ON profiles FOR UPDATE
-  USING (auth.uid() = id);
-```
-
-#### `parking_spots`
-```sql
--- Anyone (authenticated) can read parking spots
-CREATE POLICY "Authenticated users can view spots"
-  ON parking_spots FOR SELECT
-  TO authenticated
-  USING (true);
-
--- Only service role (Edge Functions) can insert/update spots from data imports
--- Users report availability via the availability_reports table
-```
-
-#### `favorites`
-```sql
--- Users can view their own favorites
-CREATE POLICY "Users can view own favorites"
-  ON favorites FOR SELECT
-  USING (auth.uid() = user_id);
-
--- Users can add their own favorites
-CREATE POLICY "Users can insert own favorites"
-  ON favorites FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
--- Users can delete their own favorites
-CREATE POLICY "Users can delete own favorites"
-  ON favorites FOR DELETE
-  USING (auth.uid() = user_id);
-```
-
-#### `availability_reports`
-```sql
--- Authenticated users can report spot availability
-CREATE POLICY "Users can report availability"
-  ON availability_reports FOR INSERT
-  TO authenticated
-  WITH CHECK (auth.uid() = reporter_id);
-
--- Users can view their own reports
-CREATE POLICY "Users can view own reports"
-  ON availability_reports FOR SELECT
-  USING (auth.uid() = reporter_id);
-```
-
-#### `waitlist`
-```sql
--- Anyone (including anonymous) can insert into waitlist
-CREATE POLICY "Anyone can join waitlist"
-  ON waitlist FOR INSERT
-  TO anon, authenticated
-  WITH CHECK (true);
-```
+- Startup landing-page aesthetic — confident, trustworthy
+- Whitespace-driven; no walls of text
+- Card-based feature highlights
+- Consistent colors with mobile app
+- Responsive across all screen sizes
 
 ---
 
-## 13. MVP Roadmap
+## 13. Future Architecture Direction
 
-### Phase 1: Foundation (Days 1-2)
-- [ ] Set up Supabase project (database, auth, realtime)
-- [ ] Create database schema with PostGIS
-- [ ] Configure RLS policies
-- [ ] Set up Expo project for mobile app
-- [ ] Set up Next.js project for website
-- [ ] Shared TypeScript types package
+These items are **planned** and **not yet implemented**. None of the systems below exist in the codebase.
 
-### Phase 2: Authentication (Day 3)
-- [ ] Mobile: Login/Register screens
-- [ ] Mobile: Auth context with session management
-- [ ] Mobile: Protected routes
-- [ ] Website: Waitlist signup form
+### Parking domain model
 
-### Phase 3: Core Mobile App (Days 4-6)
-- [ ] Map screen with user location
-- [ ] Display parking spots as colored markers
-- [ ] Tap marker to see spot details
-- [ ] Navigate to spot (open native maps)
-- [ ] Seed database with SF parking data (manual or DataSF import)
+The long-term direction separates concerns into a proper service layer:
 
-### Phase 4: Realtime + Reporting (Day 7)
-- [ ] Subscribe to spot availability changes
-- [ ] Report spot as available/occupied
-- [ ] Live marker color updates
+```
+City Data (DataSF / SFMTA — batch sync)
+        ↓
+Normalization (normalize-city-parking.ts → normalized_parking_locations)
+        ↓
+[FUTURE] Parking Domain Model
+  - ParkingLocation (inventory: what exists and where)
+  - CurbRule (what regulations apply, when)
+  - AvailabilitySignal (crowdsourced or sensor evidence)
+        ↓
+[FUTURE] Deterministic Parking Services
+  - isLegalToParknow(location, time)
+  - isReportedAvailable(location)
+  - getNearbyOptions(userLocation, criteria)
+        ↓
+[FUTURE] Agent Tools (read-only, composable)
+  - find_parking(near, filters)
+  - check_legality(location, time)
+  - get_restrictions(location)
+        ↓
+[FUTURE] Single Parking Agent / Harness
+        ↓
+[FUTURE] MCP interface (optional external layer)
+```
 
-### Phase 5: Website (Day 8)
-- [ ] Landing page with hero, features, CTA
-- [ ] Interactive demo (embedded map preview)
-- [ ] Waitlist form connected to Supabase
+**Important:** MCP is an optional access interface at the boundary — not where business logic lives. Core parking services must be deterministic and independently testable without MCP.
 
-### Phase 6: Polish (Days 9-10)
-- [ ] Favorites feature (save/unsave spots)
-- [ ] Profile screen
-- [ ] Loading/error/empty states
-- [ ] Performance optimization
-- [ ] App Store screenshots and metadata
+### Edge Functions
+
+A `sync-city-parking` Edge Function (not yet created) would replace the local ingest scripts with a scheduled, server-side pipeline:
+
+```
+Supabase cron → Edge Function (service role)
+  → DataSF / SFMTA paginated fetch
+  → upsert city_parking_sources / city_parking_blocks / city_parking_meters
+  → trigger normalize step
+  → update import audit log
+```
+
+### EAS native map
+
+When an EAS development build is produced:
+1. Set `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` in `apps/mobile/.env`
+2. Run `pnpm build:dev:android` or `pnpm build:dev:ios`
+3. `isNativeMapSupported()` will return `true` in the dev build
+4. Map/list toggle activates; `ParkingMapView` renders with real `react-native-maps` pins
+
+No code changes are needed — the feature flag and component are already implemented.
 
 ---
 
-## 14. Non-Goals for MVP
-
-These are explicitly out of scope to keep the MVP focused:
-
-- **Payment processing** — No in-app payments or subscriptions.
-- **Push notifications** — Not needed for initial launch.
-- **Parking reservation** — Users find spots, not reserve them.
-- **In-app navigation** — We open native Maps apps for directions.
-- **Admin dashboard** — Manage data via Supabase Dashboard directly.
-- **Multi-city support** — SF only for MVP.
-- **Parking garage integration** — Street parking only.
-- **IoT sensor integration** — Community reporting first.
-- **Social features** — No sharing, comments, or community feed.
-- **MCP integration** — Added post-MVP as enhancement.
-- **Offline mode** — Requires internet for real-time data.
-- **Android Auto / CarPlay** — Future enhancement.
-- **Analytics dashboard** — Use Supabase built-in analytics.
-- **Custom map tiles** — Use default map providers.
-- **Multiple languages** — English only for MVP.
-
----
-
-## 15. UI/UX Design Principles
-
-### Mobile App Design
-- **Clean and minimal** — No visual clutter. Every element earns its place.
-- **White/light backgrounds** — Clean, airy feel. No dark backgrounds (except optional dark mode later).
-- **Generous spacing** — Plenty of padding between elements. Never feel cramped.
-- **Readable typography** — System fonts (SF Pro on iOS, Roboto on Android). Clear hierarchy.
-- **Rounded elements** — Rounded cards (16px radius), rounded buttons (full radius for pills).
-- **Subtle shadows** — Light drop shadows on cards. No harsh borders.
-- **Simple color palette:**
-  - Primary: Slate/Gray (text, backgrounds)
-  - Accent: Blue (actions, links)
-  - Success: Green (available spots)
-  - Danger: Red (occupied spots)
-  - Warning: Amber (restrictions)
-- **Clear hierarchy** — Title → subtitle → content → action. Every screen follows this pattern.
-- **Touch-friendly** — Large tap targets (44px minimum). Bottom-aligned actions for thumb reach.
-- **No unnecessary animations** — Subtle transitions on navigation. No bouncing, spinning, or flashy effects.
-- **Status states** — Every screen handles: loading, empty, success, and error states gracefully.
-
-### Website Design
-- **Startup landing page aesthetic** — Professional, confident, trustworthy.
-- **Hero section** — Bold headline, clear subtitle, strong CTA.
-- **Whitespace-driven** — Let content breathe. No walls of text.
-- **Card-based sections** — Feature highlights in clean cards.
-- **Mobile-responsive** — Looks great on all screen sizes.
-- **Consistent with app** — Same color palette and typography principles.
-
-### Shared Design Tokens
-```
-Colors:
-  gray-50:  #f8fafc (backgrounds)
-  gray-600: #475569 (body text)
-  gray-900: #0f172a (headings)
-  blue-600: #2563eb (primary actions)
-  green-500: #22c55e (available)
-  red-500:  #ef4444 (occupied)
-  amber-500: #f59e0b (warnings)
-
-Spacing:
-  Base unit: 4px
-  Common: 8, 12, 16, 24, 32, 48, 64
-
-Border radius:
-  Small: 8px (inputs, small cards)
-  Medium: 12px (cards)
-  Large: 16px (large cards, modals)
-  Full: 9999px (buttons, pills, badges)
-
-Typography:
-  Headings: font-weight 300 (light) to 500 (medium)
-  Body: font-weight 400 (regular)
-  Small: 12px, Body: 14-16px, Headings: 24-48px
-```
-
----
-
-## Appendix A: What Exists Now (Current Project Analysis)
-
-### Current Project Structure
-```
-smart-parking-main/
-├── frontend/                  # Next.js web app
-│   ├── src/
-│   │   ├── app/               # Pages (home, map, dashboard, login, register, etc.)
-│   │   ├── components/        # UI components (map, auth, layout)
-│   │   ├── contexts/          # Auth context
-│   │   ├── hooks/             # WebSocket hook
-│   │   └── lib/               # API client, types
-│   ├── package.json           # Next.js 16, React 18, Leaflet, Axios, STOMP
-│   └── next.config.ts
-├── src/                       # Java Spring Boot backend
-│   └── main/java/com/smart/parking/backend/
-│       ├── controller/        # AuthController, ParkingSpotController, WebSocket
-│       ├── model/             # User, ParkingSpot (JPA entities)
-│       ├── service/           # Auth, ParkingSpot, User services
-│       ├── repository/        # JPA repositories
-│       ├── security/          # JWT filter, JWT util
-│       ├── config/            # Security, WebSocket, DataSource configs
-│       ├── dto/               # Request/response DTOs
-│       └── exception/         # Global exception handler
-├── pom.xml                    # Spring Boot 3.4.5, Java 21, PostgreSQL + MySQL drivers
-├── README.md                  # Project overview with screenshots
-├── DEPLOYMENT.md              # Render deployment guide
-└── Various migration docs     # PostgreSQL setup guides
-```
-
-### What Can Be Reused
-| Asset | Reuse Strategy |
-|-------|---------------|
-| TypeScript types (`lib/types.ts`) | Adapt for new schema |
-| UI design patterns (Tailwind classes) | Reference for mobile and website styling |
-| Home page copy and layout | Adapt for website landing page |
-| Map interaction patterns | Reference for mobile map UX |
-| Auth flow logic | Replace with Supabase Auth (simpler) |
-| Data models (ParkingSpot, User) | Inform new Supabase schema |
-| README screenshots | Reference for visual consistency |
-
-### What Should Be Replaced
-| Component | Reason |
-|-----------|--------|
-| Spring Boot backend (entire `src/` Java folder) | Replaced by Supabase |
-| Custom JWT auth | Replaced by Supabase Auth |
-| Axios API client | Replaced by supabase-js |
-| WebSocket/STOMP hook | Replaced by Supabase Realtime |
-| Leaflet map (frontend) | Mobile uses react-native-maps; website demo can keep Leaflet/Mapbox |
-| MySQL/PostgreSQL JPA setup | Replaced by Supabase managed Postgres |
-| Render deployment config | No longer needed |
-
-### What Should Be Archived
-Move to an `_archive/` folder (do not delete):
-- `src/` (entire Java backend)
-- `pom.xml`
-- `DEPLOYMENT.md`, `RENDER_*.md`, `POSTGRESQL_*.md`
-- `frontend/` (current Next.js app — reference only)
-
-### Risks Before Rebuilding
-1. **Losing working features** — Current app has working auth, map, and dashboard. Archive everything before changing.
-2. **PostGIS setup** — Supabase supports PostGIS but requires enabling the extension manually.
-3. **React Native learning curve** — If unfamiliar, the map integration takes time.
-4. **Supabase Realtime limits** — Free tier has connection limits. Monitor usage.
-5. **DataSF API reliability** — External data source may be slow or change formats.
-6. **App Store requirements** — Apple requires Apple Sign-In if any OAuth is offered.
-
----
-
-## Appendix B: Recommended New Folder Structure
-
-```
-smart-parking/
-├── mobile/                    # React Native Expo app (primary product)
-│   ├── app/                   # Expo Router screens
-│   ├── components/            # UI components
-│   ├── hooks/                 # Custom hooks
-│   ├── lib/                   # Supabase client, utils, types
-│   ├── contexts/              # Auth, app state
-│   ├── assets/                # Images, fonts
-│   ├── app.json
-│   ├── tsconfig.json
-│   └── package.json
-├── website/                   # Next.js marketing site
-│   ├── src/
-│   │   ├── app/               # Pages
-│   │   ├── components/        # UI components
-│   │   └── lib/               # Supabase client, utils
-│   ├── public/
-│   ├── tailwind.config.ts
-│   ├── tsconfig.json
-│   └── package.json
-├── supabase/                  # Supabase configuration
-│   ├── migrations/            # SQL migration files
-│   ├── functions/             # Edge Functions (data sync, etc.)
-│   ├── seed.sql               # Seed data for development
-│   └── config.toml            # Supabase CLI config
-├── packages/                  # Shared code (optional monorepo)
-│   └── shared/
-│       ├── types.ts           # Shared TypeScript types
-│       └── constants.ts       # Shared constants
-├── docs/                      # Documentation
-│   └── ARCHITECTURE.md        # This file
-├── _archive/                  # Previous code (reference only)
-│   ├── spring-boot-backend/
-│   └── nextjs-frontend/
-└── README.md                  # New project README
-```
-
----
-
-*Document created: May 12, 2026*
-*Status: Planning phase — no code changes have been made.*
-*Next step: Review this document, then begin Phase 1 (Foundation) setup.*
+*Last updated: September 2026 — reflects Expo SDK 54 / Next.js 15 monorepo state.*

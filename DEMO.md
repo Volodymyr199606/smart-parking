@@ -113,8 +113,11 @@ For deeper technical detail, see [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md
 pnpm install
 cd apps/mobile
 cp .env.example .env   # add Supabase URL + anon key
-npx expo start
+pnpm start             # starts Expo Go (--go flag included)
+# If LAN fails: pnpm start:tunnel
 ```
+
+> **Important:** Use `pnpm start`, not `npx expo start`. Because `expo-dev-client` is installed for future EAS builds, bare `expo start` opens a dev-client QR that Expo Go cannot read. The `pnpm start` script in `apps/mobile/package.json` includes the `--go` flag automatically.
 
 See [`apps/mobile/README.md`](./apps/mobile/README.md).
 
@@ -180,7 +183,7 @@ Use this order for a 5–8 minute live or recorded demo.
 
 ### Mobile (Expo Go)
 
-1. **Open mobile app in Expo Go** — scan QR from `npx expo start`
+1. **Open mobile app in Expo Go** — scan QR from `pnpm start` (run from `apps/mobile`)
 2. **Register or log in** — create a test account
 3. **View nearby parking list** — note live badge and location bar
 4. **Search / filter parking** — e.g. “Market” or filter “Available”
@@ -216,12 +219,15 @@ Be transparent with reviewers — these are intentional scope cuts for speed.
 
 | Phase | Focus |
 |-------|--------|
-| **Now** | Expo Go list MVP + deployed website + waitlist |
-| **Next** | Merge mobile polish; keep `main` deployable |
-| **Soon** | EAS development build + native map (optional; requires Apple/Android signing) |
-| **Later** | DataSF / SFMTA data import and scheduled sync |
-| **Later** | Favorites, profile stats, push notifications |
-| **Future** | MCP tool layer for AI-assisted parking queries (read-only on same data) |
+| **Done** | Expo Go list MVP — auth, nearby parking, search, filters, reports, realtime, favorites, profile stats, analytics, settings |
+| **Done** | Marketing website + Supabase waitlist |
+| **Done** | City data ingestion prototype (DataSF → `city_parking_meters` → `normalized_parking_locations`) |
+| **Next** | EAS development build + native map (requires Apple/Android signing; `react-native-maps` already implemented) |
+| **Next** | Wire `normalized_parking_locations` into mobile list/map (city inventory, not live availability) |
+| **Later** | Scheduled sync Edge Function for city data |
+| **Later** | Parking legality engine (curb rules, street sweeping, RPP zones) |
+| **Future** | Agent harness + deterministic parking services |
+| **Future** | MCP interface layer for AI-assisted parking queries (read-only on same data) |
 
 ---
 

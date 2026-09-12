@@ -1,6 +1,13 @@
 # @smart-parking/shared
 
-Shared TypeScript types, constants, and utility functions used by both the mobile app and website.
+Shared TypeScript types, constants, and utility functions intended for the monorepo.
+
+> **Current consumption status:**
+>
+> - **`apps/mobile`** — does **not** import from `@smart-parking/shared`. The mobile app uses an inlined copy at `apps/mobile/src/shared.ts` to avoid monorepo resolution issues with Expo Go / Metro. The two files have drifted (mobile adds `FavoriteParkingSpot`, `NormalizedParkingLocation`, and `CityParkingQueryResult`; this package retains `UserProfile` and `formatUpdatedAt`).
+> - **`apps/web`** — does **not** import from `@smart-parking/shared`. The website is self-contained.
+>
+> This package typechecks (`pnpm typecheck:shared`) and is part of the monorepo workspace, but is not consumed by any app at runtime. Consolidating types here (and resolving Expo Go import constraints) is deferred to a future refactor.
 
 ## Structure
 

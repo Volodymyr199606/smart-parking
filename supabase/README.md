@@ -95,7 +95,7 @@ npx supabase link --project-ref YOUR_PROJECT_REF
 npx supabase db push
 ```
 
-For **MVP-only** databases, apply only `00001`–`00004`. Add `00005` when testing city ingest.
+Apply all **10 migrations** (`00001`–`00010`) for the full MVP. Migrations `00008`–`00010` add favorites, analytics events, and the secure status-update RPC — all required for the current mobile app. Migrations `00005`–`00007` add optional city data tables (ingest prototype, not required for Expo Go list MVP).
 
 ### City data ingestion (optional)
 
@@ -130,10 +130,21 @@ npx supabase db reset
 ### Step 6: Verify Tables
 
 1. Go to **Table Editor** in the Supabase dashboard
-2. You should see three tables:
-   - `profiles` (empty until users sign up)
-   - `parking_spots` (26 rows from seed data)
-   - `parking_reports` (empty until users submit reports)
+2. After applying all 10 migrations you should see these tables:
+
+| Table | Expected after seed |
+|-------|---------------------|
+| `profiles` | Empty until users sign up |
+| `parking_spots` | 26 rows (from `seed.sql`) |
+| `parking_reports` | Empty until users submit reports |
+| `waitlist_signups` | Empty until website signups |
+| `favorite_parking_spots` | Empty until users save favorites |
+| `analytics_events` | Empty until app events fire |
+| `city_parking_sources` | Empty until ingest scripts run (optional) |
+| `city_parking_blocks` | Empty until ingest scripts run (optional) |
+| `city_parking_meters` | Empty until ingest scripts run (optional) |
+| `normalized_parking_locations` | Empty until normalize script runs (optional) |
+
 3. Click on `parking_spots` — you should see 26 San Francisco parking spots
 
 ### Step 7: Test Authentication
@@ -152,31 +163,40 @@ npx supabase db reset
 |----------|----------|-----------|-------------|
 | `EXPO_PUBLIC_SUPABASE_URL` | Yes | `apps/mobile` | Your Supabase project URL |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes | `apps/mobile` | Your Supabase anon (public) API key |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes (web) | `apps/web` | Same project URL for the website |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes (web) | `apps/web` | Same anon key for the website |
+| `SUPABASE_URL` | Ingest only | root `.env` | Same project URL — for ingest scripts |
+| `SUPABASE_SERVICE_ROLE_KEY` | Ingest only | root `.env` | **Service role key** — required for city data ingestion scripts. Never commit this. Never ship in client apps. |
 
-These are loaded automatically by Expo when the app starts.
+Mobile variables are loaded automatically by Expo. Website variables are loaded by Next.js. Ingest scripts read from a `.env` file at the repository root.
 
 ---
 
 ## Tables
 
-| Table | Purpose |
-|-------|---------|
-| `profiles` | User profiles (linked to `auth.users` via id) |
-| `parking_spots` | All parking spot locations and availability |
-| `parking_reports` | User-submitted availability reports |
-| `waitlist_signups` | Marketing-site waitlist signups (insert-only) |
+### Core MVP tables
 
-### City data tables (migration `00005` — ingestion prototype)
+| Table | Migration | Purpose |
+|-------|-----------|---------|
+| `profiles` | 00001 | User profiles (linked to `auth.users` via id) |
+| `parking_spots` | 00001 | Parking spot locations, status, type, price |
+| `parking_reports` | 00001 | User-submitted availability reports |
+| `waitlist_signups` | 00004 | Marketing-site waitlist signups (insert-only) |
+| `favorite_parking_spots` | 00008 | User-saved favorite spots (per-user, authenticated) |
+| `analytics_events` | 00009 | Append-only product analytics events |
 
-| Table | Purpose |
-|-------|---------|
-| `city_parking_sources` | Registry of DataSF datasets |
-| `city_parking_blocks` | Metered street blocks + regulation fields |
-| `city_parking_meters` | Parking meter locations |
+### City data tables (migrations `00005`–`00007` — ingest prototype, optional)
 
-Populated by `pnpm ingest:sf-parking` (service role). **Legal/rule + inventory data** — not live availability. The mobile app still uses `parking_spots` for the map MVP.
+| Table | Migration | Purpose |
+|-------|-----------|---------|
+| `city_parking_sources` | 00005 | Registry of DataSF datasets ingested |
+| `city_parking_blocks` | 00005 | SFMTA metered street blocks + regulation fields |
+| `city_parking_meters` | 00005 | Parking meter point locations |
+| `normalized_parking_locations` | 00007 | Canonical city inventory layer (normalized from meters) |
 
-**Inspection view:** `city_parking_meters_clean` (`00006`) — read-only flattened meters for SQL Editor checks. Not used by the app.
+Populated by service-role ingestion scripts (see `scripts/`). These tables contain **parking inventory and legal/rule data** — not live occupancy or availability. The mobile app currently reads only `parking_spots` for its list and map views.
+
+**Inspection view:** `city_parking_meters_clean` (`00006`) — read-only flattened meters for SQL Editor checks. Not used by the mobile app.
 
 ## Schema Overview
 
@@ -224,15 +244,46 @@ Populated by `pnpm ingest:sf-parking` (service role). **Legal/rule + inventory d
 | interest | text | Optional message from the user |
 | created_at | timestamptz | Auto-set |
 
+### favorite_parking_spots (migration `00008`)
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, auto-generated |
+| user_id | uuid | References auth.users (CASCADE delete) |
+| parking_spot_id | uuid | References parking_spots (CASCADE delete) |
+| created_at | timestamptz | Auto-set |
+
+UNIQUE constraint on `(user_id, parking_spot_id)` — no duplicate favorites.
+
+### analytics_events (migration `00009`)
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, auto-generated |
+| user_id | uuid | References auth.users — nullable (pre-auth events) |
+| event_name | text | e.g. `parking_spot_opened`, `directions_clicked` |
+| event_payload | jsonb | Structured event metadata |
+| created_at | timestamptz | Auto-set |
+
+Append-only. No SELECT policy for client roles — read via service role / dashboard only.
+
 ## Security (Row Level Security)
 
-All tables have RLS enabled:
+All tables have RLS enabled. Client roles (anon, authenticated) can only perform the operations explicitly granted below. Everything else — including any direct UPDATE on `parking_spots` — is blocked at the database level.
 
-- **profiles** — Users can only read/update their own profile.
-- **parking_spots** — Any authenticated user can read all spots. Authenticated users can update spot status (via migration 2).
-- **parking_reports** — Users can insert reports (as themselves) and read their own reports.
-- **waitlist_signups** — Anyone (anon + authenticated) can insert. No SELECT policy is defined, so reads are blocked for client roles. Read via the service role from the Supabase dashboard.
-- **city parking tables** (`00005`) — Public read (`anon` + `authenticated`). No client write policies; ingestion uses service role only.
+| Table | anon | authenticated | service role |
+|-------|------|---------------|--------------|
+| `profiles` | — | Read/update own row | Full access |
+| `parking_spots` | — | SELECT only | Full access |
+| `parking_reports` | — | INSERT own, SELECT own | Full access |
+| `waitlist_signups` | INSERT | INSERT | Full access |
+| `favorite_parking_spots` | — | SELECT/INSERT/DELETE own | Full access |
+| `analytics_events` | INSERT (null user_id only) | INSERT | Full access |
+| City tables (`00005`–`00007`) | SELECT | SELECT | Full access (ingest) |
+
+**Spot status updates — secure RPC only (migration `00010`):**
+
+Migration `00010` removed the broad authenticated UPDATE policy that `00002` added. Clients must now call the `update_parking_spot_status(spot_id, new_status)` RPC function (SECURITY DEFINER) to change a spot's status. This restricts updates to the three valid status values (`AVAILABLE`, `OCCUPIED`, `UNKNOWN`) and prevents clients from writing arbitrary columns. The mobile app's `reportParkingSpot()` service calls this RPC.
+
+**City data ingestion** always uses the **service role key** (never the anon key). The service role key must not be committed to source control and must not be shipped in client apps.
 
 ## Auto-Triggers
 
@@ -244,16 +295,22 @@ All tables have RLS enabled:
 ```
 supabase/
 ├── migrations/
-│   ├── 00001_initial_schema.sql              → Tables, constraints, indexes, RLS, triggers
-│   ├── 00002_allow_spot_status_update.sql    → RLS policy for spot status updates
-│   ├── 00003_enable_realtime.sql             → Realtime publication for parking_spots
-│   ├── 00004_waitlist_signups.sql            → Waitlist signups table (insert-only)
-│   ├── 00005_city_parking_data.sql           → City parking tables (optional; for ingest prototype)
-│   ├── 00006_city_parking_views.sql            → Read-only inspection view (optional)
-│   └── 00007_normalized_city_parking.sql       → Normalized city locations (Phase 2)
+│   ├── 00001_initial_schema.sql                        → Core tables, RLS, triggers
+│   ├── 00002_allow_spot_status_update.sql              → Legacy UPDATE policy (removed by 00010)
+│   ├── 00003_enable_realtime.sql                       → Realtime publication for parking_spots
+│   ├── 00004_waitlist_signups.sql                      → Website waitlist table (insert-only)
+│   ├── 00005_city_parking_data.sql                     → City ingest tables (optional prototype)
+│   ├── 00006_city_parking_views.sql                    → city_parking_meters_clean view (optional)
+│   ├── 00007_normalized_city_parking.sql               → normalized_parking_locations table (optional)
+│   ├── 00008_favorite_parking_spots.sql                → User favorites table
+│   ├── 00009_analytics_events.sql                      → Analytics events table
+│   └── 00010_secure_parking_spot_status_update.sql     → Secure status RPC; removes 00002 policy
+├── scripts/
+│   ├── apply_00005_00009_safe.sql                      → Idempotent helper for city + app migrations
+│   └── apply_00010_secure_status_update_safe.sql       → Idempotent helper for migration 00010
 ├── seed/
-│   └── seed.sql                              → 26 mock SF parking spots
-└── README.md                                 → This file
+│   └── seed.sql                                        → 26 mock SF parking spots
+└── README.md                                           → This file
 ```
 
 ## Notes
