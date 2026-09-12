@@ -514,15 +514,21 @@ City Data (DataSF / SFMTA — batch sync)
         ↓
 Normalization (normalize-city-parking.ts → normalized_parking_locations)
         ↓
-[FUTURE] Parking Domain Model
-  - ParkingLocation (inventory: what exists and where)
-  - CurbRule (what regulations apply, when)
-  - AvailabilitySignal (crowdsourced or sensor evidence)
+Parking Domain Model — IMPLEMENTED (V1), packages/shared/src/domain/ (pure, storage-independent)
+  - ParkingLocation   (where something is — no legality/availability implied)
+  - ParkingLegality   (LEGAL / ILLEGAL / UNKNOWN — type only, no evaluation yet)
+  - ParkingAvailability (AVAILABLE / OCCUPIED / UNKNOWN)
+  - ParkingEvidence   (source, observedAt, retrievedAt, expiresAt)
+  - ParkingCandidate  (composition of the above + distance)
+        ↓
+Database Adapters — IMPLEMENTED (V1), packages/shared/src/adapters/ (only place that knows row shapes)
+  - mapParkingSpotToCandidate, mapNormalizedLocationToCandidate
+  - Dependency direction: adapters → domain (never the reverse)
         ↓
 [FUTURE] Deterministic Parking Services
-  - isLegalToParknow(location, time)
+  - isLegalToParkNow(location, time) — needs a curb-rule model (not built)
   - isReportedAvailable(location)
-  - getNearbyOptions(userLocation, criteria)
+  - getNearbyOptions(userLocation, criteria) — ParkingSearchConstraints contract exists; no implementation
         ↓
 [FUTURE] Agent Tools (read-only, composable)
   - find_parking(near, filters)
@@ -533,6 +539,8 @@ Normalization (normalize-city-parking.ts → normalized_parking_locations)
         ↓
 [FUTURE] MCP interface (optional external layer)
 ```
+
+**Status:** The pure domain model is implemented in `packages/shared/src/domain/` (no framework or storage dependencies). Database-row mapping adapters are implemented separately in `packages/shared/src/adapters/`, which depends on `domain` — never the reverse. Neither is yet imported by `apps/mobile` or `apps/web` — no UI or service currently constructs a `ParkingCandidate`. Curb-rule ingestion, legality evaluation, freshness calculation, search/ranking, agent tools, and MCP remain entirely unbuilt.
 
 **Important:** MCP is an optional access interface at the boundary — not where business logic lives. Core parking services must be deterministic and independently testable without MCP.
 

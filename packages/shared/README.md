@@ -9,6 +9,22 @@ Shared TypeScript types, constants, and utility functions intended for the monor
 >
 > This package typechecks (`pnpm typecheck:shared`) and is part of the monorepo workspace, but is not consumed by any app at runtime. Consolidating types here (and resolving Expo Go import constraints) is deferred to a future refactor.
 
+## Domain model (V1)
+
+`src/domain/` holds a framework-independent, **storage-independent** parking domain model: `ParkingLocation`, `ParkingLegality`, `ParkingAvailability`, `ParkingEvidence`, `ParkingCandidate`, `ParkingSearchConstraints`. It has no React, Supabase, LLM, or database-row dependencies of any kind. See `src/domain/index.ts` and `docs/ARCHITECTURE.md` §13 for details and status.
+
+`src/adapters/` holds the pure mapping functions from `parking_spots` / `normalized_parking_locations` rows to `ParkingCandidate`. This is the only part of the package allowed to know about storage-shaped (snake_case) row types. Dependencies point one way only: `adapters` → `domain`. The domain model never imports from `adapters`.
+
+Import each as a namespace to keep the boundary visible at call sites:
+
+```typescript
+import { domain, adapters } from "@smart-parking/shared";
+
+const candidate: domain.ParkingCandidate = adapters.mapParkingSpotToCandidate(spotRow);
+```
+
+Like the rest of this package, `src/domain/` and `src/adapters/` are not yet imported by `apps/mobile` or `apps/web`.
+
 ## Structure
 
 ```
