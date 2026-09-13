@@ -33,7 +33,7 @@ const candidate: domain.ParkingCandidate = adapters.mapParkingSpotToCandidate(sp
 
 `src/domain/rule.ts` adds `ParkingRule`, `ParkingRuleKind` (`"METERED" | "TIME_LIMIT" | "OTHER"`), `ParkingRuleSchedule`, `ParkingTimeWindow`, and `DayOfWeek` — a deterministic representation of a known regulation ("this block is metered", "2-hour limit"). A `ParkingRule` describes what applies; it never decides whether a specific arrival/departure is legal — there is no `isLegal`/`evaluateLegality`/`isRuleActive`/`isWithinSchedule` function anywhere in this package. `ParkingRuleSchedule` fields (`daysOfWeek`, `timeWindow`, `allDay`, `maxDurationMinutes`, `timezone`) are all independently nullable — `null` means unknown, never "every day"/"all the time". Provenance reuses `ParkingEvidence`; no separate rule-provenance type was introduced.
 
-`src/adapters/regulation.ts` adds `mapCityRegulationRowToParkingRules(row: CityParkingBlockRow)`, mapping a `city_parking_blocks` row to zero or more `ParkingRule`s: a `TIME_LIMIT` rule when `hour_limit` (a real integer column) is a valid positive number; an `OTHER` rule when `regulation_type`/`agency`/`permit_area`/`days_of_week`/`hours` carry any information (preserved verbatim, never classified further); an empty array when the row has none of the above. The raw `days_of_week`/`hours` text fields are preserved verbatim via `ParkingRule.rawText` rather than parsed into `schedule` — see `docs/CITY_DATA_PLAN.md` "Regulation data — current capabilities" for why. **Not wired to any live Supabase query** — `city_parking_blocks` isn't fetched by any mobile code today.
+`src/adapters/regulation.ts` adds `mapCityRegulationRowToParkingRules(row: CityParkingBlockRow)`, mapping a `city_parking_blocks` row to zero or more `ParkingRule`s: a `TIME_LIMIT` rule when `hour_limit` (a real integer column) is a valid positive number; an `OTHER` rule when `regulation_type`/`agency`/`permit_area`/`days_of_week`/`hours` carry any information (preserved verbatim, never classified further); an empty array when the row has none of the above. The raw `days_of_week`/`hours` text fields are preserved verbatim via `ParkingRule.rawText` rather than parsed into `schedule` — see `docs/CITY_DATA_PLAN.md` "Regulation data — current capabilities" for why. Now wired to a live query via `src/services/regulation.ts` (below) and `apps/mobile/src/services/regulationService.ts`.
 
 **Corrected before commit:** the first version of this adapter emitted a `METERED` rule for every row, reasoning that `city_parking_blocks` is populated exclusively from DataSF's "SFMTA Metered Street Blocks" dataset. That's an inference about which ingestion pipeline produced the row (via an unresolved `source_id` foreign key), not a fact verified on the row itself, so it was removed. `"METERED"` remains a valid `ParkingRuleKind` value, reserved for a future, separate adapter over `city_parking_meters` (the structurally reliable meter-inventory table) — not built here. Meter inventory ("there is a meter here") and regulation ("a payment/time rule applies") are kept as distinct concepts.
 
@@ -57,6 +57,20 @@ Wired into `apps/mobile` via `apps/mobile/src/services/candidateService.ts`
 (`parkingService.ts`) and, when the city-data preview flag is on,
 `fetchNearbyNormalizedLocationRows` (`cityParkingService.ts`) as the
 injected fetchers. Not imported by `apps/web`.
+
+## Regulation lookup service (V1)
+
+`src/services/regulation.ts` adds `findParkingRulesForLocation(locationId, { fetchCityParkingBlocksForLocation })` — answers "what regulation records are associated with this location?", **not** "is parking legal now?". Same DI pattern as `findParkingCandidates`: it calls the injected fetcher, maps every returned row through `adapters.mapCityRegulationRowToParkingRules`, and flattens — no SQL, no join logic, and no knowledge of which table `locationId` belongs to lives in this package.
+
+```typescript
+import { services } from "@smart-parking/shared";
+
+const rules = await services.findParkingRulesForLocation(candidate.location.id, {
+  fetchCityParkingBlocksForLocation: myFetchFn,
+});
+```
+
+Wired into `apps/mobile` via `apps/mobile/src/services/candidateService.ts`'s `findParkingRulesForCandidate(candidate)`, which first checks `isCityProvenance(candidate)` — non-CITY candidates (`parking_spots`-sourced) resolve to `[]` immediately, with no query, since their `location.id` belongs to a different table entirely — then supplies `apps/mobile/src/services/regulationService.ts`'s `fetchCityParkingBlocksForLocation` as the injected fetcher. That mobile file performs the actual deterministic, ID-based joins, tried in strength order: a PRIMARY `city_parking_meters.block_id` foreign-key lookup (exact PK match, at most one row), falling back to a WEAKER `blockface_id` text match (not guaranteed one-to-one) only when the FK path is unusable (missing `city_row_id`, meter not found, or `block_id` null) — see `docs/CITY_DATA_PLAN.md` "Regulation lookup — join path" for the full comparison. `regulationService.ts` imports `@smart-parking/shared` only as a type (`import type { adapters }`), preserving `candidateService.ts` as the sole file that imports it as a runtime value. Not wired to any UI. Not imported by `apps/web`.
 
 ## Structure
 

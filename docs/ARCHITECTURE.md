@@ -576,8 +576,38 @@ Regulation Adapter — IMPLEMENTED (V1), packages/shared/src/adapters/regulation
     proven on the row. METERED is reserved for a future, separate adapter
     over city_parking_meters (the structurally reliable meter-inventory
     table) — meter inventory and regulation are distinct concepts
-  - NOT wired to any live Supabase query yet — city_parking_blocks isn't
-    fetched by any mobile code today; a future milestone adds that fetcher
+  - NOT wired to any live Supabase query in this file — a separate
+    lookup/association layer (below) now supplies rows to it
+        ↓
+Regulation Lookup Service — IMPLEMENTED (V1)
+  - packages/shared/src/services/regulation.ts: findParkingRulesForLocation(
+    locationId, { fetchCityParkingBlocksForLocation }) — fetches via the
+    injected dependency, maps every row through
+    mapCityRegulationRowToParkingRules, flattens. No SQL, no join logic,
+    no Supabase dependency — pure orchestration, same DI pattern as
+    findParkingCandidates
+  - apps/mobile/src/services/regulationService.ts: fetchCityParkingBlocksForLocation(locationId)
+    — the actual Supabase joins, tried in strength order (corrected from
+    an earlier version that used only the weaker path):
+      PRIMARY: locationId -> raw_source.city_row_id -> city_parking_meters.id
+        -> city_parking_meters.block_id (real FK) -> city_parking_blocks.id
+        (exact PK lookup, at most one row)
+      FALLBACK (only when the primary path is unusable — city_row_id
+      missing, meter not found, or block_id null): locationId ->
+        raw_source.blockface_id -> city_parking_blocks.blockface_id
+        (exact text match, not guaranteed one-to-one)
+    ID-based only in both paths; no geographic/fuzzy matching. See
+    docs/CITY_DATA_PLAN.md "Regulation lookup — join path" for the full
+    comparison and cardinality notes.
+  - apps/mobile/src/services/candidateService.ts: findParkingRulesForCandidate(candidate)
+    — convenience wrapper wiring the two together; keeps candidateService.ts
+    as the ONLY apps/mobile file that imports @smart-parking/shared as a
+    runtime value (regulationService.ts only imports it as a type). Guards
+    on `isCityProvenance(candidate)` first — non-CITY candidates
+    (parking_spots-sourced) resolve to [] immediately, with no Supabase
+    query, since their location.id belongs to a different table entirely
+  - Answers "what regulations are associated with this location?" — NOT
+    "is parking legal now?". No schedule evaluation. Not wired to any UI
         ↓
 [FUTURE] Legality Engine
   - isLegalToParkNow(location, time) / evaluateLegality(candidate, rules, interval)
@@ -604,7 +634,9 @@ Regulation Adapter — IMPLEMENTED (V1), packages/shared/src/adapters/regulation
 
 This integration is intentionally additive: the existing `parking_spots` list/map in `MapScreen` is untouched and still calls `getNearbyParkingSpots`/`getParkingSpots` directly. `findParkingCandidates` currently only powers a small, separately-rendered "City parking data (preview)" section, gated by the existing `EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW` flag, which is OFF by default and was already wired to a Settings status row before this milestone. City candidates always carry `availability.status = "UNKNOWN"` and `legality.status = "UNKNOWN"` — normalized city inventory is never treated as proof of a legal, open space.
 
-A deterministic regulation model (`ParkingRule`, `packages/shared/src/domain/rule.ts`) and its adapter (`mapCityRegulationRowToParkingRules`, `packages/shared/src/adapters/regulation.ts`) are also implemented. A `ParkingRule` describes a *regulation* ("2-hour limit") — never a legality verdict; `ParkingLegality.status` remains `"UNKNOWN"` everywhere, unchanged. The adapter only produces `TIME_LIMIT` (from the real `hour_limit` column) and `OTHER` (when other regulation fields carry unclassified information); it does **not** produce `METERED` — an earlier version incorrectly inferred that from table membership rather than a verified field, and was corrected before commit. `METERED` remains a valid `ParkingRuleKind`, reserved for a future adapter over `city_parking_meters` (the structurally reliable meter-inventory table); meter inventory and regulation are kept as distinct concepts. The adapter is not wired to any live query: `city_parking_blocks` (where regulation fields are actually ingested — see `docs/CITY_DATA_PLAN.md`) isn't fetched by any mobile code today. Legality evaluation, schedule matching, max-stay enforcement, street-sweeping ingestion, freshness calculation, ranking, agent tools, and MCP remain entirely unbuilt.
+A deterministic regulation model (`ParkingRule`, `packages/shared/src/domain/rule.ts`) and its adapter (`mapCityRegulationRowToParkingRules`, `packages/shared/src/adapters/regulation.ts`) are also implemented. A `ParkingRule` describes a *regulation* ("2-hour limit") — never a legality verdict; `ParkingLegality.status` remains `"UNKNOWN"` everywhere, unchanged. The adapter only produces `TIME_LIMIT` (from the real `hour_limit` column) and `OTHER` (when other regulation fields carry unclassified information); it does **not** produce `METERED` — an earlier version incorrectly inferred that from table membership rather than a verified field, and was corrected before commit. `METERED` remains a valid `ParkingRuleKind`, reserved for a future adapter over `city_parking_meters` (the structurally reliable meter-inventory table); meter inventory and regulation are kept as distinct concepts.
+
+The adapter is now wired to a live query, via a small lookup/association layer: `apps/mobile/src/services/regulationService.ts` resolves a candidate's `location.id` to `city_parking_blocks` row(s) through two ID-based joins tried in strength order — a primary `city_parking_meters.block_id` foreign-key lookup, falling back to a weaker `blockface_id` exact text match only when the FK path can't be used (see `docs/CITY_DATA_PLAN.md` "Regulation lookup — join path" for the full precedence and why) — and `packages/shared/src/services/regulation.ts`'s `findParkingRulesForLocation` fetches + maps + flattens the result into `ParkingRule[]`. `candidateService.ts`'s `findParkingRulesForCandidate(candidate)` wires the two together, guarding on `isCityProvenance(candidate)` first so non-CITY candidates resolve to `[]` without any query, while keeping `candidateService.ts` the only mobile file that imports `@smart-parking/shared` as a runtime value. This layer answers "what regulations are associated with this location?" only — it is not wired to any UI, and legality evaluation, schedule matching, max-stay enforcement, street-sweeping ingestion, freshness calculation, ranking, agent tools, and MCP remain entirely unbuilt.
 
 **Important:** MCP is an optional access interface at the boundary — not where business logic lives. Core parking services must be deterministic and independently testable without MCP.
 

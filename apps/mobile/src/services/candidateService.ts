@@ -18,6 +18,7 @@
 import { domain, services } from "@smart-parking/shared";
 import { fetchNearbyParkingSpotRows } from "./parkingService";
 import { fetchNearbyNormalizedLocationRows } from "./cityParkingService";
+import { fetchCityParkingBlocksForLocation } from "./regulationService";
 
 /** Re-exported so callers in apps/mobile don't need their own direct import from @smart-parking/shared. */
 export type ParkingPreviewCandidate = domain.ParkingCandidate;
@@ -75,4 +76,41 @@ export async function findNearbyParkingCandidates(
  */
 export function isCityProvenance(candidate: domain.ParkingCandidate): boolean {
   return candidate.availability.evidence?.sourceCategory === "CITY";
+}
+
+/**
+ * Finds the known `ParkingRule[]` associated with a candidate's location,
+ * using the shared deterministic lookup service (`services.findParkingRulesForLocation`)
+ * wired to this app's own ID-based Supabase joins
+ * (`regulationService.fetchCityParkingBlocksForLocation` — see that file's
+ * doc comment for the exact join paths, and which one is tried first).
+ *
+ * Answers "what regulation records are associated with this location?" —
+ * NOT "is parking legal now?". No schedule evaluation, arrival/departure
+ * logic, or max-stay enforcement happens here or anywhere this calls into.
+ *
+ * SOURCE SAFETY: `ParkingCandidate.location.id` is NOT always a
+ * `normalized_parking_locations.id` — it refers to whichever table the
+ * candidate's row actually came from (`parking_spots.id` for
+ * CURRENT_SPOTS/MOCK candidates, `normalized_parking_locations.id` only
+ * for CITY candidates — see `adapters/parking.ts`'s two mapper
+ * functions). This function uses the existing `isCityProvenance` check
+ * (`ParkingEvidence.sourceCategory`, not a geographic/table proxy) to
+ * gate the lookup: for a non-CITY candidate, `location.id` belongs to a
+ * different table entirely, so querying `normalized_parking_locations`
+ * with it would be a pointless lookup guaranteed to find nothing — this
+ * returns `[]` immediately instead of issuing that call. This matches the
+ * lookup's own convention of resolving to `[]` (never throwing) for "no
+ * association", rather than introducing a new exception path.
+ */
+export function findParkingRulesForCandidate(
+  candidate: domain.ParkingCandidate
+): Promise<domain.ParkingRule[]> {
+  if (!isCityProvenance(candidate)) {
+    return Promise.resolve([]);
+  }
+
+  return services.findParkingRulesForLocation(candidate.location.id, {
+    fetchCityParkingBlocksForLocation,
+  });
 }

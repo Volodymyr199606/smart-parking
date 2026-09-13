@@ -124,6 +124,30 @@ Related: high-level architecture overview in [`ARCHITECTURE.md`](./ARCHITECTURE.
 
 A `ParkingRule` describes a regulation ("what applies"), never a legality verdict ("is parking legal now") — that evaluation is a future legality-engine milestone; every `ParkingLegality` in this codebase still reports `status: "UNKNOWN"`. `days_of_week` and `hours` are preserved verbatim via `ParkingRule.rawText` rather than parsed into `ParkingRuleSchedule` — there is no confirmed, safe parsing rule for either field's format, so `schedule.daysOfWeek` / `schedule.timeWindow` stay `null` (unknown) rather than guessed. This adapter is **not wired to any live Supabase query** — `city_parking_blocks` still isn't fetched by any mobile code; wiring a fetcher is deferred to a future milestone.
 
+### Regulation lookup — join path (Parking Regulation Lookup / Association V1)
+
+**Wired in this milestone.** `apps/mobile/src/services/regulationService.ts` now fetches the adapter above's input (`CityParkingBlockRow[]`), and `packages/shared/src/services/regulation.ts` (`findParkingRulesForLocation`) orchestrates fetch → map → flatten into `ParkingRule[]`, wired via `candidateService.ts`'s `findParkingRulesForCandidate(candidate)`. This answers "what regulation records are associated with this location?" — **not** "is parking legal now?"; no schedule evaluation exists.
+
+**Identifier fields found by inspection:**
+
+| Table | Own PK | Cross-table identifiers |
+|---|---|---|
+| `city_parking_blocks` | `id` (uuid) | `external_id` (unique with `source_id`), `blockface_id` (text, nullable, indexed but **not unique**) |
+| `city_parking_meters` | `id` (uuid) | `external_id` (unique with `source_id`), `post_id`, `blockface_id` (text, raw, same source field as blocks'), `block_id` (uuid, **real FK** → `city_parking_blocks.id`, `ON DELETE SET NULL`, resolved once at ingest time via `blockIdByBlockface.get(blockfaceId)`) |
+| `normalized_parking_locations` | `id` (uuid) | `source_id` (**text**, not a FK — the meter's `post_id`/`external_id` copied as a string, used only for `(source_type, source_id)` upsert idempotency), `raw_source` (jsonb, preserves `city_row_id` = the source meter's own `id`, and `blockface_id` = the source meter's raw `blockface_id`, verbatim) |
+
+**Two possible ID-based join paths from a normalized row back to a block — both used, in strength order (corrected from an earlier version that used only the weaker path):**
+1. **PRIMARY — `block_id` FK:** `normalized_parking_locations.raw_source.city_row_id` → `city_parking_meters.id` → `city_parking_meters.block_id` → `city_parking_blocks.id`. `block_id` is a real, DB-enforced FK — an exact PK lookup, so at most one row can match. Tried first. Falls through to the fallback only when `city_row_id` is missing, the meter row isn't found, or `block_id` is `null` (the documented ingest-order gap).
+2. **FALLBACK — `blockface_id` text match:** `normalized_parking_locations.raw_source.blockface_id` → `city_parking_blocks.blockface_id` (exact equality). Used only when the primary path is unusable. Weaker: no FK/uniqueness constraint backs it (only `(source_id, external_id)` is unique on `city_parking_blocks`), so it is not guaranteed one-to-one by the schema, even though it's expected to be in practice for this single-source dataset.
+
+**Cardinality.** Primary path: at most one row (PK lookup). Fallback path: not guaranteed one-to-one — `fetchCityParkingBlocksForLocation` returns an array (0, 1, or more rows) either way, never assumes exactly one. No confidence score or certainty percentage was introduced to express this — the code path taken (primary vs. fallback) is itself the only "strength" signal, documented in comments.
+
+**No migration required.** `raw_source.city_row_id` and `raw_source.blockface_id` already exist in every meter-sourced `normalized_parking_locations` row (written by `scripts/normalize-city-parking.ts` since migration `00007`) — no schema change was needed to perform this lookup.
+
+**Not associated by geography.** No nearest-block, nearest-coordinate, nearest-street-name, fuzzy-address, or substring-street matching was used or considered sufficient — only exact ID equality on columns both ingestion scripts already populate from the same city source fields.
+
+**Candidate source safety.** `findParkingRulesForCandidate(candidate)` only performs this lookup for CITY-sourced candidates (checked via the existing `isCityProvenance` / `ParkingEvidence.sourceCategory` signal — not a geographic or table proxy). `parking_spots`-sourced (`CURRENT_SPOTS`/`MOCK`) candidates have a `location.id` from a different table entirely (`parking_spots.id`, not `normalized_parking_locations.id`); calling this function with one resolves to `[]` immediately, without issuing any Supabase query.
+
 ---
 
 ## Table of Contents

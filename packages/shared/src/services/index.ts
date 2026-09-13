@@ -14,4 +14,10 @@ export type {
 } from "./parking";
 export { findParkingCandidates } from "./parking";
 
+export type {
+  FetchCityParkingBlockRowsForLocation,
+  ParkingRuleServiceDeps,
+} from "./regulation";
+export { findParkingRulesForLocation } from "./regulation";
+
 export { distanceMeters } from "./distance";

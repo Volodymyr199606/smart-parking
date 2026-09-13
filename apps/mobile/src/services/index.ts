@@ -16,5 +16,10 @@ export {
   getActiveNormalizedParking,
   fetchNearbyNormalizedLocationRows,
 } from "./cityParkingService";
-export { findNearbyParkingCandidates, isCityProvenance } from "./candidateService";
+export {
+  findNearbyParkingCandidates,
+  isCityProvenance,
+  findParkingRulesForCandidate,
+} from "./candidateService";
 export type { ParkingPreviewCandidate } from "./candidateService";
+export { fetchCityParkingBlocksForLocation } from "./regulationService";
