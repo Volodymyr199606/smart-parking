@@ -14,7 +14,9 @@
     "normalize:city-parking": "tsx scripts/normalize-city-parking.ts",
     "verify:normalized-parking": "tsx scripts/verify-normalized-parking.ts",
     "check:city-parking-service": "tsx scripts/check-city-parking-service.ts",
-    "verify:legality-engine": "tsx scripts/verify-legality-engine.ts"
+    "verify:legality-engine": "tsx scripts/verify-legality-engine.ts",
+    "verify:orchestration": "tsx scripts/verify-orchestration.ts",
+    "profile:regulation-data": "tsx scripts/profile-regulation-data.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.105.4",
