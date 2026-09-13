@@ -618,7 +618,24 @@ async function ingestRegulations(
       days_of_week: pickString(row, ["days", "days_of_week"]),
       hours: pickString(row, ["hours"]),
       hour_limit: pickNumber(row, ["hrlimit", "hr_limit", "hour_limit"]),
-      permit_area: pickString(row, ["permitarea", "permit_area"]),
+      // FIXED (DataSF Permit Area Ingestion Fix V1): the real DataSF
+      // "Parking Regulations" (hi6h-neyh) schema has no "permitarea" or
+      // "permit_area" field — those keys never matched anything, so
+      // `permit_area` was 0% populated in every real row (verified via
+      // scripts/profile-regulation-data.ts). The actual source field is
+      // `rpparea1`. Source rows may also contain distinct `rpparea2` and
+      // `rpparea3` values (observed on ~12% of rows that carry rpparea1,
+      // never duplicating rpparea1 or each other in the sample) — those
+      // are NOT concatenated into this singular text column: doing so
+      // would invent a delimiter format this column was never designed to
+      // hold. The semantic relationship among rpparea1/rpparea2/rpparea3
+      // is not established by available DataSF source metadata. The source
+      // can contain up to three distinct RPP-area code fields while the
+      // current schema stores one permit_area value; full source fidelity
+      // would require preserving additional source fields. No fallback to
+      // the old, never-matching keys is kept — there is no evidence they
+      // exist in the live source.
+      permit_area: pickString(row, ["rpparea1"]),
       imported_at: importedAt,
       updated_at: importedAt,
     };

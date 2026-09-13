@@ -36,9 +36,18 @@
  * (not what the raw Socrata schema might suggest), this script copies
  * `ingestRegulations()`'s exact `pickString`/`pickNumber` key lists from
  * `scripts/ingest-sf-parking-data.ts` verbatim. This is deliberate
- * duplication for profiling fidelity, not a new parser — see the PRIMARY
- * FINDING note near `PERMIT_AREA_KEYS` below for why this specifically
- * matters for `permit_area`.
+ * duplication for profiling fidelity, not a new parser — see the FIXED
+ * finding note near `PERSISTED_PERMIT_AREA_KEYS` below for why this
+ * specifically mattered for `permit_area` (DataSF Permit Area Ingestion
+ * Fix V1 corrected the key list this script's copy also reflects).
+ *
+ * ALSO DEMONSTRATES (DataSF Permit Area Ingestion Fix V1): in addition to
+ * profiling, this script now prints a small, read-only co-occurrence
+ * check for `rpparea1`/`rpparea2`/`rpparea3` — evidence for why
+ * `permit_area` (a singular text column) intentionally maps only
+ * `rpparea1` and does not attempt to concatenate the (rarer) additional
+ * area codes. This is still observation/counting only; no schema,
+ * adapter, or legality code is touched by this script.
  *
  * Usage:
  *   pnpm profile:regulation-data
@@ -128,17 +137,24 @@ const DAYS_OF_WEEK_KEYS = ["days", "days_of_week"];
 const HOURS_KEYS = ["hours"];
 const HOUR_LIMIT_KEYS = ["hrlimit", "hr_limit", "hour_limit"];
 /**
- * PRIMARY FINDING (see FINAL REPORT): the real Socrata dataset's permit-area
- * field is named `rpparea1` (with `rpparea2`/`rpparea3` for additional
- * areas on the same block) — NOT `permitarea`/`permit_area`. The existing
- * ingest script's key list below is copied verbatim to show what is
- * ACTUALLY persisted today. `RAW_PERMIT_AREA_KEY` is profiled separately,
- * alongside it, purely to make the resulting gap observable — it is not
- * used to change what gets persisted, and this script does not modify
- * scripts/ingest-sf-parking-data.ts.
+ * FIXED (DataSF Permit Area Ingestion Fix V1 — was the PRIMARY FINDING of
+ * the prior profiling-only milestone): `ingestRegulations()` now maps
+ * `permit_area` from `rpparea1` (the block's PRIMARY RPP permit area),
+ * not the old `["permitarea", "permit_area"]` keys, which never matched
+ * anything in the real Socrata schema. This key list is copied verbatim
+ * from the current `scripts/ingest-sf-parking-data.ts` to profile exactly
+ * what is now persisted. `rpparea2`/`rpparea3` (up to two ADDITIONAL,
+ * genuinely distinct permit-area codes DataSF records on some blocks) are
+ * profiled separately below, alongside it, to keep demonstrating that gap
+ * — they are still not captured by the singular `permit_area` column
+ * (see docs/CITY_DATA_PLAN.md "DataSF permit area ingestion fix" for why,
+ * and the proposed, not-yet-built schema change). This script does not
+ * modify scripts/ingest-sf-parking-data.ts.
  */
-const PERSISTED_PERMIT_AREA_KEYS = ["permitarea", "permit_area"];
+const PERSISTED_PERMIT_AREA_KEYS = ["rpparea1"];
 const RAW_PERMIT_AREA_KEY = "rpparea1";
+const RAW_PERMIT_AREA_2_KEY = "rpparea2";
+const RAW_PERMIT_AREA_3_KEY = "rpparea3";
 
 interface MappedFields {
   readonly regulation_type: string | null;
@@ -147,7 +163,9 @@ interface MappedFields {
   readonly hours: string | null;
   readonly hour_limit: number | null;
   readonly permit_area: string | null;
-  readonly raw_permit_area: string | null; // profiling-only; not part of the persisted schema
+  readonly raw_permit_area: string | null; // == rpparea1; profiling-only alias, same value as permit_area now that the fix is in
+  readonly raw_permit_area_2: string | null; // rpparea2; NOT captured by any persisted column today
+  readonly raw_permit_area_3: string | null; // rpparea3; NOT captured by any persisted column today
 }
 
 function mapRow(row: SocrataRow): MappedFields {
@@ -159,6 +177,8 @@ function mapRow(row: SocrataRow): MappedFields {
     hour_limit: pickNumber(row, HOUR_LIMIT_KEYS),
     permit_area: pickString(row, PERSISTED_PERMIT_AREA_KEYS),
     raw_permit_area: pickString(row, [RAW_PERMIT_AREA_KEY]),
+    raw_permit_area_2: pickString(row, [RAW_PERMIT_AREA_2_KEY]),
+    raw_permit_area_3: pickString(row, [RAW_PERMIT_AREA_3_KEY]),
   };
 }
 
@@ -237,20 +257,55 @@ async function main(): Promise<void> {
     log(`  ${field}: non-null=${nonNull} null=${mapped.length - nonNull} (of ${mapped.length})`);
   }
 
-  log("\n=== PRIMARY FINDING: permit_area mapping gap ===");
+  log("\n=== permit_area mapping status (FIXED in DataSF Permit Area Ingestion Fix V1) ===");
   const persistedPermitAreaNonNull = countNonNull(mapped.map((m) => m.permit_area));
-  const rawPermitAreaNonNull = countNonNull(mapped.map((m) => m.raw_permit_area));
+  const rawPermitArea2NonNull = countNonNull(mapped.map((m) => m.raw_permit_area_2));
+  const rawPermitArea3NonNull = countNonNull(mapped.map((m) => m.raw_permit_area_3));
   log(
-    `  permit_area as ACTUALLY persisted today (keys ${JSON.stringify(PERSISTED_PERMIT_AREA_KEYS)}): ${persistedPermitAreaNonNull} non-null of ${mapped.length}`
+    `  permit_area as persisted today (keys ${JSON.stringify(PERSISTED_PERMIT_AREA_KEYS)}): ${persistedPermitAreaNonNull} non-null of ${mapped.length} (was 0 before the fix)`
   );
   log(
-    `  raw '${RAW_PERMIT_AREA_KEY}' field present in the same rows (NOT currently mapped to permit_area): ${rawPermitAreaNonNull} non-null of ${mapped.length}`
+    `  raw '${RAW_PERMIT_AREA_2_KEY}' (2nd distinct permit area on the same block, NOT captured by any column): ${rawPermitArea2NonNull} non-null of ${mapped.length}`
   );
   log(
-    "  This is an observed fact, not a hypothesis: the real Socrata field is named 'rpparea1' " +
-      "(plus 'rpparea2'/'rpparea3' for additional areas on the same block), which does not match " +
-      "ingestRegulations()'s key list ['permitarea', 'permit_area']. No code was changed to fix this " +
-      "in this milestone — profiling only."
+    `  raw '${RAW_PERMIT_AREA_3_KEY}' (3rd distinct permit area on the same block, NOT captured by any column): ${rawPermitArea3NonNull} non-null of ${mapped.length}`
+  );
+
+  log("\n=== rpparea1/2/3 co-occurrence (demonstrates why a singular text column is incomplete) ===");
+  let onlyArea1 = 0;
+  let area1AndArea2 = 0;
+  let area1Area2AndArea3 = 0;
+  let none = 0;
+  let area2WithoutArea1 = 0;
+  let area3WithoutArea1OrArea2 = 0;
+  let area2EqualsArea1 = 0;
+  let area3EqualsEither = 0;
+  for (const m of mapped) {
+    const a1 = m.raw_permit_area;
+    const a2 = m.raw_permit_area_2;
+    const a3 = m.raw_permit_area_3;
+    if (a1 === null && a2 === null && a3 === null) none += 1;
+    if (a1 !== null && a2 === null && a3 === null) onlyArea1 += 1;
+    if (a1 !== null && a2 !== null && a3 === null) area1AndArea2 += 1;
+    if (a1 !== null && a2 !== null && a3 !== null) area1Area2AndArea3 += 1;
+    if (a2 !== null && a1 === null) area2WithoutArea1 += 1;
+    if (a3 !== null && (a1 === null || a2 === null)) area3WithoutArea1OrArea2 += 1;
+    if (a2 !== null && a2 === a1) area2EqualsArea1 += 1;
+    if (a3 !== null && (a3 === a1 || a3 === a2)) area3EqualsEither += 1;
+  }
+  log(`  rows with no permit area at all: ${none}`);
+  log(`  rows with exactly one permit area (rpparea1 only): ${onlyArea1}`);
+  log(`  rows with exactly two distinct permit areas (rpparea1 + rpparea2): ${area1AndArea2}`);
+  log(`  rows with all three distinct permit areas: ${area1Area2AndArea3}`);
+  log(`  rows where rpparea2 appears WITHOUT rpparea1 (would indicate a non-sequential/alternative relationship): ${area2WithoutArea1}`);
+  log(`  rows where rpparea3 appears without both rpparea1 and rpparea2: ${area3WithoutArea1OrArea2}`);
+  log(`  rows where rpparea2 duplicates rpparea1's value: ${area2EqualsArea1}`);
+  log(`  rows where rpparea3 duplicates rpparea1 or rpparea2's value: ${area3EqualsEither}`);
+  log(
+    "  Interpretation from this evidence alone: rpparea1/2/3 are filled strictly in order (2 never appears " +
+      "without 1, 3 never appears without both 1 and 2) and are always mutually distinct codes (never equal) " +
+      "when present together — consistent with a fixed-width (max 3) list of genuinely different, simultaneously " +
+      "applicable RPP permit areas for one block, not alternatives and not duplicates."
   );
 
   log("\n=== regulation_type ===");
@@ -259,11 +314,12 @@ async function main(): Promise<void> {
   log("\n=== agency ===");
   printDistinct("agency", mapped.map((m) => m.agency));
 
-  log("\n=== permit_area (as persisted today) ===");
+  log("\n=== permit_area (as persisted today, post-fix) ===");
   printDistinct("permit_area", mapped.map((m) => m.permit_area));
 
-  log("\n=== raw rpparea1 (NOT currently persisted as permit_area — profiling only) ===");
-  printDistinct("raw_permit_area", mapped.map((m) => m.raw_permit_area));
+  log("\n=== raw rpparea2 / rpparea3 (still NOT persisted anywhere — profiling only) ===");
+  printDistinct("raw_permit_area_2", mapped.map((m) => m.raw_permit_area_2));
+  printDistinct("raw_permit_area_3", mapped.map((m) => m.raw_permit_area_3));
 
   log("\n=== hour_limit ===");
   const hourLimits = mapped.map((m) => m.hour_limit).filter((v): v is number => v !== null);
@@ -332,6 +388,8 @@ async function main(): Promise<void> {
         hours: row.hours,
         hrlimit: row.hrlimit,
         rpparea1: row.rpparea1,
+        rpparea2: row.rpparea2,
+        rpparea3: row.rpparea3,
         agency: row.agency,
       })}`
     );

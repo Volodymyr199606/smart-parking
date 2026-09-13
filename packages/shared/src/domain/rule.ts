@@ -131,7 +131,17 @@ export interface ParkingRule {
   readonly sourceRegulationType: string | null;
   /** Enforcing agency from the source, when present (e.g. SFMTA). Informational only. */
   readonly agency: string | null;
-  /** RPP/permit area code from the source, when present. Not evaluated here — a future legality engine decides what it means for a given user/vehicle. */
+  /**
+   * RPP/permit area code from the source, when present. Not evaluated
+   * here — a future legality engine decides what it means for a given
+   * user/vehicle. Populated from DataSF source field `rpparea1`. Source
+   * rows may also contain distinct `rpparea2`/`rpparea3` values that are
+   * not currently persisted; the semantic relationship among those source
+   * fields is not established by available source metadata. See
+   * docs/CITY_DATA_PLAN.md "DataSF permit area ingestion fix" for the
+   * observed evidence and the proposed (not-yet-built) schema change to
+   * preserve additional source fields.
+   */
   readonly permitArea: string | null;
   /** Unparsed source text (e.g. raw days-of-week/hours strings) preserved when structured parsing into `schedule` was not safe to do automatically. Null when there is nothing unparsed to preserve. */
   readonly rawText: string | null;

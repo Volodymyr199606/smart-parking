@@ -61,6 +61,7 @@ export interface CityParkingBlockRow {
   readonly days_of_week: string | null;
   readonly hours: string | null;
   readonly hour_limit: number | null;
+  /** DataSF source field `rpparea1`, preserved verbatim (mapped by `ingestRegulations` in scripts/ingest-sf-parking-data.ts). Source rows may also contain distinct `rpparea2`/`rpparea3` values that are not currently persisted; the semantic relationship among those source fields is not established by available source metadata. See docs/CITY_DATA_PLAN.md "DataSF permit area ingestion fix". */
   readonly permit_area: string | null;
   readonly imported_at: string;
 }
