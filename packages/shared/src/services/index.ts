@@ -20,4 +20,6 @@ export type {
 } from "./regulation";
 export { findParkingRulesForLocation } from "./regulation";
 
+export { evaluateParkingLegality } from "./legality";
+
 export { distanceMeters } from "./distance";

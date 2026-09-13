@@ -95,6 +95,10 @@ export function mapParkingSpotToCandidate(
   const legality: ParkingLegality = {
     status: "UNKNOWN",
     reason: NO_LEGALITY_ENGINE_REASON,
+    // Not produced by evaluateParkingLegality (packages/shared/src/services/legality.ts)
+    // — this adapter never calls it, so there is no evaluator reason code
+    // to report, just this pre-existing human-readable placeholder.
+    reasonCode: null,
     evidence: null,
   };
 
@@ -156,6 +160,9 @@ export function mapNormalizedLocationToCandidate(
   const legality: ParkingLegality = {
     status: "UNKNOWN",
     reason: NO_LEGALITY_ENGINE_REASON,
+    // Same as mapParkingSpotToCandidate above — this adapter does not call
+    // evaluateParkingLegality, so there is no evaluator reason code here.
+    reasonCode: null,
     evidence: null,
   };
 

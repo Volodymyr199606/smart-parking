@@ -609,12 +609,81 @@ Regulation Lookup Service — IMPLEMENTED (V1)
   - Answers "what regulations are associated with this location?" — NOT
     "is parking legal now?". No schedule evaluation. Not wired to any UI
         ↓
-[FUTURE] Legality Engine
-  - isLegalToParkNow(location, time) / evaluateLegality(candidate, rules, interval)
-    — takes a ParkingCandidate + ParkingRule[] and a requested
-    arrival/departure interval, returns ParkingLegality. Not built —
-    no arrival/departure evaluation, schedule matching, or max-stay
-    enforcement exists anywhere in this codebase yet.
+Legality Engine — IMPLEMENTED (V1), packages/shared/src/services/legality.ts
+  - evaluateParkingLegality(rules: ParkingRule[], interval: ParkingRequestedInterval) → ParkingLegality
+    — a PURE function (no Supabase/network/env/React/mobile/LLM). Takes
+    only a ParkingRule[] and a requested interval — deliberately does NOT
+    accept ParkingCandidate (nothing about location/availability/distance
+    affects the verdict). ParkingRequestedInterval (new,
+    domain/legality.ts) requires both `arrival`/`departure` as full ISO
+    8601 date-time strings with an explicit offset/`Z` — narrower than
+    ParkingSearchConstraints' softer nullable "now"/"unknown duration"
+    fields, which a future findLegalParking would resolve before calling
+    this
+  - Evaluates ONLY: TIME_LIMIT duration violations, gated by an
+    APPLICABILITY CHECK — a TIME_LIMIT rule must have `schedule.allDay
+    === true` ("confirmed-applicable") before its `maxDurationMinutes`
+    can prove EITHER an ILLEGAL violation OR a LEGAL verdict.
+    `allDay !== true` (i.e. `null`/`false`) means unresolved applicability
+    — reviewed and corrected: an earlier version let ANY exceeded
+    TIME_LIMIT rule prove ILLEGAL regardless of `allDay`, which was
+    asymmetric (unresolved rules could sink a candidate to ILLEGAL but
+    couldn't raise one to LEGAL). Both directions now require the same
+    gate. NEVER evaluates schedule.daysOfWeek/timeWindow/timezone (would
+    need a timezone-aware calculation this engine deliberately skips) or
+    any rawText/sourceRegulationType/agency/permitArea content —
+    applicability is never inferred from raw text either
+  - `maxDurationMinutes` must also be a plain finite, positive number to
+    be "usable" — `NaN`/`Infinity`/`0`/negative values never prove either
+    verdict, treated as no usable value instead of trusted
+  - Interval parsing independently range-checks every calendar component
+    (month 1-12, day vs. actual days-in-month incl. leap years, hour
+    0-23, minute/second 0-59) BEFORE any date arithmetic — `new
+    Date("2026-02-30T10:00:00Z")` silently normalizes to
+    `2026-03-02T10:00:00.000Z` rather than rejecting it, which this
+    engine must not allow; an impossible calendar date is UNKNOWN /
+    INVALID_INTERVAL, never silently rolled into a different valid instant
+  - Precedence: (1) invalid/impossible-calendar interval → UNKNOWN
+    "INVALID_INTERVAL"; (2) no rules → UNKNOWN "INSUFFICIENT_RULE_DATA";
+    (3) any CONFIRMED-APPLICABLE (allDay === true) TIME_LIMIT rule with a
+    usable maxDurationMinutes that's exceeded → ILLEGAL
+    "EXCEEDS_MAX_DURATION" (checked before OTHER/METERED/unresolved below
+    — a proven, confirmed-applicable violation outranks "unknown"; an
+    unresolved TIME_LIMIT is skipped here entirely, it cannot prove a
+    violation); (4) otherwise any OTHER rule present → UNKNOWN
+    "UNPARSED_RESTRICTION"; (5) otherwise any METERED rule present →
+    UNKNOWN "INSUFFICIENT_RULE_DATA" (not currently produced by any
+    adapter); (6) otherwise any TIME_LIMIT rule with unresolved
+    applicability → UNKNOWN "INSUFFICIENT_RULE_DATA"; (7) otherwise LEGAL
+    only if every rule is a confirmed-applicable TIME_LIMIT with a usable,
+    non-exceeded maxDurationMinutes — since the current adapter never sets
+    `allDay` to anything but `null`, LEGAL (and, after this correction,
+    ILLEGAL via an unresolved rule) is effectively unreachable with
+    today's real data for unresolved rules. That is intentional, not a
+    bug: "no proven violation" is never converted into "LEGAL", and "not
+    proven applicable" is never converted into "ILLEGAL"
+  - ParkingLegality gained a new `reasonCode: LegalityReasonCode | null`
+    field alongside the existing `reason` string (machine-readable
+    counterpart) — "EXCEEDS_MAX_DURATION" | "INSUFFICIENT_RULE_DATA" |
+    "UNPARSED_RESTRICTION" | "INVALID_INTERVAL" | null (null on LEGAL, and
+    on the pre-existing adapter-level UNKNOWN placeholders that don't call
+    this evaluator at all)
+  - Verified by scripts/verify-legality-engine.ts (`pnpm
+    verify:legality-engine`) — 23 in-memory cases including the
+    applicability-gate correction, malformed maxDurationMinutes, and
+    impossible-calendar-date rejection; no test framework added
+  - Does NOT implement findLegalParking, recommendation ranking, schedule
+    parsing/applicability evaluation, timezone conversion, street
+    sweeping, or permit/meter-payment interpretation — none of that exists
+    anywhere in this codebase yet
+        ↓
+[FUTURE] findLegalParking / Orchestration
+  - findLegalParking(constraints: ParkingSearchConstraints) — would narrow
+    to a ParkingCandidateSearchRequest for findParkingCandidates, look up
+    ParkingRule[] per candidate via findParkingRulesForCandidate, resolve
+    constraints.arrivalTime/departureTime into a ParkingRequestedInterval,
+    call evaluateParkingLegality per candidate, and filter/rank. Not
+    built — this is the next milestone after the legality engine
   - isReportedAvailable(location)
   - getNearbyOptions(userLocation, criteria) — ParkingSearchConstraints contract exists; no implementation
         ↓
@@ -636,7 +705,9 @@ This integration is intentionally additive: the existing `parking_spots` list/ma
 
 A deterministic regulation model (`ParkingRule`, `packages/shared/src/domain/rule.ts`) and its adapter (`mapCityRegulationRowToParkingRules`, `packages/shared/src/adapters/regulation.ts`) are also implemented. A `ParkingRule` describes a *regulation* ("2-hour limit") — never a legality verdict; `ParkingLegality.status` remains `"UNKNOWN"` everywhere, unchanged. The adapter only produces `TIME_LIMIT` (from the real `hour_limit` column) and `OTHER` (when other regulation fields carry unclassified information); it does **not** produce `METERED` — an earlier version incorrectly inferred that from table membership rather than a verified field, and was corrected before commit. `METERED` remains a valid `ParkingRuleKind`, reserved for a future adapter over `city_parking_meters` (the structurally reliable meter-inventory table); meter inventory and regulation are kept as distinct concepts.
 
-The adapter is now wired to a live query, via a small lookup/association layer: `apps/mobile/src/services/regulationService.ts` resolves a candidate's `location.id` to `city_parking_blocks` row(s) through two ID-based joins tried in strength order — a primary `city_parking_meters.block_id` foreign-key lookup, falling back to a weaker `blockface_id` exact text match only when the FK path can't be used (see `docs/CITY_DATA_PLAN.md` "Regulation lookup — join path" for the full precedence and why) — and `packages/shared/src/services/regulation.ts`'s `findParkingRulesForLocation` fetches + maps + flattens the result into `ParkingRule[]`. `candidateService.ts`'s `findParkingRulesForCandidate(candidate)` wires the two together, guarding on `isCityProvenance(candidate)` first so non-CITY candidates resolve to `[]` without any query, while keeping `candidateService.ts` the only mobile file that imports `@smart-parking/shared` as a runtime value. This layer answers "what regulations are associated with this location?" only — it is not wired to any UI, and legality evaluation, schedule matching, max-stay enforcement, street-sweeping ingestion, freshness calculation, ranking, agent tools, and MCP remain entirely unbuilt.
+The adapter is now wired to a live query, via a small lookup/association layer: `apps/mobile/src/services/regulationService.ts` resolves a candidate's `location.id` to `city_parking_blocks` row(s) through two ID-based joins tried in strength order — a primary `city_parking_meters.block_id` foreign-key lookup, falling back to a weaker `blockface_id` exact text match only when the FK path can't be used (see `docs/CITY_DATA_PLAN.md` "Regulation lookup — join path" for the full precedence and why) — and `packages/shared/src/services/regulation.ts`'s `findParkingRulesForLocation` fetches + maps + flattens the result into `ParkingRule[]`. `candidateService.ts`'s `findParkingRulesForCandidate(candidate)` wires the two together, guarding on `isCityProvenance(candidate)` first so non-CITY candidates resolve to `[]` without any query, while keeping `candidateService.ts` the only mobile file that imports `@smart-parking/shared` as a runtime value. This layer answers "what regulations are associated with this location?" only — it is not wired to any UI.
+
+A pure, deterministic legality engine (`evaluateParkingLegality`, `packages/shared/src/services/legality.ts`) is also implemented. It takes only a `ParkingRule[]` and a new, narrower `ParkingRequestedInterval` (both `arrival`/`departure` required, full ISO 8601 with explicit offset/`Z` — unlike `ParkingSearchConstraints`' softer nullable fields) and returns a `ParkingLegality`. A `TIME_LIMIT` rule's `maxDurationMinutes` can only prove EITHER an `ILLEGAL` violation OR a `LEGAL` verdict once its `schedule.allDay === true` ("confirmed-applicable") — reviewed and corrected: an earlier version let any exceeded `TIME_LIMIT` rule prove `ILLEGAL` regardless of `allDay`, which was asymmetric; an unresolved rule (`allDay` not `true`) now proves neither direction and contributes `UNKNOWN` instead. The engine also independently range-checks every calendar component of `arrival`/`departure` (day-of-month vs. actual days in that month/year, hour/minute/second bounds) before any arithmetic, since `new Date("2026-02-30T10:00:00Z")` would otherwise silently roll over to a different, valid instant instead of being rejected. It never parses free text, never evaluates `daysOfWeek`/`timeWindow`, and never assumes a timezone. "No proven violation" is never converted into `LEGAL`, and "not proven applicable" is never converted into `ILLEGAL` — with today's real ingested data (where `allDay` is always `null`), an unresolved `TIME_LIMIT` rule alone can only ever produce `UNKNOWN`; a small machine-readable `reasonCode` field was added to `ParkingLegality` to make the "why" explicit. This is the evaluator only — `findLegalParking`, ranking, schedule-applicability evaluation, timezone conversion, street-sweeping ingestion, freshness calculation, agent tools, and MCP remain entirely unbuilt.
 
 **Important:** MCP is an optional access interface at the boundary — not where business logic lives. Core parking services must be deterministic and independently testable without MCP.
 

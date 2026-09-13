@@ -23,7 +23,12 @@ export type { DataSourceCategory, ParkingEvidence } from "./evidence";
 
 export type { FreshnessStatus } from "./freshness";
 
-export type { LegalityStatus, ParkingLegality } from "./legality";
+export type {
+  LegalityStatus,
+  LegalityReasonCode,
+  ParkingLegality,
+  ParkingRequestedInterval,
+} from "./legality";
 
 export type { AvailabilityStatus, ParkingAvailability } from "./availability";
 
