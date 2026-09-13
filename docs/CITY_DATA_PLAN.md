@@ -258,6 +258,48 @@ A `ParkingRule` describes a regulation ("what applies"), never a legality verdic
 
 **Domain semantics unchanged and reaffirmed.** `permit_area`/`ParkingRule.permitArea` remains raw structured source information only — a non-null value does not mean parking is legal, illegal, permit-required-right-now, or that any particular user holds that permit. `evaluateParkingLegality` does not read `permitArea` today and was not changed by this milestone.
 
+### Regulation schedule parser (V1)
+
+**New in this milestone.** `packages/shared/src/adapters/regulationSchedule.ts` is a DataSF-specific parser for the `days_of_week` and `hours` fields of `city_parking_blocks` rows. It is called by `mapCityRegulationRowToParkingRules` (in `regulation.ts`) for every `TIME_LIMIT` rule, and populates `schedule.daysOfWeek` and `schedule.timeWindow` when the source value matches a V1-supported format. Everything else returns `null` (unresolved) — no exception, no silent normalisation, no guess.
+
+**V1 supported `days_of_week` formats** (exact string match, case-sensitive, no trimming):
+
+| Source value | Parsed result |
+|---|---|
+| `"M-F"` | `[MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY]` |
+| `"M-Sa"` | `[MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY]` |
+| `"M-Su"` | `[MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY]` |
+
+Unsupported (return `null`): `"M-S"` (ambiguous endpoint — Saturday vs. Sunday), `"M, TH"` (different grammar — comma-separated explicit list), `"m-f"` (lowercase — NOT auto-normalised), `null`, anything else. Profiling confirmed the three supported strings account for >99% of non-null, non-ambiguous values in the sampled dataset; the rest are small-tail ambiguous cases that must remain unresolved.
+
+**V1 supported `hours` formats** (3–4 digit HHMM-style numeric range, optional whitespace around the dash):
+
+| Source value | Parsed result |
+|---|---|
+| `"800-1800"` | `08:00` / `18:00` |
+| `"0900-2000"` | `09:00` / `20:00` |
+| `"800 - 2000"` | `08:00` / `20:00` |
+
+Rules: both tokens must be 3–4 digits; hour 0–23; minute 0–59; end must be strictly greater than start (same-day only). Unsupported (return `null`): `"2400-600"` (hour 24 is invalid), `"1800-800"` / `"800-800"` (overnight or equal — end ≤ start), `"0-0"` (single-digit tokens, below the 3-digit minimum), any out-of-range clock value, `null`, anything else.
+
+**`allDay` semantics** (critical for legality):
+- `allDay = false` when a `timeWindow` is successfully parsed — we know the rule is time-windowed, not all-day.
+- `allDay = null` when `hours` did not parse — unknown whether all-day or time-windowed.
+- `allDay` is **NEVER set to `true`** by this parser or the adapter. Setting it to `true` would require explicit source evidence of an all-day rule, which V1 does not have. The legality engine's applicability gate (`schedule.allDay === true`) is therefore completely unchanged by this milestone — parsing schedules does NOT produce `LEGAL` or `ILLEGAL` outcomes.
+
+**Partial schedules** — when only one field parses successfully:
+- Days parse, hours unresolved → `daysOfWeek` populated, `timeWindow = null`, `allDay = null`.
+- Hours parse, days unresolved → `daysOfWeek = null`, `timeWindow` populated, `allDay = false`.
+- Neither parses → both `null`, `allDay = null` (same as before this milestone for most real rows).
+
+**Raw source evidence is always preserved.** `rawText` on every rule (`buildRawScheduleText`: `"days:M-F; hours:800-1800"`) retains the original source strings regardless of parse success. Unsupported or ambiguous values remain visible in `rawText` even when `schedule.daysOfWeek`/`schedule.timeWindow` are `null`.
+
+**Parser location rationale.** The grammar is DataSF-specific (`M-F`, HHMM numeric), not a general-purpose schedule format. The parser lives in `packages/shared/src/adapters/regulationSchedule.ts` (adapter layer, DataSF-adjacent) rather than `services/` (which is for deterministic orchestration/evaluation logic). It is not exported from `adapters/index.ts` — it is an internal module used only by `regulation.ts`.
+
+**What does NOT change.** `OTHER` rules continue to be emitted for any row that carries `regulation_type`, `agency`, `permit_area`, `days_of_week`, or `hours` — even when those fields parse successfully. The `OTHER` kind exists to signal that regulation content exists beyond the numeric `hour_limit` (which drives `TIME_LIMIT`); its presence ensures the legality engine returns `UNKNOWN/UNPARSED_RESTRICTION` rather than attempting to evaluate unclassified content. No migration, no schema change, no legality change, no timezone/DST logic, no AI/agent/MCP, no UI work in this milestone.
+
+**Verification.** `scripts/verify-schedule-parser.ts` (`pnpm verify:schedule-parser`): 48 cases, all pass. All pre-existing `pnpm verify:legality-engine` (23 cases) and `pnpm verify:orchestration` (10 cases) regressions also pass unchanged.
+
 ---
 
 ## Table of Contents

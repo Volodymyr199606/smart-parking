@@ -565,7 +565,7 @@ Parking Regulation Model — IMPLEMENTED (V1), packages/shared/src/domain/rule.t
     all independently nullable; no evaluation function anywhere)
   - Reuses ParkingEvidence for provenance — no duplicate provenance type
         ↓
-Regulation Adapter — IMPLEMENTED (V1), packages/shared/src/adapters/regulation.ts
+Regulation Adapter — IMPLEMENTED (V1 + Schedule Parser V1), packages/shared/src/adapters/regulation.ts
   - mapCityRegulationRowToParkingRules(row: CityParkingBlockRow) → ParkingRule[]
     (zero or more: TIME_LIMIT when hour_limit is a valid positive number;
     OTHER when regulation_type/agency/permit_area/days_of_week/hours carry
@@ -576,6 +576,16 @@ Regulation Adapter — IMPLEMENTED (V1), packages/shared/src/adapters/regulation
     proven on the row. METERED is reserved for a future, separate adapter
     over city_parking_meters (the structurally reliable meter-inventory
     table) — meter inventory and regulation are distinct concepts
+  - Schedule Parser V1 (packages/shared/src/adapters/regulationSchedule.ts):
+    TIME_LIMIT rules now carry parsed schedule.daysOfWeek and
+    schedule.timeWindow when the source days_of_week/hours values match
+    V1-supported DataSF formats (see CITY_DATA_PLAN.md "Regulation schedule
+    parser V1" for exact supported/unsupported formats). allDay is set to
+    false when a timeWindow is parsed, null otherwise — NEVER true (no
+    source evidence of an all-day rule exists in V1). Raw source text is
+    preserved in rawText regardless of parse result. The legality
+    applicability gate (allDay === true) is UNCHANGED — schedule parsing
+    does not produce LEGAL/ILLEGAL outcomes in this milestone.
   - NOT wired to any live Supabase query in this file — a separate
     lookup/association layer (below) now supplies rows to it
         ↓

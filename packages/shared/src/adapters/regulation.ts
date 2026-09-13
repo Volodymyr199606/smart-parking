@@ -39,6 +39,7 @@
  */
 import type { ParkingRule } from "../domain/rule";
 import type { ParkingEvidence } from "../domain/evidence";
+import { parseDataSFDaysOfWeek, parseDataSFHours } from "./regulationSchedule";
 
 /**
  * `city_parking_blocks` has no `source_type`/`source_key` text column of
@@ -68,11 +69,13 @@ export interface CityParkingBlockRow {
 
 /**
  * Combines the raw `days_of_week` / `hours` text fields into one
- * preservable string. Deliberately NOT parsed into `ParkingRuleSchedule`
- * fields — see the module doc comment and docs/CITY_DATA_PLAN.md: DataSF's
- * `hi6h-neyh` regulations dataset does not document a fixed, confirmed
- * format for either field, and guessing one would risk fabricating a
- * schedule the source data doesn't actually support.
+ * preservable string. This raw text is retained on every rule regardless
+ * of whether the fields parsed successfully — it is source evidence, not
+ * a fallback for failed parsing. Unsupported or ambiguous values remain
+ * visible here even when `schedule.daysOfWeek`/`schedule.timeWindow` are
+ * null. See `parseDataSFDaysOfWeek` / `parseDataSFHours` in
+ * ./regulationSchedule.ts for which formats V1 converts to structured
+ * fields.
  */
 function buildRawScheduleText(row: CityParkingBlockRow): string | null {
   const parts: string[] = [];
@@ -126,30 +129,39 @@ function hasUnclassifiedRegulationInfo(row: CityParkingBlockRow): boolean {
  *  - A `"TIME_LIMIT"` rule is produced only when `hour_limit` is a real,
  *    positive, finite number (see `hasValidHourLimit`) — a structured
  *    integer column, not a text parse. `hour_limit` (hours) is converted
- *    to `schedule.maxDurationMinutes` (minutes) via plain arithmetic; no
- *    text parsing is involved in that conversion. `schedule.daysOfWeek`
- *    and `schedule.timeWindow` stay `null` — a numeric hour limit says
- *    nothing about which days or hours it applies on.
+ *    to `schedule.maxDurationMinutes` (minutes) via plain arithmetic.
+ *    `schedule.daysOfWeek` and `schedule.timeWindow` are now populated
+ *    by the DataSF schedule parser (see `./regulationSchedule.ts`) when
+ *    the raw `days_of_week` / `hours` fields match a V1-supported format;
+ *    both remain `null` when the value is unsupported or ambiguous.
+ *    `schedule.allDay` is set to `false` when a timeWindow is parsed
+ *    (we know the rule is time-windowed, not all-day), or remains `null`
+ *    when hours are unresolved (unknown whether all-day or windowed).
+ *    NOTE: `allDay` is NEVER set to `true` here — that would require
+ *    explicit source evidence of an all-day rule, which V1 does not have.
+ *    The legality engine's applicability gate (`allDay === true`) is
+ *    therefore unchanged; schedule parsing does NOT produce LEGAL/ILLEGAL
+ *    outcomes in this milestone.
  *  - An `"OTHER"` rule is produced whenever the row carries any
  *    regulation-descriptive field this adapter does not safely classify
  *    (`regulation_type`, `agency`, `permit_area`, `days_of_week`,
  *    `hours` — see `hasUnclassifiedRegulationInfo`). This can happen
  *    alongside a `"TIME_LIMIT"` rule for the same row (a numeric hour
  *    limit does not "explain" or consume those other fields) or on its
- *    own. `schedule` is `null` on this rule — nothing structural is known
- *    about when/how it applies, only that a regulation of some
- *    unclassified kind exists.
+ *    own. `schedule` is `null` on this rule — the `OTHER` kind exists
+ *    specifically to signal that regulation content exists but is not
+ *    classified; putting a parsed schedule on it would contradict that.
  *  - If a row has neither a valid `hour_limit` nor any other
  *    regulation-descriptive field set, this function returns an EMPTY
  *    array — there is nothing meaningful to represent, so no rule is
  *    fabricated.
  *
  * `regulation_type`, `agency`, and `permit_area` are preserved verbatim on
- * every returned rule (never classified into `kind`) — see
- * `ParkingRule.sourceRegulationType` / `.agency` / `.permitArea`. The raw
- * `days_of_week` / `hours` strings are preserved via `rawText`
- * (`buildRawScheduleText`) rather than parsed into `schedule.daysOfWeek` /
- * `schedule.timeWindow`, which both remain `null` (unknown, not guessed).
+ * every returned rule (never classified into `kind`). The raw
+ * `days_of_week` / `hours` strings are ALWAYS preserved via `rawText`
+ * (`buildRawScheduleText`) — this is retained as source evidence even
+ * when the values parse successfully into `schedule` fields. Unsupported
+ * or ambiguous values remain readable in `rawText` regardless.
  *
  * Does NOT produce `"METERED"` — see the module doc comment.
  */
@@ -169,13 +181,23 @@ export function mapCityRegulationRowToParkingRules(
   const rules: ParkingRule[] = [];
 
   if (hasValidHourLimit(row)) {
+    // Attempt V1 schedule parsing. Unsupported/ambiguous values resolve to
+    // null — never throws, never guesses. See ./regulationSchedule.ts for
+    // the exact supported formats and the evidence behind each decision.
+    const parsedDays = parseDataSFDaysOfWeek(row.days_of_week);
+    const parsedWindow = parseDataSFHours(row.hours);
+
     rules.push({
       id: `${row.id}:TIME_LIMIT`,
       kind: "TIME_LIMIT",
       schedule: {
-        daysOfWeek: null, // days_of_week free text not safely parsed in V1 — see buildRawScheduleText
-        timeWindow: null, // hours free text not safely parsed in V1 — see buildRawScheduleText
-        allDay: null,
+        daysOfWeek: parsedDays,
+        timeWindow: parsedWindow,
+        // false = confirmed NOT all-day (a time window is known); null =
+        // unknown (hours did not parse, so we cannot tell whether all-day
+        // or windowed). NEVER true here — no source evidence of all-day
+        // exists, and the legality applicability gate requires true.
+        allDay: parsedWindow !== null ? false : null,
         maxDurationMinutes: row.hour_limit * 60,
         timezone: null, // not modeled in V1; see ParkingRuleSchedule.timezone doc comment
       },
