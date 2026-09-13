@@ -22,4 +22,12 @@ export { findParkingRulesForLocation } from "./regulation";
 
 export { evaluateParkingLegality } from "./legality";
 
+export type {
+  FetchRulesForCandidate,
+  FindAndEvaluateParkingCandidatesRequest,
+  FindAndEvaluateParkingCandidatesDeps,
+  EvaluatedParkingCandidate,
+} from "./orchestration";
+export { findAndEvaluateParkingCandidates } from "./orchestration";
+
 export { distanceMeters } from "./distance";

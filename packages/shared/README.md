@@ -74,7 +74,7 @@ Wired into `apps/mobile` via `apps/mobile/src/services/candidateService.ts`'s `f
 
 ## Legality engine (V1)
 
-`src/services/legality.ts` adds `evaluateParkingLegality(rules: readonly ParkingRule[], interval: ParkingRequestedInterval): ParkingLegality` — a **pure** function (no Supabase, network, env vars, React, mobile, or LLM dependency; same inputs always produce the same output). It answers "is parking legal for this requested interval, given only these known rules?" — **not** a full search/ranking flow (`findLegalParking` is a future milestone, not implemented here). It is not yet wired into `findParkingRulesForLocation`/`findParkingRulesForCandidate` or any candidate-lookup flow — every `ParkingCandidate.legality` still reports `status: "UNKNOWN"`, unchanged.
+`src/services/legality.ts` adds `evaluateParkingLegality(rules: readonly ParkingRule[], interval: ParkingRequestedInterval): ParkingLegality` — a **pure** function (no Supabase, network, env vars, React, mobile, or LLM dependency; same inputs always produce the same output). It answers "is parking legal for this requested interval, given only these known rules?" — **not** a full search/ranking flow (`findLegalParking` is a future milestone, not implemented here). `ParkingCandidate.legality` itself still always reports `status: "UNKNOWN"`, unchanged — this evaluator's real verdict is available only through the separate orchestration layer below (`findAndEvaluateParkingCandidates`), which composes it alongside a candidate instead of mutating `candidate.legality`.
 
 ```typescript
 import { services } from "@smart-parking/shared";
@@ -96,6 +96,40 @@ Since the current regulation adapter never sets `schedule.allDay` to anything bu
 `ParkingLegality` gained one additive field, `reasonCode: LegalityReasonCode | null` (`"EXCEEDS_MAX_DURATION" | "INSUFFICIENT_RULE_DATA" | "UNPARSED_RESTRICTION" | "INVALID_INTERVAL" | null`) — a machine-readable counterpart to the existing `reason` string. The two pre-existing `ParkingLegality` placeholders in `src/adapters/parking.ts` were updated to set `reasonCode: null` (they don't call this evaluator).
 
 Verified by `scripts/verify-legality-engine.ts` (`pnpm verify:legality-engine`, 23 cases, including the applicability-gate correction, malformed `maxDurationMinutes`, and impossible-calendar-date rejection) — no test framework added.
+
+## Search + legality orchestration (V1)
+
+`src/services/orchestration.ts` adds `findAndEvaluateParkingCandidates(request: { candidateSearch, interval }, deps): Promise<EvaluatedParkingCandidate[]>` — the flow that connects the three services above: `findParkingCandidates` → an injected per-candidate rule fetcher → `evaluateParkingLegality`. No new business logic; this file only sequences and composes existing calls (plus a tiny bounded-concurrency helper — see below).
+
+```typescript
+import { services } from "@smart-parking/shared";
+
+const results = await services.findAndEvaluateParkingCandidates(
+  {
+    candidateSearch: { origin: { latitude, longitude }, radiusMeters: 2000 },
+    interval: { arrival: "2026-06-01T14:00:00-07:00", departure: "2026-06-01T15:30:00-07:00" },
+  },
+  {
+    fetchNearbySpots: myFetchSpotsFn,
+    fetchNearbyNormalizedLocations: myFetchLocationsFn,
+    fetchRulesForCandidate: myFetchRulesFn, // e.g. mobile's existing findParkingRulesForCandidate
+  }
+);
+```
+
+**Not named `findLegalParking`.** With today's real ingested data, most CITY candidates with a known `TIME_LIMIT` rule evaluate to `UNKNOWN`, not `LEGAL` (see the Legality engine section above — `schedule.allDay` is never confirmed `true`). This function returns **every** discovered candidate, `UNKNOWN` included, in the same distance order `findParkingCandidates` produces — never only "legal" ones. `findLegalParking` is reserved for a later milestone once rule-coverage semantics justify that name.
+
+**Result shape.** `EvaluatedParkingCandidate { candidate: ParkingCandidate; rules: readonly ParkingRule[]; legality: ParkingLegality }` — explicit composition; `candidate.legality` is left untouched (always the pre-existing `UNKNOWN` placeholder).
+
+**Why the rule fetcher is a dependency, not a direct call.** The real `findParkingRulesForCandidate` (apps/mobile) depends on Supabase-backed joins — this package still adds no Supabase dependency. `deps.fetchRulesForCandidate` has exactly that function's signature/semantics (`(candidate) => Promise<ParkingRule[]>`, resolving to `[]` — never throwing — for "no known rules"), so the caller supplies its own existing implementation unchanged; this package makes no provenance/routing decision of its own.
+
+**Error isolation.** A candidate-discovery failure fails the whole call (propagated unchanged — nothing useful to return without candidates). An individual candidate's rule-lookup failure is caught per-candidate and treated as `[]` rules (never fabricated) so that candidate is still returned, evaluated as `UNKNOWN`/`INSUFFICIENT_RULE_DATA` by the same `evaluateParkingLegality` path used for a genuine "no rules" result — one accepted V1 limitation being that a failed lookup and a genuine zero-rules result are indistinguishable in the returned `reasonCode`.
+
+**Concurrency.** Candidate discovery can return on the order of ~100-200 rows (mobile's per-fetcher query caps). Rather than an unbounded `Promise.all` across every candidate's rule lookup, a tiny dependency-free worker-pool helper caps concurrent lookups at 8 by default (`deps.maxConcurrentRuleLookups` to override); result order is preserved regardless of completion order.
+
+Wired into `apps/mobile` via `apps/mobile/src/services/candidateService.ts`'s `findAndEvaluateNearbyParkingCandidates`, which supplies the existing `fetchNearbyParkingSpotRows`/`fetchNearbyNormalizedLocationRows` (selected by source, exactly like `findNearbyParkingCandidates`) and `fetchRulesForCandidate: findParkingRulesForCandidate` — all pre-existing, unchanged functions. Not wired to any UI/screen. Not imported by `apps/web`.
+
+Verified by `scripts/verify-orchestration.ts` (`pnpm verify:orchestration`, 10 cases with fake injected fetchers, including ordering preservation and per-candidate error isolation) — no test framework added.
 
 ## Structure
 

@@ -677,13 +677,55 @@ Legality Engine — IMPLEMENTED (V1), packages/shared/src/services/legality.ts
     sweeping, or permit/meter-payment interpretation — none of that exists
     anywhere in this codebase yet
         ↓
-[FUTURE] findLegalParking / Orchestration
-  - findLegalParking(constraints: ParkingSearchConstraints) — would narrow
-    to a ParkingCandidateSearchRequest for findParkingCandidates, look up
-    ParkingRule[] per candidate via findParkingRulesForCandidate, resolve
-    constraints.arrivalTime/departureTime into a ParkingRequestedInterval,
-    call evaluateParkingLegality per candidate, and filter/rank. Not
-    built — this is the next milestone after the legality engine
+Search + Legality Orchestration — IMPLEMENTED (V1),
+packages/shared/src/services/orchestration.ts
+  - findAndEvaluateParkingCandidates(request: {candidateSearch,
+    interval}, deps) → EvaluatedParkingCandidate[] — connects
+    findParkingCandidates → deps.fetchRulesForCandidate (injected, one
+    call per candidate) → evaluateParkingLegality into one deterministic
+    flow. deps.fetchRulesForCandidate has exactly
+    candidateService.ts's findParkingRulesForCandidate's signature/
+    semantics — the mobile wiring
+    (candidateService.ts's findAndEvaluateNearbyParkingCandidates) passes
+    that existing function in unchanged, so packages/shared still has no
+    Supabase dependency and makes no provenance-routing decision itself
+  - EvaluatedParkingCandidate { candidate, rules, legality } — explicit
+    composition, never mutates candidate.legality (which stays the
+    always-UNKNOWN placeholder from findParkingCandidates)
+  - Deliberately NOT named findLegalParking: returns every discovered
+    candidate — UNKNOWN legality included, in the same distance order
+    findParkingCandidates produces — never only "legal" ones. No
+    filtering, ranking, or scoring. findLegalParking remains reserved for
+    a later milestone once rule-coverage semantics justify that name
+  - Error isolation: a candidate-discovery failure fails the whole call
+    (error propagates unchanged); an individual candidate's rule-lookup
+    failure is caught and treated as `[]` rules (never fabricated) so the
+    candidate is still returned with UNKNOWN/INSUFFICIENT_RULE_DATA —
+    indistinguishable from a genuine "no known rules" result, a
+    documented V1 limitation
+  - Concurrency: a tiny dependency-free worker-pool helper
+    (mapWithConcurrencyLimit) caps concurrent rule lookups at 8 by default
+    (overridable via deps.maxConcurrentRuleLookups) — candidate discovery
+    can return on the order of ~100-200 rows (mobile's per-fetcher query
+    limits), so an unbounded Promise.all over rule lookups was avoided
+  - Verified by scripts/verify-orchestration.ts (`pnpm
+    verify:orchestration`) — 10 in-memory cases with fake injected
+    fetchers, including ordering preservation and per-candidate error
+    isolation; no test framework added
+  - Mobile wiring: candidateService.ts's
+    findAndEvaluateNearbyParkingCandidates supplies the three real deps
+    (fetchNearbySpots/fetchNearbyNormalizedLocations by source selection,
+    fetchRulesForCandidate = findParkingRulesForCandidate). Not wired to
+    any UI/screen in this milestone
+  - Does NOT implement findLegalParking (filtering/ranking to only proven
+    legal results), recommendation ranking, prediction, or any new
+    legality/schedule logic — evaluateParkingLegality remains the single
+    legality authority, called unchanged
+        ↓
+[FUTURE] findLegalParking (truthfully-named legal-only filtering)
+  - A future filter/rank step over findAndEvaluateParkingCandidates'
+    output, once rule-coverage is mature enough that "legal" is a
+    meaningful, non-misleading guarantee. Not built.
   - isReportedAvailable(location)
   - getNearbyOptions(userLocation, criteria) — ParkingSearchConstraints contract exists; no implementation
         ↓
@@ -707,7 +749,9 @@ A deterministic regulation model (`ParkingRule`, `packages/shared/src/domain/rul
 
 The adapter is now wired to a live query, via a small lookup/association layer: `apps/mobile/src/services/regulationService.ts` resolves a candidate's `location.id` to `city_parking_blocks` row(s) through two ID-based joins tried in strength order — a primary `city_parking_meters.block_id` foreign-key lookup, falling back to a weaker `blockface_id` exact text match only when the FK path can't be used (see `docs/CITY_DATA_PLAN.md` "Regulation lookup — join path" for the full precedence and why) — and `packages/shared/src/services/regulation.ts`'s `findParkingRulesForLocation` fetches + maps + flattens the result into `ParkingRule[]`. `candidateService.ts`'s `findParkingRulesForCandidate(candidate)` wires the two together, guarding on `isCityProvenance(candidate)` first so non-CITY candidates resolve to `[]` without any query, while keeping `candidateService.ts` the only mobile file that imports `@smart-parking/shared` as a runtime value. This layer answers "what regulations are associated with this location?" only — it is not wired to any UI.
 
-A pure, deterministic legality engine (`evaluateParkingLegality`, `packages/shared/src/services/legality.ts`) is also implemented. It takes only a `ParkingRule[]` and a new, narrower `ParkingRequestedInterval` (both `arrival`/`departure` required, full ISO 8601 with explicit offset/`Z` — unlike `ParkingSearchConstraints`' softer nullable fields) and returns a `ParkingLegality`. A `TIME_LIMIT` rule's `maxDurationMinutes` can only prove EITHER an `ILLEGAL` violation OR a `LEGAL` verdict once its `schedule.allDay === true` ("confirmed-applicable") — reviewed and corrected: an earlier version let any exceeded `TIME_LIMIT` rule prove `ILLEGAL` regardless of `allDay`, which was asymmetric; an unresolved rule (`allDay` not `true`) now proves neither direction and contributes `UNKNOWN` instead. The engine also independently range-checks every calendar component of `arrival`/`departure` (day-of-month vs. actual days in that month/year, hour/minute/second bounds) before any arithmetic, since `new Date("2026-02-30T10:00:00Z")` would otherwise silently roll over to a different, valid instant instead of being rejected. It never parses free text, never evaluates `daysOfWeek`/`timeWindow`, and never assumes a timezone. "No proven violation" is never converted into `LEGAL`, and "not proven applicable" is never converted into `ILLEGAL` — with today's real ingested data (where `allDay` is always `null`), an unresolved `TIME_LIMIT` rule alone can only ever produce `UNKNOWN`; a small machine-readable `reasonCode` field was added to `ParkingLegality` to make the "why" explicit. This is the evaluator only — `findLegalParking`, ranking, schedule-applicability evaluation, timezone conversion, street-sweeping ingestion, freshness calculation, agent tools, and MCP remain entirely unbuilt.
+A pure, deterministic legality engine (`evaluateParkingLegality`, `packages/shared/src/services/legality.ts`) is also implemented. It takes only a `ParkingRule[]` and a new, narrower `ParkingRequestedInterval` (both `arrival`/`departure` required, full ISO 8601 with explicit offset/`Z` — unlike `ParkingSearchConstraints`' softer nullable fields) and returns a `ParkingLegality`. A `TIME_LIMIT` rule's `maxDurationMinutes` can only prove EITHER an `ILLEGAL` violation OR a `LEGAL` verdict once its `schedule.allDay === true` ("confirmed-applicable") — reviewed and corrected: an earlier version let any exceeded `TIME_LIMIT` rule prove `ILLEGAL` regardless of `allDay`, which was asymmetric; an unresolved rule (`allDay` not `true`) now proves neither direction and contributes `UNKNOWN` instead. The engine also independently range-checks every calendar component of `arrival`/`departure` (day-of-month vs. actual days in that month/year, hour/minute/second bounds) before any arithmetic, since `new Date("2026-02-30T10:00:00Z")` would otherwise silently roll over to a different, valid instant instead of being rejected. It never parses free text, never evaluates `daysOfWeek`/`timeWindow`, and never assumes a timezone. "No proven violation" is never converted into `LEGAL`, and "not proven applicable" is never converted into `ILLEGAL` — with today's real ingested data (where `allDay` is always `null`), an unresolved `TIME_LIMIT` rule alone can only ever produce `UNKNOWN`; a small machine-readable `reasonCode` field was added to `ParkingLegality` to make the "why" explicit. This remained the evaluator only in that milestone — no orchestration existed yet.
+
+That orchestration now exists: `findAndEvaluateParkingCandidates` (`packages/shared/src/services/orchestration.ts`) connects `findParkingCandidates` → an injected per-candidate rule fetcher → `evaluateParkingLegality` into one deterministic flow, returning `EvaluatedParkingCandidate[]` (`{ candidate, rules, legality }`, explicit composition — `candidate.legality` itself is never mutated). It is deliberately **not** named `findLegalParking`: it returns every discovered candidate, `UNKNOWN` legality included, in distance order — a name promising "legal parking" would overstate what today's rule coverage can prove. The rule-fetcher dependency (`fetchRulesForCandidate`) is injected with exactly `candidateService.ts`'s existing `findParkingRulesForCandidate` signature, so `packages/shared` still has zero Supabase dependency and makes no CITY-provenance routing decision of its own — it only calls what it is given. A candidate-discovery failure fails the whole call (propagated unchanged); an individual candidate's rule-lookup failure is caught per-candidate and treated as `[]` rules (never fabricated), preserving that candidate as `UNKNOWN`/`INSUFFICIENT_RULE_DATA`. A small dependency-free worker-pool helper bounds rule-lookup concurrency (default 8 concurrent, overridable) rather than firing an unbounded `Promise.all` across up to ~100-200 candidates. `apps/mobile/src/services/candidateService.ts`'s `findAndEvaluateNearbyParkingCandidates` wires the three real dependencies (the existing mobile fetchers, unchanged) but is not wired to any UI/screen. `findLegalParking` — real filtering/ranking down to only proven-legal results — ranking, prediction, schedule-applicability evaluation, timezone conversion, street-sweeping ingestion, freshness calculation, agent tools, and MCP all remain entirely unbuilt.
 
 **Important:** MCP is an optional access interface at the boundary — not where business logic lives. Core parking services must be deterministic and independently testable without MCP.
 

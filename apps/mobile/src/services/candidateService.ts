@@ -114,3 +114,49 @@ export function findParkingRulesForCandidate(
     fetchCityParkingBlocksForLocation,
   });
 }
+
+/**
+ * Re-exported so callers in apps/mobile don't need their own direct import
+ * from @smart-parking/shared just to name this type.
+ */
+export type EvaluatedParkingCandidate = services.EvaluatedParkingCandidate;
+
+/**
+ * Finds parking candidates near (latitude, longitude) AND evaluates what
+ * is currently known about each one's legality for `interval` — the
+ * mobile-side wiring for `services.findAndEvaluateParkingCandidates`
+ * (packages/shared/src/services/orchestration.ts).
+ *
+ * Supplies the three dependencies that function needs, all of which
+ * already exist and are unchanged by this wiring:
+ *  - `fetchNearbySpots`/`fetchNearbyNormalizedLocations` — same source
+ *    selection as `findNearbyParkingCandidates` above (`options.sources`).
+ *  - `fetchRulesForCandidate` — this file's own `findParkingRulesForCandidate`,
+ *    which already gates on CITY provenance and performs the actual
+ *    Supabase joins (apps/mobile/src/services/regulationService.ts).
+ *
+ * NOT named `findLegalParking` — see
+ * packages/shared/src/services/orchestration.ts's top comment: this
+ * returns every evaluated candidate, `UNKNOWN` legality included, never
+ * only "legal" ones. Not wired to any UI/screen in this milestone.
+ */
+export function findAndEvaluateNearbyParkingCandidates(
+  latitude: number,
+  longitude: number,
+  radiusMeters: number,
+  interval: domain.ParkingRequestedInterval,
+  options: { sources: readonly services.ParkingDataSourceKind[] }
+): Promise<EvaluatedParkingCandidate[]> {
+  const origin: domain.GeoPoint = { latitude, longitude };
+  const wantsCurrentSpots = options.sources.includes("CURRENT_SPOTS");
+  const wantsCity = options.sources.includes("CITY");
+
+  return services.findAndEvaluateParkingCandidates(
+    { candidateSearch: { origin, radiusMeters }, interval },
+    {
+      fetchNearbySpots: wantsCurrentSpots ? fetchNearbyParkingSpotRows : undefined,
+      fetchNearbyNormalizedLocations: wantsCity ? fetchNearbyNormalizedLocationRows : undefined,
+      fetchRulesForCandidate: findParkingRulesForCandidate,
+    }
+  );
+}

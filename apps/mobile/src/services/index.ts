@@ -20,6 +20,7 @@ export {
   findNearbyParkingCandidates,
   isCityProvenance,
   findParkingRulesForCandidate,
+  findAndEvaluateNearbyParkingCandidates,
 } from "./candidateService";
-export type { ParkingPreviewCandidate } from "./candidateService";
+export type { ParkingPreviewCandidate, EvaluatedParkingCandidate } from "./candidateService";
 export { fetchCityParkingBlocksForLocation } from "./regulationService";
