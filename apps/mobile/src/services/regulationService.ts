@@ -4,6 +4,7 @@ import { supabase } from "./supabaseClient";
 // @smart-parking/shared as a runtime value — this file intentionally does
 // not, to keep that a single, small, isolated dependency).
 import type { adapters } from "@smart-parking/shared";
+import { resolveExactFallbackMatches } from "./regulationAssociation";
 
 /**
  * Regulation lookup data access (Parking Regulation Lookup / Association V1).
@@ -48,16 +49,27 @@ import type { adapters } from "@smart-parking/shared";
  *     -> city_parking_blocks.blockface_id  (exact text-equality match)
  *   This is WEAKER: `city_parking_blocks.blockface_id` has NO uniqueness
  *   constraint (only `(source_id, external_id)` is unique — see the same
- *   migration), so this match is not guaranteed one-to-one by the schema,
- *   even though it is expected to be in practice for this single-source
- *   dataset. It also has no ingest-order dependency, which is exactly why
- *   it remains useful as a fallback rather than being dropped entirely.
+ *   migration), so a query can legitimately return 0, 1, or MORE THAN 1
+ *   row. It also has no ingest-order dependency, which is exactly why it
+ *   remains useful as a fallback rather than being dropped entirely.
+ *
+ * REGULATION ASSOCIATION HARDENING (V1) — AMBIGUITY HANDLING:
+ * Because `blockface_id` is not unique, this path is made conservative:
+ * 0 matches -> `[]` (no association), exactly 1 match -> use it, 2+
+ * matches -> `[]` (ambiguous — deliberately discarded, never combined and
+ * never arbitrarily reduced to one via `.single()`/`[0]`). See
+ * `resolveExactFallbackMatches` in ./regulationAssociation.ts (a small
+ * pure helper, extracted specifically so this exact decision is
+ * unit-testable without a Supabase client) and
+ * docs/CITY_DATA_PLAN.md "Regulation association hardening" for why: once
+ * schedule applicability starts producing real LEGAL/ILLEGAL results, an
+ * ambiguous association must not silently attach an unverified rule.
  *
  * Neither path is a confidence score or a fuzzy match — both are exact ID
  * equality lookups on columns already populated by this repo's own
  * ingestion scripts for this exact purpose. The distinction is strength
- * (FK integrity vs. an unenforced shared text key), not certainty
- * percentages — no such scoring is introduced.
+ * (FK integrity vs. an unenforced, non-unique shared text key), not
+ * certainty percentages — no such scoring is introduced.
  */
 
 const NORMALIZED_TABLE = "normalized_parking_locations";
@@ -145,8 +157,14 @@ async function fetchBlockRowsViaMeterForeignKey(
 /**
  * FALLBACK path: exact-match lookup on `city_parking_blocks.blockface_id`.
  * Weaker than the primary FK path (see module doc comment) — has no
- * uniqueness guarantee, so this returns every matching row (0, 1, or
- * more), never assuming exactly one.
+ * uniqueness guarantee, so the raw query can return 0, 1, or more rows.
+ *
+ * Ambiguity handling (Regulation Association Hardening V1): the raw
+ * matches are passed through `resolveExactFallbackMatches`, which
+ * collapses anything other than EXACTLY ONE match to `[]`. A genuine
+ * Supabase query/network error still throws unchanged — only the "which
+ * rows count as a safe association" decision is hardened here, not error
+ * handling.
  */
 async function fetchBlockRowsViaBlockfaceIdFallback(
   blockfaceId: string
@@ -160,7 +178,8 @@ async function fetchBlockRowsViaBlockfaceIdFallback(
     throw new Error(error.message);
   }
 
-  return (blockRows ?? []) as adapters.CityParkingBlockRow[];
+  const rows = (blockRows ?? []) as adapters.CityParkingBlockRow[];
+  return resolveExactFallbackMatches(rows) as adapters.CityParkingBlockRow[];
 }
 
 /**
@@ -180,9 +199,13 @@ async function fetchBlockRowsViaBlockfaceIdFallback(
  *  - `locationId` does not match any `normalized_parking_locations` row
  *  - neither `city_row_id` nor a usable fallback `blockface_id` is present
  *  - no `city_parking_blocks` row is found via whichever path was used
+ *  - the fallback path's `blockface_id` match is AMBIGUOUS (2+ rows) —
+ *    see `fetchBlockRowsViaBlockfaceIdFallback` / `resolveExactFallbackMatches`
  *
  * Throws only on an actual Supabase query error (matching this package's
  * existing convention — see parkingService.ts / cityParkingService.ts).
+ * Ambiguity is a data-shape decision (resolved to `[]`), never disguised
+ * as or confused with a query/network failure (which still throws).
  */
 export async function fetchCityParkingBlocksForLocation(
   locationId: string

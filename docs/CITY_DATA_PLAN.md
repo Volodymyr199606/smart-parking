@@ -148,6 +148,27 @@ A `ParkingRule` describes a regulation ("what applies"), never a legality verdic
 
 **Candidate source safety.** `findParkingRulesForCandidate(candidate)` only performs this lookup for CITY-sourced candidates (checked via the existing `isCityProvenance` / `ParkingEvidence.sourceCategory` signal — not a geographic or table proxy). `parking_spots`-sourced (`CURRENT_SPOTS`/`MOCK`) candidates have a `location.id` from a different table entirely (`parking_spots.id`, not `normalized_parking_locations.id`); calling this function with one resolves to `[]` immediately, without issuing any Supabase query.
 
+### Regulation association hardening (V1)
+
+**New in this milestone.** The FALLBACK join path above (`blockface_id` text match) previously returned **every** matching `city_parking_blocks` row unconditionally, with no check on how many rows matched. Since `blockface_id` has no uniqueness constraint, this meant an ambiguous match (2+ rows sharing the same `blockface_id`) silently returned all of them as if each were a confirmed association — combining unrelated blocks' regulations onto one location.
+
+**Why this needed fixing before schedule applicability.** Once a future milestone teaches `evaluateParkingLegality` to read `schedule.daysOfWeek`/`schedule.timeWindow` (not done in this milestone — see "Legality evaluation" above, unchanged), a `TIME_LIMIT` rule can start proving real `ILLEGAL` verdicts from schedule data, not just `maxDurationMinutes`. Attaching a rule from an ambiguous, unverified association at that point could falsely reject a candidate based on a regulation that was never actually confirmed to apply to it. The system's rule must be **ambiguous association → `UNKNOWN`**, never **ambiguous association → treat every possible rule as applicable**.
+
+**Corrected fallback semantics.** `apps/mobile/src/services/regulationService.ts`'s `fetchBlockRowsViaBlockfaceIdFallback` now passes its raw query result through `resolveExactFallbackMatches` (new file: `apps/mobile/src/services/regulationAssociation.ts`, a small pure helper with zero imports):
+- 0 exact matches → `[]` (already unambiguous — unchanged)
+- exactly 1 exact match → that row (unambiguous — unchanged)
+- 2+ exact matches → `[]` (ambiguous — **changed**: previously returned all matching rows)
+
+No row is ever arbitrarily picked (no `.single()`/`[0]`) and ambiguous rows are never combined/unioned — both were explicitly avoided.
+
+**Primary path is unaffected and remains authoritative.** `fetchBlockRowsViaMeterForeignKey` (the FK-backed `block_id` path) was not modified. It was already correct: `block_id` is a PK-targeting FK, so at most one row can ever match, and — already true before this milestone, confirmed by inspection, not changed — if the primary path resolves a `block_id` but the referenced block query unexpectedly returns zero rows, the function returns `[]` (not `null`), and the caller (`fetchCityParkingBlocksForLocation`) treats "primary path was usable" (`viaForeignKey !== null`) as reason enough to return that `[]` directly, without silently falling through to the weaker fallback. A resolved-but-empty primary result is a data-integrity signal, not permission to guess via the fallback.
+
+**Error semantics unchanged.** A genuine Supabase query/network error still throws (`throw new Error(error.message)`) exactly as before in both the primary and fallback functions. Only the "how many rows count as a safe association" decision was hardened — ambiguity and query failure remain distinguishable and are never conflated.
+
+**No new confidence model.** No `associationConfidence`, confidence percentage, or `EXACT_FK`/`BLOCKFACE_FALLBACK` enum was added. The existing two-path structure (primary vs. fallback, described in code comments) remains the only "strength" signal; this milestone only changed the fallback's row-count decision.
+
+**Verification.** `scripts/verify-regulation-association.ts` (`pnpm verify:regulation-association`) is a zero-dependency script testing `resolveExactFallbackMatches` directly: 0/1/2/3+ rows, confirming the returned single-row case is referentially the original row (not reconstructed), and confirming ambiguous input is neither reduced to the first row nor combined into a multi-row result. The primary path and the CITY-provenance gate are unchanged by this milestone and were confirmed correct by code inspection rather than a new runtime test — importing `regulationService.ts`/`candidateService.ts` from a bare Node/tsx script fails (`supabaseUrl is required`) because both construct a real Supabase client at module-load time; refactoring that for testability was judged out of scope for this narrow hardening milestone.
+
 ### Legality evaluation (Legality Engine V1)
 
 `packages/shared/src/services/legality.ts` adds `evaluateParkingLegality(rules: ParkingRule[], interval: ParkingRequestedInterval): ParkingLegality` — a pure, deterministic function with no Supabase/network/env/React/mobile/LLM dependency. `ParkingCandidate.legality` itself still always reports `status: "UNKNOWN"` unchanged (see `packages/shared/src/adapters/parking.ts`) — this evaluator's real verdict is only available through the separate orchestration layer below (`findAndEvaluateParkingCandidates`), which composes it alongside a candidate rather than mutating `candidate.legality` in place.
