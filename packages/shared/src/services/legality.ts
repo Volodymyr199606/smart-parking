@@ -171,8 +171,15 @@ function daysInMonth(year: number, month: number): number {
  * string: `new Date("2026-02-30T10:00:00Z")` normalizes to
  * `2026-03-02T10:00:00.000Z` instead of rejecting it, which this
  * function must not allow.
+ *
+ * Exported (Parking Schedule Applicability V1) so
+ * `./scheduleApplicability.ts` can reuse this exact validation instead of
+ * duplicating it — both modules must agree on what a valid requested
+ * instant is. This is the only change made to this file for that
+ * milestone; `evaluateParkingLegality`'s own logic/behavior below is
+ * untouched.
  */
-function parseInstantMs(value: string): number | null {
+export function parseInstantMs(value: string): number | null {
   if (typeof value !== "string") return null;
 
   const match = STRICT_ISO_DATE_TIME_PATTERN.exec(value);

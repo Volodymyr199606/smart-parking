@@ -247,6 +247,17 @@ log("\n=== Adapter integration — TIME_LIMIT with fully-parsed schedule ===");
       failed++;
     }
 
+    // DataSF-sourced TIME_LIMIT schedules carry America/Los_Angeles so
+    // schedule applicability can convert requested instants. Not read by
+    // evaluateParkingLegality today.
+    if (timeLimitRule.schedule?.timezone === "America/Los_Angeles") {
+      log("PASS: TIME_LIMIT timezone = America/Los_Angeles");
+      passed++;
+    } else {
+      fail(`TIME_LIMIT timezone unexpected: ${timeLimitRule.schedule?.timezone}`);
+      failed++;
+    }
+
     // maxDurationMinutes = 120
     if (timeLimitRule.schedule?.maxDurationMinutes === 120) {
       log("PASS: TIME_LIMIT maxDurationMinutes = 120");

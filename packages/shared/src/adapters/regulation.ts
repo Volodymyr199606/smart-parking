@@ -52,6 +52,16 @@ import { parseDataSFDaysOfWeek, parseDataSFHours } from "./regulationSchedule";
  */
 const CITY_BLOCK_SOURCE_DETAIL = "city_parking_blocks";
 
+/**
+ * IANA timezone for local civil times produced from DataSF Parking
+ * Regulations (`hi6h-neyh`). That dataset covers only San Francisco
+ * street regulations. Set on `ParkingRuleSchedule.timezone` so
+ * `evaluateScheduleApplicability` can convert requested instants without
+ * hardcoding a zone (and without using the machine timezone). Not an
+ * applicability verdict and not read by `evaluateParkingLegality` today.
+ */
+export const DATASF_REGULATION_TIMEZONE = "America/Los_Angeles";
+
 /** Structural mirror of the fields this adapter reads from a `city_parking_blocks` row (see supabase/migrations/00005_city_parking_data.sql). */
 export interface CityParkingBlockRow {
   readonly id: string;
@@ -139,9 +149,10 @@ function hasUnclassifiedRegulationInfo(row: CityParkingBlockRow): boolean {
  *    when hours are unresolved (unknown whether all-day or windowed).
  *    NOTE: `allDay` is NEVER set to `true` here — that would require
  *    explicit source evidence of an all-day rule, which V1 does not have.
- *    The legality engine's applicability gate (`allDay === true`) is
- *    therefore unchanged; schedule parsing does NOT produce LEGAL/ILLEGAL
- *    outcomes in this milestone.
+ *    `schedule.timezone` is set to `DATASF_REGULATION_TIMEZONE`
+ *    (`America/Los_Angeles`) because this adapter maps only DataSF
+ *    `hi6h-neyh` San Francisco regulations. The legality engine does not
+ *    read timezone today; `evaluateScheduleApplicability` does.
  *  - An `"OTHER"` rule is produced whenever the row carries any
  *    regulation-descriptive field this adapter does not safely classify
  *    (`regulation_type`, `agency`, `permit_area`, `days_of_week`,
@@ -199,7 +210,7 @@ export function mapCityRegulationRowToParkingRules(
         // exists, and the legality applicability gate requires true.
         allDay: parsedWindow !== null ? false : null,
         maxDurationMinutes: row.hour_limit * 60,
-        timezone: null, // not modeled in V1; see ParkingRuleSchedule.timezone doc comment
+        timezone: DATASF_REGULATION_TIMEZONE,
       },
       sourceRegulationType: row.regulation_type,
       agency: row.agency,

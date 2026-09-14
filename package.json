@@ -17,6 +17,7 @@
     "verify:legality-engine": "tsx scripts/verify-legality-engine.ts",
     "verify:orchestration": "tsx scripts/verify-orchestration.ts",
     "verify:schedule-parser": "tsx scripts/verify-schedule-parser.ts",
+    "verify:schedule-applicability": "tsx scripts/verify-schedule-applicability.ts",
     "verify:regulation-association": "tsx scripts/verify-regulation-association.ts",
     "profile:regulation-data": "tsx scripts/profile-regulation-data.ts"
   },

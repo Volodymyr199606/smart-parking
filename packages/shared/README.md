@@ -97,6 +97,21 @@ Since the current regulation adapter never sets `schedule.allDay` to anything bu
 
 Verified by `scripts/verify-legality-engine.ts` (`pnpm verify:legality-engine`, 23 cases, including the applicability-gate correction, malformed `maxDurationMinutes`, and impossible-calendar-date rejection) — no test framework added.
 
+## Schedule applicability (V1)
+
+`src/services/scheduleApplicability.ts` adds `evaluateScheduleApplicability(schedule: ParkingRuleSchedule | null, interval: ParkingRequestedInterval): ScheduleApplicabilityResult` — a **pure** function answering whether a schedule `APPLIES`, `DOES_NOT_APPLY`, or is `UNKNOWN` for a requested interval. It is **not** called by `evaluateParkingLegality` yet; legality still uses only `allDay === true`.
+
+```typescript
+import { services } from "@smart-parking/shared";
+
+const applicability = services.evaluateScheduleApplicability(rule.schedule, {
+  arrival: "2026-09-15T10:00:00-07:00",
+  departure: "2026-09-15T12:00:00-07:00",
+});
+```
+
+Timezone conversion uses `Intl.DateTimeFormat` with `schedule.timezone` (DataSF TIME_LIMIT rules now set `"America/Los_Angeles"`). Machine timezone is never used. Windows are half-open `[start, end)`; partial overlap, multi-day local requests, and DST duration mismatches are `UNKNOWN`. Verified by `scripts/verify-schedule-applicability.ts` (`pnpm verify:schedule-applicability`).
+
 ## Search + legality orchestration (V1)
 
 `src/services/orchestration.ts` adds `findAndEvaluateParkingCandidates(request: { candidateSearch, interval }, deps): Promise<EvaluatedParkingCandidate[]>` — the flow that connects the three services above: `findParkingCandidates` → an injected per-candidate rule fetcher → `evaluateParkingLegality`. No new business logic; this file only sequences and composes existing calls (plus a tiny bounded-concurrency helper — see below).

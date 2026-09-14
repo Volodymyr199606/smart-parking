@@ -8,7 +8,10 @@ import type { ParkingEvidence } from "./evidence";
  * against a requested time interval is a FUTURE legality-engine concern
  * (see `ParkingLegality` in ./legality.ts) — nothing in this file decides
  * that. There is no `isLegal`, `evaluateLegality`, `isRuleActive`, or
- * `isWithinSchedule` function anywhere in packages/shared — V1 is
+ * `isWithinSchedule` function in this file. Schedule applicability vs a
+ * requested interval lives in
+ * `packages/shared/src/services/scheduleApplicability.ts` and is NOT
+ * wired into `evaluateParkingLegality` yet. This file remains
  * representation only.
  *
  * V1 kinds are deliberately narrow, matching only what current data can
@@ -91,7 +94,9 @@ export interface ParkingTimeWindow {
  * "every day / all the time" — do not treat null as a default.
  *
  * This type REPRESENTS a schedule; it does not evaluate one against a
- * timestamp. That belongs to a future legality engine.
+ * timestamp. That belongs to `evaluateScheduleApplicability`
+ * (packages/shared/src/services/scheduleApplicability.ts), which is not
+ * yet wired into `evaluateParkingLegality`.
  */
 export interface ParkingRuleSchedule {
   /** Days the rule applies. Null when unknown — NOT the same as "every day". */

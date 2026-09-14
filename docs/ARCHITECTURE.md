@@ -582,10 +582,12 @@ Regulation Adapter — IMPLEMENTED (V1 + Schedule Parser V1), packages/shared/sr
     V1-supported DataSF formats (see CITY_DATA_PLAN.md "Regulation schedule
     parser V1" for exact supported/unsupported formats). allDay is set to
     false when a timeWindow is parsed, null otherwise — NEVER true (no
-    source evidence of an all-day rule exists in V1). Raw source text is
-    preserved in rawText regardless of parse result. The legality
+    source evidence of an all-day rule exists in V1). timezone is set to
+    America/Los_Angeles for DataSF-sourced TIME_LIMIT rules. Raw source
+    text is preserved in rawText regardless of parse result. The legality
     applicability gate (allDay === true) is UNCHANGED — schedule parsing
-    does not produce LEGAL/ILLEGAL outcomes in this milestone.
+    and schedule applicability are not wired into LEGAL/ILLEGAL outcomes
+    in this milestone.
   - NOT wired to any live Supabase query in this file — a separate
     lookup/association layer (below) now supplies rows to it
         ↓
@@ -618,6 +620,18 @@ Regulation Lookup Service — IMPLEMENTED (V1)
     query, since their location.id belongs to a different table entirely
   - Answers "what regulations are associated with this location?" — NOT
     "is parking legal now?". No schedule evaluation. Not wired to any UI
+        ↓
+Schedule Applicability — IMPLEMENTED (V1), packages/shared/src/services/scheduleApplicability.ts
+  - evaluateScheduleApplicability(schedule, interval) → { status, reason }
+    status: APPLIES | DOES_NOT_APPLY | UNKNOWN
+  - Pure function. Uses Intl.DateTimeFormat with schedule.timezone only
+    (DataSF adapter sets America/Los_Angeles). Never uses machine TZ.
+  - allDay === true → APPLIES for any valid interval. Windowed eval
+    requires daysOfWeek + timeWindow + timezone. Partial data → UNKNOWN.
+  - Half-open windows [start, end). Full containment → APPLIES. Zero
+    overlap → DOES_NOT_APPLY. Partial overlap / multi-day / DST
+    duration mismatch → UNKNOWN.
+  - NOT wired into evaluateParkingLegality yet (next milestone)
         ↓
 Legality Engine — IMPLEMENTED (V1), packages/shared/src/services/legality.ts
   - evaluateParkingLegality(rules: ParkingRule[], interval: ParkingRequestedInterval) → ParkingLegality

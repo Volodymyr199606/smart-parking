@@ -319,7 +319,36 @@ Rules: both tokens must be 3–4 digits; hour 0–23; minute 0–59; end must be
 
 **What does NOT change.** `OTHER` rules continue to be emitted for any row that carries `regulation_type`, `agency`, `permit_area`, `days_of_week`, or `hours` — even when those fields parse successfully. The `OTHER` kind exists to signal that regulation content exists beyond the numeric `hour_limit` (which drives `TIME_LIMIT`); its presence ensures the legality engine returns `UNKNOWN/UNPARSED_RESTRICTION` rather than attempting to evaluate unclassified content. No migration, no schema change, no legality change, no timezone/DST logic, no AI/agent/MCP, no UI work in this milestone.
 
-**Verification.** `scripts/verify-schedule-parser.ts` (`pnpm verify:schedule-parser`): 48 cases, all pass. All pre-existing `pnpm verify:legality-engine` (23 cases) and `pnpm verify:orchestration` (10 cases) regressions also pass unchanged.
+**Verification.** `scripts/verify-schedule-parser.ts` (`pnpm verify:schedule-parser`). DataSF-sourced `TIME_LIMIT` schedules now also set `timezone: "America/Los_Angeles"` (see Schedule applicability V1 below). Parser grammar is unchanged.
+
+### Parking schedule applicability (V1)
+
+**New in this milestone.** `packages/shared/src/services/scheduleApplicability.ts` adds `evaluateScheduleApplicability(schedule, interval)` — a pure function that answers whether a `ParkingRuleSchedule` `APPLIES`, `DOES_NOT_APPLY`, or is `UNKNOWN` for a `ParkingRequestedInterval`. It is **not** wired into `evaluateParkingLegality` yet. `allDay` is never rewritten based on a request; it still describes the rule's own schedule.
+
+**Result type.** `ScheduleApplicabilityResult { status: "APPLIES" | "DOES_NOT_APPLY" | "UNKNOWN"; reason: string }`. No confidence score.
+
+**Timezone.** Local schedule times are converted from requested ISO instants with `Intl.DateTimeFormat` and an explicit IANA `timeZone` taken **only** from `schedule.timezone`. The machine timezone is never used; UTC-8/UTC-7 are never hardcoded. DataSF `hi6h-neyh` TIME_LIMIT rules now carry `timezone: "America/Los_Angeles"` from `mapCityRegulationRowToParkingRules` (`DATASF_REGULATION_TIMEZONE`). If `timezone` is null or unrecognized, windowed evaluation returns `UNKNOWN`.
+
+**When V1 can be definitive.**
+- `allDay === true` → `APPLIES` for any valid interval.
+- `daysOfWeek`, `timeWindow`, and `timezone` all present → evaluate conservatively.
+- Anything partial (days without time, time without days, missing timezone, null schedule, overnight window) → `UNKNOWN`. Missing days are never "every day"; missing time is never "all day".
+
+**Boundaries.** Windows are half-open `[startLocalTime, endLocalTime)`. Requested intervals are treated as `[arrival, departure)`. Fully contained (`APPLIES`) requires arrival ≥ start and departure ≤ end on one local date whose weekday is in `daysOfWeek`. A request starting exactly at 18:00 against an 08:00–18:00 window is outside (`DOES_NOT_APPLY` if there is zero overlap). A request ending exactly at 18:00 may still be fully contained.
+
+**Partial overlap → `UNKNOWN`.** Example: Tuesday 07:00–09:00 or 17:00–19:00 against 08:00–18:00. V1 does not model the legal meaning of a stay that is only partly inside an active window.
+
+**`DOES_NOT_APPLY`** only when V1 can prove zero overlap: wrong weekday, or same weekday entirely before start or at/after end.
+
+**Multi-day.** If arrival and departure fall on different local calendar dates in the schedule timezone → `UNKNOWN`.
+
+**DST.** Instants are converted to local civil time via Intl (unambiguous). If local wall-clock order disagrees with instant order, or elapsed duration disagrees with wall-clock duration by more than one second (skipped/repeated hour), → `UNKNOWN`.
+
+**Invalid interval.** Same strict ISO rules as `evaluateParkingLegality` (reuses `parseInstantMs`): unparseable, impossible calendar date, or departure not after arrival → `UNKNOWN`.
+
+**What does not change.** Parser grammar is unchanged. `evaluateParkingLegality` still uses only `allDay === true` as its applicability gate — production LEGAL/ILLEGAL outcomes are unchanged. No overnight windows, no ambiguous DataSF syntax, no UI.
+
+**Verification.** `scripts/verify-schedule-applicability.ts` (`pnpm verify:schedule-applicability`).
 
 ---
 
