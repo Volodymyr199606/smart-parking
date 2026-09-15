@@ -416,6 +416,8 @@ DataSF Socrata API          scripts/ingest-sf-parking-data.ts
                       city_parking_sources
                       city_parking_blocks
                       city_parking_meters
+                      (planned, not built: city_parking_regulations
+                       — docs/CITY_REGULATION_STORAGE.md)
                             ↓
                       scripts/normalize-city-parking.ts
                             ↓
@@ -430,7 +432,7 @@ DataSF Socrata API          scripts/ingest-sf-parking-data.ts
 |---|---|---|
 | SFMTA Metered Street Blocks | `27b3-yjjx` | `city_parking_blocks` |
 | Parking Meters | `8vzz-qzz9` | `city_parking_meters` |
-| Parking Regulations (blockface map) | `hi6h-neyh` | `city_parking_blocks` (merged) |
+| Parking Regulations (blockface map) | `hi6h-neyh` | `city_parking_blocks` (merged; lossy — see `docs/CITY_REGULATION_STORAGE.md`) |
 
 ### Ingestion scripts
 

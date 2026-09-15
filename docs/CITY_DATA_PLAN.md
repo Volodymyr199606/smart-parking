@@ -30,7 +30,7 @@
 
 1. [SFMTA Metered Street Blocks](https://data.sfgov.org/d/27b3-yjjx) (`27b3-yjjx`) → `city_parking_blocks`
 2. [Parking Meters](https://data.sfgov.org/d/8vzz-qzz9) (`8vzz-qzz9`) → `city_parking_meters` — **first real run:** `pnpm ingest:sf-parking:meters` (100 rows)
-3. [Parking regulations (blockface map)](https://data.sfgov.org/d/hi6h-neyh) (`hi6h-neyh`) → updates matching `city_parking_blocks` by `blockface_id`
+3. [Parking regulations (blockface map)](https://data.sfgov.org/d/hi6h-neyh) (`hi6h-neyh`) → updates matching `city_parking_blocks` by `blockface_id` (lossy merge; see [CITY_REGULATION_STORAGE.md](./CITY_REGULATION_STORAGE.md) for the planned one-to-many table — design only, not implemented)
 
 **Why the MVP is unaffected:** The mobile app still reads only `parking_spots` and `parking_reports`. City tables are optional, read-only for clients, and populated by a local script — not wired into the map UI yet.
 
@@ -225,7 +225,7 @@ It is **not** wired into `evaluateParkingLegality` (the known-rule engine is unc
 **Verified answers to the source-completeness questions (from code/schema, not guessed):**
 
 1. **Does one associated `city_parking_blocks` row represent all relevant regulations for the parking location?** No. The table stores a single `regulation_type` / `days_of_week` / `hours` / `hour_limit` / `permit_area`. `ingestRegulations()` `UPDATE`s that same block for every matching source row (`scripts/ingest-sf-parking-data.ts`), so later source rows overwrite earlier ones. Primary lookup returns at most one block (`block_id` PK). Street sweeping (`yhqp-riqs`) is a different dataset and is not ingested. Meter inventory is a different table with no `METERED` adapter.
-2. **Can multiple regulation records exist for the same physical location?** Yes in the source (`hi6h-neyh` is ingested row-by-row onto a blockface index). Yes in our schema: `blockface_id` is not unique. The fallback association path returns `[]` when 2+ block rows share a `blockface_id`. Live duplicate counts were not re-queried in this milestone (no new DataSF fetch); overwrite/ambiguity are verified from ingest and lookup code.
+2. **Can multiple regulation records exist for the same physical location?** Yes in the source: full-dataset profiling of `hi6h-neyh` (7788 rows) found 127 `fid_100` values with 2+ rows, 47 of those groups with materially different regulation/days/hours/permit payloads (see `docs/CITY_REGULATION_STORAGE.md`). `fid_100="0"` is a 328-row sentinel, not a location key. Live rows have **no** `blockface_id`. Yes in our schema: `city_parking_blocks.blockface_id` is not unique. The fallback association path returns `[]` when 2+ block rows share a `blockface_id`.
 3. **Are unmatched regulation rows dropped during ingestion?** Yes. Rows whose `blockface_id` is missing or does not match an already-ingested block are counted as `unmatched` in the ingest log and are not persisted (not even raw).
 4. **Does the normalized candidate retain enough provenance to know whether a regulation association is complete?** No. `normalized_parking_locations.raw_source` keeps `city_row_id` and `blockface_id` for the join, not unmatched counts, multi-row source cardinality, whether fallback discarded 2+ matches, or whether other datasets apply. `ParkingCandidate` does not carry `raw_source`. Empty `ParkingRule[]` is indistinguishable among "no association", "ambiguous association", "no regulations on the block", and "lookup failed" (orchestration already documents that last pair).
 5. **Does DataSF expose a field/category that tells us all restrictions for the block have been captured?** Not in anything this pipeline ingests. `ingestRegulations()` maps `regulation`/`agency`/`days`/`hours`/`hrlimit`/`rpparea1` only. Prior profiling of `hi6h-neyh` found `regulation_type` to be free text and RPP columns to have empty DataSF descriptions. No completeness flag is stored on `city_parking_blocks`.
@@ -240,6 +240,8 @@ It is **not** wired into `evaluateParkingLegality` (the known-rule engine is unc
 **No database-specific metadata was added.** The evaluator reads `ParkingCandidate` evidence, `ParkingRule[]`, and the optional declaration. It does not query Supabase.
 
 **Verification.** `scripts/verify-regulation-coverage.ts` (`pnpm verify:regulation-coverage`). Coverage-gated final conclusions are verified by `scripts/verify-legal-conclusion.ts` (`pnpm verify:legal-conclusion`).
+
+**Storage implication (design only).** A lossless one-to-many `city_parking_regulations` table is proposed in [`CITY_REGULATION_STORAGE.md`](./CITY_REGULATION_STORAGE.md). It is **not implemented**. Full-dataset profiling (7788 rows, 2026-09-15) found `objectid` unique and ingest `blockface_id` keys **absent** on every live regulation row, so today's ingest would drop rather than store those rows. That design does **not** make CITY coverage `READY`.
 
 ### Regulation schedule data profiling (V1) — observed facts, not a parser design
 
