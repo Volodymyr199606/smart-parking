@@ -45,3 +45,10 @@ export type {
   ParkingTimeWindow,
   DayOfWeek,
 } from "./rule";
+
+export type {
+  LegalConclusionReadiness,
+  RegulationCoverageDeclaration,
+  CoverageReasonCode,
+  LegalConclusionCoverage,
+} from "./coverage";

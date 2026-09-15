@@ -216,6 +216,31 @@ No row is ever arbitrarily picked (no `.single()`/`[0]`) and ambiguous rows are 
 
 **Mobile wiring, not UI wiring.** `apps/mobile/src/services/candidateService.ts`'s `findAndEvaluateNearbyParkingCandidates(latitude, longitude, radiusMeters, interval, options)` supplies the three real dependencies (the existing `fetchNearbyParkingSpotRows`/`fetchNearbyNormalizedLocationRows`, selected via `options.sources` exactly like the existing `findNearbyParkingCandidates`, plus `fetchRulesForCandidate: findParkingRulesForCandidate`, unchanged). This is new mobile-reachable code — re-verified via `npx expo export --platform android --source-maps`, whose sourcemap now genuinely includes `packages/shared/src/services/orchestration.ts` and `services/legality.ts` in the bundle graph — but it is not called from any screen/UI in this milestone.
 
+### Regulation coverage / legal-conclusion readiness (V1)
+
+**New in this milestone.** `packages/shared/src/domain/coverage.ts` and `packages/shared/src/services/regulationCoverage.ts` add `evaluateLegalConclusionReadiness({ candidate, rules, coverageDeclaration? }): LegalConclusionCoverage`. This answers "is the regulation evidence sufficient to even permit a LEGAL conclusion?" — **not** "is parking legal?" and **not** a confidence score. Coverage is categorical: `READY` | `INCOMPLETE`.
+
+It is **not** wired into `evaluateParkingLegality` in this milestone. INCOMPLETE must not prevent a confirmed `ILLEGAL` from a known applicable violation; it only means a positive `LEGAL` would be unsafe. That gate is deferred.
+
+**Verified answers to the source-completeness questions (from code/schema, not guessed):**
+
+1. **Does one associated `city_parking_blocks` row represent all relevant regulations for the parking location?** No. The table stores a single `regulation_type` / `days_of_week` / `hours` / `hour_limit` / `permit_area`. `ingestRegulations()` `UPDATE`s that same block for every matching source row (`scripts/ingest-sf-parking-data.ts`), so later source rows overwrite earlier ones. Primary lookup returns at most one block (`block_id` PK). Street sweeping (`yhqp-riqs`) is a different dataset and is not ingested. Meter inventory is a different table with no `METERED` adapter.
+2. **Can multiple regulation records exist for the same physical location?** Yes in the source (`hi6h-neyh` is ingested row-by-row onto a blockface index). Yes in our schema: `blockface_id` is not unique. The fallback association path returns `[]` when 2+ block rows share a `blockface_id`. Live duplicate counts were not re-queried in this milestone (no new DataSF fetch); overwrite/ambiguity are verified from ingest and lookup code.
+3. **Are unmatched regulation rows dropped during ingestion?** Yes. Rows whose `blockface_id` is missing or does not match an already-ingested block are counted as `unmatched` in the ingest log and are not persisted (not even raw).
+4. **Does the normalized candidate retain enough provenance to know whether a regulation association is complete?** No. `normalized_parking_locations.raw_source` keeps `city_row_id` and `blockface_id` for the join, not unmatched counts, multi-row source cardinality, whether fallback discarded 2+ matches, or whether other datasets apply. `ParkingCandidate` does not carry `raw_source`. Empty `ParkingRule[]` is indistinguishable among "no association", "ambiguous association", "no regulations on the block", and "lookup failed" (orchestration already documents that last pair).
+5. **Does DataSF expose a field/category that tells us all restrictions for the block have been captured?** Not in anything this pipeline ingests. `ingestRegulations()` maps `regulation`/`agency`/`days`/`hours`/`hrlimit`/`rpparea1` only. Prior profiling of `hi6h-neyh` found `regulation_type` to be free text and RPP columns to have empty DataSF descriptions. No completeness flag is stored on `city_parking_blocks`.
+6. **Can the current system know that street sweeping / permit / meter requirements are absent rather than merely not ingested?** No. Street sweeping has no table and no ingest. Permit: `rpparea1` is stored as raw `permit_area` and never evaluated; `rpparea2`/`rpparea3` are not persisted. Meter payment: `"METERED"` is a reserved `ParkingRuleKind` not produced by the blocks adapter. `regulation_type` values such as `"No parking any time"`, `"No oversized vehicles"`, `"No overnight parking"`, `"Government permit"`, `"Pay or Permit"` become generic `OTHER`, not classified absences.
+
+**READY semantics.** `READY` requires an explicit `coverageDeclaration: "COMPLETE"`, MOCK-only provenance on the candidate and every rule, at least one rule, every rule `TIME_LIMIT` (no `OTHER`, no `METERED`), and a fully known schedule (`allDay === true`, or a fully parsed window with days + timeWindow + timezone) plus a usable `maxDurationMinutes`. The live CITY lookup never passes `COMPLETE`; if a caller did, CITY provenance still forces `INCOMPLETE`.
+
+**INCOMPLETE semantics.** Default for live data. Includes: no rules; undeclared completeness; CITY/COMMUNITY provenance; `OTHER`; `METERED`; unsupported/partial TIME_LIMIT schedules.
+
+**Real CITY candidates cannot currently be READY.** That is the correct V1 outcome, not a missing feature. MOCK/synthetic fixtures can be `READY` only when explicitly declared complete as above.
+
+**No database-specific metadata was added.** The evaluator reads `ParkingCandidate` evidence, `ParkingRule[]`, and the optional declaration. It does not query Supabase.
+
+**Verification.** `scripts/verify-regulation-coverage.ts` (`pnpm verify:regulation-coverage`).
+
 ### Regulation schedule data profiling (V1) — observed facts, not a parser design
 
 **New in this milestone.** Before designing any `days_of_week`/`hours` parser, `scripts/profile-regulation-data.ts` (`pnpm profile:regulation-data`) profiled the REAL values behind `city_parking_blocks`'s regulation columns. It adds no parser, no schedule-applicability logic, and no change to `evaluateParkingLegality`/`ParkingRuleSchedule`/`mapCityRegulationRowToParkingRules` — it only reads and counts.
@@ -323,7 +348,7 @@ Rules: both tokens must be 3–4 digits; hour 0–23; minute 0–59; end must be
 
 ### Parking schedule applicability (V1)
 
-**New in this milestone.** `packages/shared/src/services/scheduleApplicability.ts` adds `evaluateScheduleApplicability(schedule, interval)` — a pure function that answers whether a `ParkingRuleSchedule` `APPLIES`, `DOES_NOT_APPLY`, or is `UNKNOWN` for a `ParkingRequestedInterval`. It is **not** wired into `evaluateParkingLegality` yet. `allDay` is never rewritten based on a request; it still describes the rule's own schedule.
+**New in this milestone.** `packages/shared/src/services/scheduleApplicability.ts` adds `evaluateScheduleApplicability(schedule, interval)` — a pure function that answers whether a `ParkingRuleSchedule` `APPLIES`, `DOES_NOT_APPLY`, or is `UNKNOWN` for a `ParkingRequestedInterval`. `evaluateParkingLegality` now calls it as the TIME_LIMIT applicability gate (see the integration section below). `allDay` is never rewritten based on a request; it still describes the rule's own schedule.
 
 **Result type.** `ScheduleApplicabilityResult { status: "APPLIES" | "DOES_NOT_APPLY" | "UNKNOWN"; reason: string }`. No confidence score.
 
@@ -346,9 +371,23 @@ Rules: both tokens must be 3–4 digits; hour 0–23; minute 0–59; end must be
 
 **Invalid interval.** Same strict ISO rules as `evaluateParkingLegality` (reuses `parseInstantMs`): unparseable, impossible calendar date, or departure not after arrival → `UNKNOWN`.
 
-**What does not change.** Parser grammar is unchanged. `evaluateParkingLegality` still uses only `allDay === true` as its applicability gate — production LEGAL/ILLEGAL outcomes are unchanged. No overnight windows, no ambiguous DataSF syntax, no UI.
+**What does not change.** Parser grammar is unchanged. `evaluateScheduleApplicability` behavior is unchanged. No overnight windows, no ambiguous DataSF syntax, no UI.
 
 **Verification.** `scripts/verify-schedule-applicability.ts` (`pnpm verify:schedule-applicability`).
+
+### Legality + schedule applicability integration (V1)
+
+**New in this milestone.** `evaluateParkingLegality` now calls `evaluateScheduleApplicability` for each `TIME_LIMIT` rule. It does not reimplement weekday, window, DST, or timezone logic. Orchestration is unchanged — it still calls `evaluateParkingLegality` once per candidate.
+
+**ILLEGAL (new for parsed windows).** If applicability is `APPLIES`, `maxDurationMinutes` is usable, and requested duration (`departureInstant - arrivalInstant`) exceeds that maximum → `ILLEGAL` / `EXCEEDS_MAX_DURATION`. This outranks `OTHER` / `METERED` / unresolved rules.
+
+**Must not become ILLEGAL.** `UNKNOWN` applicability (including partial overlap) even when duration exceeds the limit. `DOES_NOT_APPLY` never produces a time-limit violation.
+
+**Must not become LEGAL from parsed windows.** An `APPLIES` time-window rule that is not exceeded, or a `DOES_NOT_APPLY` rule, yields `UNKNOWN` / `INSUFFICIENT_RULE_DATA` (or `UNPARSED_RESTRICTION` if an `OTHER` rule is also present). City data does not yet prove complete regulation coverage.
+
+**Legacy `allDay === true` LEGAL.** Unchanged: LEGAL only when every known rule is a confirmed all-day `TIME_LIMIT` with a usable, non-exceeded max duration.
+
+**Reason codes.** Existing set only: `EXCEEDS_MAX_DURATION`, `INSUFFICIENT_RULE_DATA`, `UNPARSED_RESTRICTION`, `INVALID_INTERVAL`.
 
 ---
 

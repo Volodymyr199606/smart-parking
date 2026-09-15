@@ -22,6 +22,9 @@ export { findParkingRulesForLocation } from "./regulation";
 
 export { evaluateParkingLegality } from "./legality";
 
+export type { LegalConclusionReadinessInput } from "./regulationCoverage";
+export { evaluateLegalConclusionReadiness } from "./regulationCoverage";
+
 export type { ScheduleApplicabilityStatus, ScheduleApplicabilityResult } from "./scheduleApplicability";
 export { evaluateScheduleApplicability } from "./scheduleApplicability";
 

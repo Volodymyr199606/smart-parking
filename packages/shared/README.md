@@ -87,19 +87,41 @@ const legality = services.evaluateParkingLegality(rules, {
 
 `ParkingRequestedInterval` (`domain/legality.ts`) is a new, narrower type than `ParkingSearchConstraints` — both `arrival`/`departure` are required, full ISO 8601 date-time strings with an explicit offset/`Z` (matching the existing `ParkingEvidence` timestamp convention); a bare date or ambiguous format is rejected, not guessed. Every calendar component (day-of-month vs. actual days in that month/year including leap years, hour/minute/second range) is independently validated before any date arithmetic runs, so a syntactically-ISO but calendrically-impossible string like `"2026-02-30T10:00:00Z"` is rejected (`UNKNOWN`/`INVALID_INTERVAL`) rather than silently normalized into a different, valid instant the way `new Date(...)` alone would do it.
 
-**Applicability gate.** A `TIME_LIMIT` rule's `schedule.maxDurationMinutes` can only prove **either** `ILLEGAL` **or** `LEGAL` once `schedule.allDay === true` ("confirmed-applicable"); `allDay !== true` (i.e. `null`/`false`) means unresolved applicability and proves neither direction — reviewed and corrected: an earlier version let *any* exceeded `TIME_LIMIT` rule prove `ILLEGAL` regardless of `allDay`, which was asymmetric (only the `LEGAL` direction was gated). Both directions now require the same gate. `maxDurationMinutes` must also be finite and positive to be "usable" — `NaN`/`Infinity`/`0`/negative values prove neither verdict.
+**Applicability gate.** For each `TIME_LIMIT` rule, `evaluateParkingLegality` calls `evaluateScheduleApplicability`. `APPLIES` + usable exceeded max → `ILLEGAL`. `UNKNOWN` applicability must not become `ILLEGAL` even if duration exceeds the limit. `DOES_NOT_APPLY` cannot prove `ILLEGAL` or `LEGAL`. Parsed time-window rules (`allDay !== true`) never produce a new `LEGAL` result — city data does not prove complete coverage. Legacy `LEGAL` still requires every known rule to be an all-day (`allDay === true`) `TIME_LIMIT` with a usable, non-exceeded max. Duration is always instant subtraction, never local wall-clock math.
 
-**Precedence:** (1) invalid/impossible-calendar interval → `UNKNOWN`/`INVALID_INTERVAL`; (2) no rules → `UNKNOWN`/`INSUFFICIENT_RULE_DATA`; (3) any confirmed-applicable, exceeded `TIME_LIMIT` rule → `ILLEGAL`/`EXCEEDS_MAX_DURATION` (checked first — an unresolved `TIME_LIMIT` rule is skipped here entirely, it cannot prove a violation); (4) otherwise any `OTHER` rule present → `UNKNOWN`/`UNPARSED_RESTRICTION`; (5) otherwise any `METERED` rule present → `UNKNOWN`/`INSUFFICIENT_RULE_DATA` (defensive — not produced by any adapter today); (6) otherwise any `TIME_LIMIT` rule with unresolved applicability → `UNKNOWN`/`INSUFFICIENT_RULE_DATA`; (7) otherwise `LEGAL` only if **every** rule is a confirmed-applicable `TIME_LIMIT` with a usable, non-exceeded `maxDurationMinutes`. Never evaluates `schedule.daysOfWeek`/`timeWindow`/`timezone` (would need a timezone-aware calculation this engine deliberately skips) or any rule's raw text/agency/permit fields — applicability is never inferred from `rawText` either.
+**Precedence:** (1) invalid interval → `UNKNOWN`/`INVALID_INTERVAL`; (2) no rules → `UNKNOWN`/`INSUFFICIENT_RULE_DATA`; (3) any TIME_LIMIT whose schedule `APPLIES` with a usable exceeded max → `ILLEGAL`/`EXCEEDS_MAX_DURATION`; (4) `OTHER` → `UNKNOWN`/`UNPARSED_RESTRICTION`; (5) `METERED` → `UNKNOWN`/`INSUFFICIENT_RULE_DATA`; (6) unresolved TIME_LIMIT applicability or unusable max → `UNKNOWN`/`INSUFFICIENT_RULE_DATA`; (7) parsed time-window TIME_LIMIT (applies-but-not-exceeded or does-not-apply) → `UNKNOWN`/`INSUFFICIENT_RULE_DATA`; (8) `LEGAL` only if every rule is an all-day TIME_LIMIT with a usable, non-exceeded max.
 
-Since the current regulation adapter never sets `schedule.allDay` to anything but `null`, both `LEGAL` and an unresolved-rule `ILLEGAL` are effectively unreachable with today's real ingested data — intentional, not a bug: "no proven violation" is never converted into `LEGAL`, and "not proven applicable" is never converted into `ILLEGAL`.
+With today's DataSF adapter (`allDay` is never `true`), `LEGAL` remains unreachable. Parsed windows **can** newly prove `ILLEGAL` when they apply and are exceeded.
 
-`ParkingLegality` gained one additive field, `reasonCode: LegalityReasonCode | null` (`"EXCEEDS_MAX_DURATION" | "INSUFFICIENT_RULE_DATA" | "UNPARSED_RESTRICTION" | "INVALID_INTERVAL" | null`) — a machine-readable counterpart to the existing `reason` string. The two pre-existing `ParkingLegality` placeholders in `src/adapters/parking.ts` were updated to set `reasonCode: null` (they don't call this evaluator).
+Verified by `scripts/verify-legality-engine.ts` (`pnpm verify:legality-engine`, 33 cases: 23 legacy all-day cases plus parsed-window integration).
 
-Verified by `scripts/verify-legality-engine.ts` (`pnpm verify:legality-engine`, 23 cases, including the applicability-gate correction, malformed `maxDurationMinutes`, and impossible-calendar-date rejection) — no test framework added.
+This evaluator was **not** changed by Regulation Coverage V1. Coverage is a separate question (see below) and is not yet a gate on `LEGAL`.
+
+## Regulation coverage / legal-conclusion readiness (V1)
+
+`src/domain/coverage.ts` and `src/services/regulationCoverage.ts` add `evaluateLegalConclusionReadiness({ candidate, rules, coverageDeclaration? }): LegalConclusionCoverage` — a **pure** function answering "is the regulation evidence sufficient to even permit a LEGAL conclusion?" Coverage and legality stay separate: coverage is "do we know enough?"; legality is "given known rules, what verdict follows?" This is categorical (`READY` | `INCOMPLETE`), not a confidence score.
+
+```typescript
+import { services } from "@smart-parking/shared";
+
+const coverage = services.evaluateLegalConclusionReadiness({
+  candidate,
+  rules,
+  coverageDeclaration: "UNDECLARED", // live CITY lookup must leave this undeclared
+});
+```
+
+**READY** only for an explicitly declared complete synthetic/MOCK `TIME_LIMIT`-only rule set with fully known schedules. **INCOMPLETE** otherwise — including every real CITY candidate. Completeness cannot be inferred from `rules.length > 0` or successful parses of the returned array.
+
+**Real CITY candidates cannot currently be READY.** One associated `city_parking_blocks` row does not prove all restrictions for the location; unmatched source rows are dropped; no ingested field asserts that every restriction was captured; street sweeping / meter payment / permit applicability / classified no-parking are unresolved. A `COMPLETE` declaration is ignored when CITY provenance is present.
+
+**Not wired into `evaluateParkingLegality`.** INCOMPLETE does not prevent a later confirmed `ILLEGAL`; it only means `LEGAL` would be unsafe. That gate is a later milestone.
+
+Verified by `scripts/verify-regulation-coverage.ts` (`pnpm verify:regulation-coverage`).
 
 ## Schedule applicability (V1)
 
-`src/services/scheduleApplicability.ts` adds `evaluateScheduleApplicability(schedule: ParkingRuleSchedule | null, interval: ParkingRequestedInterval): ScheduleApplicabilityResult` — a **pure** function answering whether a schedule `APPLIES`, `DOES_NOT_APPLY`, or is `UNKNOWN` for a requested interval. It is **not** called by `evaluateParkingLegality` yet; legality still uses only `allDay === true`.
+`src/services/scheduleApplicability.ts` adds `evaluateScheduleApplicability(schedule: ParkingRuleSchedule | null, interval: ParkingRequestedInterval): ScheduleApplicabilityResult` — a **pure** function answering whether a schedule `APPLIES`, `DOES_NOT_APPLY`, or is `UNKNOWN` for a requested interval. `evaluateParkingLegality` calls this as its TIME_LIMIT applicability gate; this module does not itself return LEGAL/ILLEGAL.
 
 ```typescript
 import { services } from "@smart-parking/shared";

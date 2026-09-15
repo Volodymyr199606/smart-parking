@@ -631,9 +631,10 @@ Schedule Applicability — IMPLEMENTED (V1), packages/shared/src/services/schedu
   - Half-open windows [start, end). Full containment → APPLIES. Zero
     overlap → DOES_NOT_APPLY. Partial overlap / multi-day / DST
     duration mismatch → UNKNOWN.
-  - NOT wired into evaluateParkingLegality yet (next milestone)
+  - Wired into evaluateParkingLegality as the TIME_LIMIT applicability
+    gate (legality does not reimplement weekday/window/DST logic)
         ↓
-Legality Engine — IMPLEMENTED (V1), packages/shared/src/services/legality.ts
+Legality Engine — IMPLEMENTED (V1 + schedule integration), packages/shared/src/services/legality.ts
   - evaluateParkingLegality(rules: ParkingRule[], interval: ParkingRequestedInterval) → ParkingLegality
     — a PURE function (no Supabase/network/env/React/mobile/LLM). Takes
     only a ParkingRule[] and a requested interval — deliberately does NOT
@@ -644,19 +645,19 @@ Legality Engine — IMPLEMENTED (V1), packages/shared/src/services/legality.ts
     ParkingSearchConstraints' softer nullable "now"/"unknown duration"
     fields, which a future findLegalParking would resolve before calling
     this
-  - Evaluates ONLY: TIME_LIMIT duration violations, gated by an
-    APPLICABILITY CHECK — a TIME_LIMIT rule must have `schedule.allDay
-    === true` ("confirmed-applicable") before its `maxDurationMinutes`
-    can prove EITHER an ILLEGAL violation OR a LEGAL verdict.
-    `allDay !== true` (i.e. `null`/`false`) means unresolved applicability
-    — reviewed and corrected: an earlier version let ANY exceeded
-    TIME_LIMIT rule prove ILLEGAL regardless of `allDay`, which was
-    asymmetric (unresolved rules could sink a candidate to ILLEGAL but
-    couldn't raise one to LEGAL). Both directions now require the same
-    gate. NEVER evaluates schedule.daysOfWeek/timeWindow/timezone (would
-    need a timezone-aware calculation this engine deliberately skips) or
-    any rawText/sourceRegulationType/agency/permitArea content —
-    applicability is never inferred from raw text either
+  - TIME_LIMIT applicability is evaluateScheduleApplicability(...).status
+    APPLIES + usable max exceeded → ILLEGAL / EXCEEDS_MAX_DURATION
+    (outranks OTHER/METERED). UNKNOWN applicability, even if duration
+    exceeds the limit → not ILLEGAL. DOES_NOT_APPLY → not ILLEGAL and
+    not LEGAL. Duration is departureInstant - arrivalInstant, never
+    local wall-clock subtraction.
+  - Parsed time-window TIME_LIMIT (allDay !== true) may produce ILLEGAL
+    or UNKNOWN — never a new LEGAL result. Incomplete city-data coverage
+    means "this known limit is not violated" is not "parking is legal".
+  - Legacy LEGAL remains only when EVERY known rule is TIME_LIMIT with
+    allDay === true and a usable, non-exceeded maxDurationMinutes.
+    Applicability is never inferred from rawText / sourceRegulationType /
+    agency / permitArea content.
   - `maxDurationMinutes` must also be a plain finite, positive number to
     be "usable" — `NaN`/`Infinity`/`0`/negative values never prove either
     verdict, treated as no usable value instead of trusted
@@ -700,6 +701,26 @@ Legality Engine — IMPLEMENTED (V1), packages/shared/src/services/legality.ts
     parsing/applicability evaluation, timezone conversion, street
     sweeping, or permit/meter-payment interpretation — none of that exists
     anywhere in this codebase yet
+        ↓
+Regulation Coverage / Legal-Conclusion Readiness — IMPLEMENTED (V1),
+packages/shared/src/domain/coverage.ts +
+packages/shared/src/services/regulationCoverage.ts
+  - evaluateLegalConclusionReadiness({ candidate, rules,
+    coverageDeclaration? }) → LegalConclusionCoverage
+    { readiness: READY | INCOMPLETE, reasonCode, reason }
+  - Pure function. No Supabase. No confidence/probability score.
+  - READY: explicitly declared complete synthetic/MOCK TIME_LIMIT-only
+    rule set with fully known schedules. The live CITY pipeline cannot
+    prove this.
+  - INCOMPLETE: no rules; undeclared completeness; CITY/COMMUNITY
+    provenance; OTHER; METERED; unsupported/partial TIME_LIMIT schedule.
+    Real CITY candidates are always INCOMPLETE in V1.
+  - Coverage is NOT folded into ParkingLegality and is NOT yet a gate
+    inside evaluateParkingLegality (unchanged this milestone). INCOMPLETE
+    must not suppress a confirmed ILLEGAL; it only means LEGAL would be
+    unsafe.
+  - Verified by scripts/verify-regulation-coverage.ts
+    (`pnpm verify:regulation-coverage`)
         ↓
 Search + Legality Orchestration — IMPLEMENTED (V1),
 packages/shared/src/services/orchestration.ts
