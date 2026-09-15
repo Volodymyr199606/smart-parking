@@ -13,8 +13,8 @@
  * numeric score here.
  *
  * READY means: the known rule set is an explicitly complete, synthetic
- * TIME_LIMIT-only regulation picture for this location, so a future
- * legality gate would be allowed to return LEGAL if no rule is violated.
+ * TIME_LIMIT-only regulation picture for this location, so
+ * `evaluateParkingLegalConclusion` may return LEGAL if no rule is violated.
  *
  * INCOMPLETE means: a positive LEGAL conclusion would be unsafe. It does
  * NOT prevent a confirmed ILLEGAL result — coverage only gates LEGAL.

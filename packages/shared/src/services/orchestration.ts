@@ -7,12 +7,16 @@
  *
  *   findParkingCandidates(candidateSearch, deps)      -> ParkingCandidate[]
  *   deps.fetchRulesForCandidate(candidate)            -> ParkingRule[]      (per candidate)
- *   evaluateParkingLegality(rules, interval)          -> ParkingLegality    (per candidate)
+ *   evaluateParkingLegalConclusion({ candidate, rules,
+ *     interval, coverageDeclaration })                -> ParkingLegality    (per candidate)
  *
- * No new business logic is introduced here — this file only sequences and
- * composes calls to the three functions above (plus a tiny bounded
- * concurrency helper; see CONCURRENCY below). It does not itself decide
- * what is legal, what regulations exist, or which candidates to discover.
+ * Coverage-gated composition (./legalConclusion.ts) is the final verdict:
+ * confirmed ILLEGAL is unchanged; LEGAL requires coverage READY. This
+ * file does not itself decide coverage or known-rule legality — it
+ * sequences existing calls (plus a tiny bounded concurrency helper).
+ * Production callers omit coverageDeclaration (UNDECLARED). COMPLETE is
+ * never inferred from CITY data, a successful association, or a
+ * non-empty rule array.
  *
  * ============================================================================
  * NAMING — WHY THIS IS NOT CALLED `findLegalParking`:
@@ -60,7 +64,7 @@
  * - An individual candidate's rule-lookup failure (step 2) does NOT fail
  *   the whole request. It is caught per-candidate and treated as "no known
  *   rules" (`[]`) — never fabricated — so the candidate is still returned.
- *   `evaluateParkingLegality([], interval)` already returns
+ *   `evaluateParkingLegalConclusion` on `[]` rules already returns
  *   `UNKNOWN`/`"INSUFFICIENT_RULE_DATA"` for an empty rule set, which is
  *   truthful here too: a failed lookup is exactly as informative as no
  *   lookup ever having found anything. This is deliberately NOT a bigger
@@ -99,10 +103,11 @@ import type {
   ParkingLegality,
   ParkingRequestedInterval,
   ParkingRule,
+  RegulationCoverageDeclaration,
 } from "../domain";
 import type { ParkingCandidateServiceDeps } from "./parking";
 import { findParkingCandidates } from "./parking";
-import { evaluateParkingLegality } from "./legality";
+import { evaluateParkingLegalConclusion } from "./legalConclusion";
 
 /** Default cap on how many candidates' rule lookups run concurrently — see this file's CONCURRENCY note. Small and conservative; overridable per-call via `FindAndEvaluateParkingCandidatesDeps.maxConcurrentRuleLookups`. */
 const DEFAULT_RULE_LOOKUP_CONCURRENCY = 8;
@@ -136,6 +141,12 @@ export type FetchRulesForCandidate = (candidate: ParkingCandidate) => Promise<Pa
 export interface FindAndEvaluateParkingCandidatesRequest {
   readonly candidateSearch: ParkingCandidateSearchRequest;
   readonly interval: ParkingRequestedInterval;
+  /**
+   * Forwarded to `evaluateParkingLegalConclusion`. Default UNDECLARED.
+   * Production CITY lookup must omit this or pass UNDECLARED — never
+   * COMPLETE. COMPLETE is only for synthetic/MOCK fixtures.
+   */
+  readonly coverageDeclaration?: RegulationCoverageDeclaration;
 }
 
 export interface FindAndEvaluateParkingCandidatesDeps extends ParkingCandidateServiceDeps {
@@ -208,9 +219,10 @@ async function mapWithConcurrencyLimit<T, R>(
  * `request.candidateSearch.radiusMeters`), then evaluates what is
  * currently known about each candidate's legality for
  * `request.interval` — connecting `findParkingCandidates`,
- * `deps.fetchRulesForCandidate`, and `evaluateParkingLegality` into one
- * flow. See this file's top comment for the full architecture, naming
- * rationale, error isolation, and concurrency strategy.
+ * `deps.fetchRulesForCandidate`, and `evaluateParkingLegalConclusion`
+ * into one flow. Coverage declaration defaults to UNDECLARED. See this
+ * file's top comment for the full architecture, naming rationale, error
+ * isolation, and concurrency strategy.
  *
  * Does NOT filter by legality status, rank, score, or predict anything —
  * every discovered candidate is returned, in the same distance order
@@ -259,7 +271,12 @@ export async function findAndEvaluateParkingCandidates(
       rules = [];
     }
 
-    const legality = evaluateParkingLegality(rules, request.interval);
+    const legality = evaluateParkingLegalConclusion({
+      candidate,
+      rules,
+      interval: request.interval,
+      coverageDeclaration: request.coverageDeclaration,
+    });
 
     return { candidate, rules, legality };
   });

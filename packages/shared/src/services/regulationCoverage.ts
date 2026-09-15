@@ -7,8 +7,8 @@
  *    permit a LEGAL conclusion?"
  *
  * It does NOT answer whether parking is legal. That remains
- * `evaluateParkingLegality` (./legality.ts). This file must not call that
- * function and must not be called from it in this milestone.
+ * `evaluateParkingLegality` (./legality.ts). This file does not call that
+ * function. Coverage-gated composition lives in ./legalConclusion.ts.
  *
  * Pure: no Supabase, network, env, React, mobile, or LLM. Same inputs
  * always produce the same output. Do not query the database from here —
@@ -58,10 +58,10 @@
  * ============================================================================
  * INCOMPLETE does not suppress ILLEGAL. A confirmed applicable TIME_LIMIT
  * violation is still a known violation. This evaluator does not produce
- * legality verdicts; a later milestone may gate LEGAL on READY while
- * leaving ILLEGAL unchanged. Empty rules / CITY / OTHER / unparsed
- * schedules are INCOMPLETE even when no violation is known — that path
- * must stay UNKNOWN, not LEGAL.
+ * legality verdicts; `evaluateParkingLegalConclusion` (./legalConclusion.ts)
+ * gates only LEGAL on READY and leaves ILLEGAL/UNKNOWN unchanged. Empty
+ * rules / CITY / OTHER / unparsed schedules are INCOMPLETE even when no
+ * violation is known — that path must stay UNKNOWN, not LEGAL.
  */
 
 import type { ParkingCandidate } from "../domain/candidate";

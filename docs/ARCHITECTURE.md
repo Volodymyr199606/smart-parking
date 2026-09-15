@@ -715,20 +715,34 @@ packages/shared/src/services/regulationCoverage.ts
   - INCOMPLETE: no rules; undeclared completeness; CITY/COMMUNITY
     provenance; OTHER; METERED; unsupported/partial TIME_LIMIT schedule.
     Real CITY candidates are always INCOMPLETE in V1.
-  - Coverage is NOT folded into ParkingLegality and is NOT yet a gate
-    inside evaluateParkingLegality (unchanged this milestone). INCOMPLETE
-    must not suppress a confirmed ILLEGAL; it only means LEGAL would be
-    unsafe.
+  - Coverage is NOT folded into ParkingLegality and is NOT a gate
+    inside evaluateParkingLegality (the known-rule engine is unchanged).
+    Coverage-gated composition is evaluateParkingLegalConclusion
+    (packages/shared/src/services/legalConclusion.ts).
   - Verified by scripts/verify-regulation-coverage.ts
     (`pnpm verify:regulation-coverage`)
+        ↓
+Coverage-Gated Legal Conclusion — IMPLEMENTED (V1),
+packages/shared/src/services/legalConclusion.ts
+  - evaluateParkingLegalConclusion({ candidate, rules, interval,
+    coverageDeclaration? }) → ParkingLegality
+  - Composes evaluateParkingLegality + evaluateLegalConclusionReadiness.
+    Does not put ParkingCandidate into the low-level engine.
+  - ILLEGAL unchanged regardless of coverage. UNKNOWN unchanged (READY
+    cannot invent LEGAL). LEGAL only when coverage is READY; otherwise
+    UNKNOWN / INSUFFICIENT_RULE_DATA. No new LegalityReasonCode.
+  - Verified by scripts/verify-legal-conclusion.ts
+    (`pnpm verify:legal-conclusion`)
         ↓
 Search + Legality Orchestration — IMPLEMENTED (V1),
 packages/shared/src/services/orchestration.ts
   - findAndEvaluateParkingCandidates(request: {candidateSearch,
-    interval}, deps) → EvaluatedParkingCandidate[] — connects
-    findParkingCandidates → deps.fetchRulesForCandidate (injected, one
-    call per candidate) → evaluateParkingLegality into one deterministic
-    flow. deps.fetchRulesForCandidate has exactly
+    interval, coverageDeclaration?}, deps) → EvaluatedParkingCandidate[]
+    — connects findParkingCandidates → deps.fetchRulesForCandidate
+    (injected, one call per candidate) → evaluateParkingLegalConclusion
+    into one deterministic flow. coverageDeclaration defaults to
+    UNDECLARED; production CITY lookup must not pass COMPLETE.
+    deps.fetchRulesForCandidate has exactly
     candidateService.ts's findParkingRulesForCandidate's signature/
     semantics — the mobile wiring
     (candidateService.ts's findAndEvaluateNearbyParkingCandidates) passes
@@ -754,9 +768,9 @@ packages/shared/src/services/orchestration.ts
     can return on the order of ~100-200 rows (mobile's per-fetcher query
     limits), so an unbounded Promise.all over rule lookups was avoided
   - Verified by scripts/verify-orchestration.ts (`pnpm
-    verify:orchestration`) — 10 in-memory cases with fake injected
-    fetchers, including ordering preservation and per-candidate error
-    isolation; no test framework added
+    verify:orchestration`) — 11 in-memory cases with fake injected
+    fetchers, including coverage-gated LEGAL, ordering preservation, and
+    per-candidate error isolation; no test framework added
   - Mobile wiring: candidateService.ts's
     findAndEvaluateNearbyParkingCandidates supplies the three real deps
     (fetchNearbySpots/fetchNearbyNormalizedLocations by source selection,
@@ -764,8 +778,9 @@ packages/shared/src/services/orchestration.ts
     any UI/screen in this milestone
   - Does NOT implement findLegalParking (filtering/ranking to only proven
     legal results), recommendation ranking, prediction, or any new
-    legality/schedule logic — evaluateParkingLegality remains the single
-    legality authority, called unchanged
+    legality/schedule logic — evaluateParkingLegalConclusion is the final
+    per-candidate verdict; evaluateParkingLegality remains the known-rule
+    engine inside that composition
         ↓
 [FUTURE] findLegalParking (truthfully-named legal-only filtering)
   - A future filter/rank step over findAndEvaluateParkingCandidates'

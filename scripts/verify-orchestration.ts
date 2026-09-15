@@ -58,6 +58,7 @@ function makeRule(overrides: {
   kind: ParkingRuleKind;
   maxDurationMinutes?: number | null;
   allDay?: boolean | null;
+  sourceCategory?: "CITY" | "MOCK";
 }): ParkingRule {
   ruleCounter += 1;
   return {
@@ -78,7 +79,7 @@ function makeRule(overrides: {
     permitArea: null,
     rawText: null,
     evidence: {
-      sourceCategory: "CITY",
+      sourceCategory: overrides.sourceCategory ?? "CITY",
       sourceDetail: "test",
       externalId: null,
       observedAt: null,
@@ -199,7 +200,10 @@ async function main(): Promise<void> {
     }
   }
 
-  // --- Case 3: confirmed all-day safe TIME_LIMIT -> LEGAL ---------------
+  // --- Case 3: confirmed all-day safe TIME_LIMIT, UNDECLARED coverage ---
+  // Low-level legality would be LEGAL, but coverage defaults to UNDECLARED
+  // and these test rules carry CITY evidence, so the final conclusion is
+  // UNKNOWN. Confirmed ILLEGAL is tested separately and is not gated.
   {
     const spot = makeSpotRow();
     const rules = new Map([
@@ -211,8 +215,13 @@ async function main(): Promise<void> {
       deps
     );
     if (
-      !checkResults("confirmed all-day safe TIME_LIMIT -> LEGAL", results, 1, [
-        { locationId: spot.id, expectedStatus: "LEGAL", expectedReasonCode: null, expectedRuleCount: 1 },
+      !checkResults("all-day safe TIME_LIMIT + UNDECLARED coverage -> UNKNOWN", results, 1, [
+        {
+          locationId: spot.id,
+          expectedStatus: "UNKNOWN",
+          expectedReasonCode: "INSUFFICIENT_RULE_DATA",
+          expectedRuleCount: 1,
+        },
       ])
     ) {
       failures += 1;
@@ -321,7 +330,7 @@ async function main(): Promise<void> {
     const okSpot = makeSpotRow();
     const failingSpot = makeSpotRow();
     const rules = new Map([
-      [okSpot.id, [makeRule({ kind: "TIME_LIMIT", maxDurationMinutes: 120, allDay: true })]],
+      [okSpot.id, [makeRule({ kind: "TIME_LIMIT", maxDurationMinutes: 30, allDay: true })]],
     ]);
     const deps = makeDeps([okSpot, failingSpot], rules, {
       failFor: new Set([failingSpot.id]),
@@ -332,7 +341,12 @@ async function main(): Promise<void> {
     );
     if (
       !checkResults("rule-lookup failure isolated, other candidate unaffected", results, 2, [
-        { locationId: okSpot.id, expectedStatus: "LEGAL", expectedReasonCode: null, expectedRuleCount: 1 },
+        {
+          locationId: okSpot.id,
+          expectedStatus: "ILLEGAL",
+          expectedReasonCode: "EXCEEDS_MAX_DURATION",
+          expectedRuleCount: 1,
+        },
         {
           locationId: failingSpot.id,
           expectedStatus: "UNKNOWN",
@@ -362,7 +376,12 @@ async function main(): Promise<void> {
     );
     if (
       !checkResults("multiple candidates evaluated independently", results, 3, [
-        { locationId: legalSpot.id, expectedStatus: "LEGAL", expectedReasonCode: null, expectedRuleCount: 1 },
+        {
+          locationId: legalSpot.id,
+          expectedStatus: "UNKNOWN",
+          expectedReasonCode: "INSUFFICIENT_RULE_DATA",
+          expectedRuleCount: 1,
+        },
         {
           locationId: illegalSpot.id,
           expectedStatus: "ILLEGAL",
@@ -381,7 +400,41 @@ async function main(): Promise<void> {
     }
   }
 
-  // --- Case 10: candidate-discovery failure propagates, not swallowed ---
+  // --- Case 10: MOCK + COMPLETE declaration + known LEGAL → LEGAL ------
+  {
+    const spot = makeSpotRow();
+    const rules = new Map([
+      [
+        spot.id,
+        [
+          makeRule({
+            kind: "TIME_LIMIT",
+            maxDurationMinutes: 120,
+            allDay: true,
+            sourceCategory: "MOCK",
+          }),
+        ],
+      ],
+    ]);
+    const deps = makeDeps([spot], rules);
+    const results = await findAndEvaluateParkingCandidates(
+      {
+        candidateSearch: { origin: ORIGIN, radiusMeters: 500 },
+        interval: BASE_INTERVAL,
+        coverageDeclaration: "COMPLETE",
+      },
+      deps
+    );
+    if (
+      !checkResults("MOCK + COMPLETE + known LEGAL -> LEGAL", results, 1, [
+        { locationId: spot.id, expectedStatus: "LEGAL", expectedReasonCode: null, expectedRuleCount: 1 },
+      ])
+    ) {
+      failures += 1;
+    }
+  }
+
+  // --- Case 11: candidate-discovery failure propagates, not swallowed ---
   {
     const deps: FindAndEvaluateParkingCandidatesDeps = {
       fetchNearbySpots: async () => {

@@ -84,6 +84,11 @@
  * TODAY'S real ingested DataSF rows this LEGAL branch remains
  * unreachable — intentional. Parsed windows can newly prove ILLEGAL when
  * they APPLY and are exceeded; they cannot newly prove LEGAL.
+ *
+ * This function is the known-rule evaluator only. It does not read a
+ * ParkingCandidate or apply coverage gating. The coverage-gated final
+ * conclusion lives in ./legalConclusion.ts
+ * (`evaluateParkingLegalConclusion`).
  */
 
 import type { ParkingRule } from "../domain/rule";

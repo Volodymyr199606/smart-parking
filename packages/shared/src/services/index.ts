@@ -25,6 +25,9 @@ export { evaluateParkingLegality } from "./legality";
 export type { LegalConclusionReadinessInput } from "./regulationCoverage";
 export { evaluateLegalConclusionReadiness } from "./regulationCoverage";
 
+export type { EvaluateParkingLegalConclusionInput } from "./legalConclusion";
+export { evaluateParkingLegalConclusion } from "./legalConclusion";
+
 export type { ScheduleApplicabilityStatus, ScheduleApplicabilityResult } from "./scheduleApplicability";
 export { evaluateScheduleApplicability } from "./scheduleApplicability";
 

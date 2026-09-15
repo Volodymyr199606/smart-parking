@@ -95,7 +95,7 @@ With today's DataSF adapter (`allDay` is never `true`), `LEGAL` remains unreacha
 
 Verified by `scripts/verify-legality-engine.ts` (`pnpm verify:legality-engine`, 33 cases: 23 legacy all-day cases plus parsed-window integration).
 
-This evaluator was **not** changed by Regulation Coverage V1. Coverage is a separate question (see below) and is not yet a gate on `LEGAL`.
+This evaluator was **not** changed as a known-rule engine by coverage gating. The coverage-gated **final** conclusion is a separate composition (`evaluateParkingLegalConclusion` below). `evaluateParkingLegality` still answers "given only these known rules, what verdict follows?"
 
 ## Regulation coverage / legal-conclusion readiness (V1)
 
@@ -115,9 +115,28 @@ const coverage = services.evaluateLegalConclusionReadiness({
 
 **Real CITY candidates cannot currently be READY.** One associated `city_parking_blocks` row does not prove all restrictions for the location; unmatched source rows are dropped; no ingested field asserts that every restriction was captured; street sweeping / meter payment / permit applicability / classified no-parking are unresolved. A `COMPLETE` declaration is ignored when CITY provenance is present.
 
-**Not wired into `evaluateParkingLegality`.** INCOMPLETE does not prevent a later confirmed `ILLEGAL`; it only means `LEGAL` would be unsafe. That gate is a later milestone.
-
 Verified by `scripts/verify-regulation-coverage.ts` (`pnpm verify:regulation-coverage`).
+
+## Coverage-gated legal conclusion (V1)
+
+`src/services/legalConclusion.ts` adds `evaluateParkingLegalConclusion({ candidate, rules, interval, coverageDeclaration? }): ParkingLegality`. This is a small composition of `evaluateParkingLegality` and `evaluateLegalConclusionReadiness`. It does **not** fold a `ParkingCandidate` into the low-level engine.
+
+```typescript
+import { services } from "@smart-parking/shared";
+
+const conclusion = services.evaluateParkingLegalConclusion({
+  candidate,
+  rules,
+  interval: { arrival: "2026-06-01T14:00:00-07:00", departure: "2026-06-01T15:30:00-07:00" },
+  coverageDeclaration: "UNDECLARED",
+});
+```
+
+**Precedence:** known-rule `ILLEGAL` is returned unchanged (coverage cannot weaken a confirmed violation). Known-rule `UNKNOWN` is returned unchanged (`READY` cannot turn unresolved semantics into `LEGAL`). Known-rule `LEGAL` becomes final `LEGAL` only when coverage is `READY`; otherwise final `UNKNOWN` / `INSUFFICIENT_RULE_DATA`. No new `LegalityReasonCode` was added.
+
+Orchestration (`findAndEvaluateParkingCandidates`) now calls this composition. Production omits `coverageDeclaration` (UNDECLARED). Mobile does not pass `COMPLETE`.
+
+Verified by `scripts/verify-legal-conclusion.ts` (`pnpm verify:legal-conclusion`).
 
 ## Schedule applicability (V1)
 
@@ -136,7 +155,7 @@ Timezone conversion uses `Intl.DateTimeFormat` with `schedule.timezone` (DataSF 
 
 ## Search + legality orchestration (V1)
 
-`src/services/orchestration.ts` adds `findAndEvaluateParkingCandidates(request: { candidateSearch, interval }, deps): Promise<EvaluatedParkingCandidate[]>` — the flow that connects the three services above: `findParkingCandidates` → an injected per-candidate rule fetcher → `evaluateParkingLegality`. No new business logic; this file only sequences and composes existing calls (plus a tiny bounded-concurrency helper — see below).
+`src/services/orchestration.ts` adds `findAndEvaluateParkingCandidates(request: { candidateSearch, interval, coverageDeclaration? }, deps): Promise<EvaluatedParkingCandidate[]>` — the flow that connects discovery, rule fetch, and **coverage-gated** legal conclusion: `findParkingCandidates` → an injected per-candidate rule fetcher → `evaluateParkingLegalConclusion`. `coverageDeclaration` defaults to `UNDECLARED`; production CITY lookup must not pass `COMPLETE`.
 
 ```typescript
 import { services } from "@smart-parking/shared";
@@ -160,13 +179,13 @@ const results = await services.findAndEvaluateParkingCandidates(
 
 **Why the rule fetcher is a dependency, not a direct call.** The real `findParkingRulesForCandidate` (apps/mobile) depends on Supabase-backed joins — this package still adds no Supabase dependency. `deps.fetchRulesForCandidate` has exactly that function's signature/semantics (`(candidate) => Promise<ParkingRule[]>`, resolving to `[]` — never throwing — for "no known rules"), so the caller supplies its own existing implementation unchanged; this package makes no provenance/routing decision of its own.
 
-**Error isolation.** A candidate-discovery failure fails the whole call (propagated unchanged — nothing useful to return without candidates). An individual candidate's rule-lookup failure is caught per-candidate and treated as `[]` rules (never fabricated) so that candidate is still returned, evaluated as `UNKNOWN`/`INSUFFICIENT_RULE_DATA` by the same `evaluateParkingLegality` path used for a genuine "no rules" result — one accepted V1 limitation being that a failed lookup and a genuine zero-rules result are indistinguishable in the returned `reasonCode`.
+**Error isolation.** A candidate-discovery failure fails the whole call (propagated unchanged — nothing useful to return without candidates). An individual candidate's rule-lookup failure is caught per-candidate and treated as `[]` rules (never fabricated) so that candidate is still returned, evaluated as `UNKNOWN`/`INSUFFICIENT_RULE_DATA` by the same `evaluateParkingLegalConclusion` path used for a genuine "no rules" result — one accepted V1 limitation being that a failed lookup and a genuine zero-rules result are indistinguishable in the returned `reasonCode`.
 
 **Concurrency.** Candidate discovery can return on the order of ~100-200 rows (mobile's per-fetcher query caps). Rather than an unbounded `Promise.all` across every candidate's rule lookup, a tiny dependency-free worker-pool helper caps concurrent lookups at 8 by default (`deps.maxConcurrentRuleLookups` to override); result order is preserved regardless of completion order.
 
 Wired into `apps/mobile` via `apps/mobile/src/services/candidateService.ts`'s `findAndEvaluateNearbyParkingCandidates`, which supplies the existing `fetchNearbyParkingSpotRows`/`fetchNearbyNormalizedLocationRows` (selected by source, exactly like `findNearbyParkingCandidates`) and `fetchRulesForCandidate: findParkingRulesForCandidate` — all pre-existing, unchanged functions. Not wired to any UI/screen. Not imported by `apps/web`.
 
-Verified by `scripts/verify-orchestration.ts` (`pnpm verify:orchestration`, 10 cases with fake injected fetchers, including ordering preservation and per-candidate error isolation) — no test framework added.
+Verified by `scripts/verify-orchestration.ts` (`pnpm verify:orchestration`, 11 cases with fake injected fetchers, including coverage-gated LEGAL, ordering preservation, and per-candidate error isolation) — no test framework added.
 
 ## Structure
 

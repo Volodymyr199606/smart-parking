@@ -20,6 +20,7 @@
     "verify:schedule-applicability": "tsx scripts/verify-schedule-applicability.ts",
     "verify:regulation-association": "tsx scripts/verify-regulation-association.ts",
     "verify:regulation-coverage": "tsx scripts/verify-regulation-coverage.ts",
+    "verify:legal-conclusion": "tsx scripts/verify-legal-conclusion.ts",
     "profile:regulation-data": "tsx scripts/profile-regulation-data.ts"
   },
   "devDependencies": {
