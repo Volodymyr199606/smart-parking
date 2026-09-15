@@ -2,7 +2,7 @@
 
 > **Status:** design only. No migration was written or applied. No production schema, ingest, adapter, lookup, legality, coverage, or UI code was changed except read-only profiling in `scripts/profile-regulation-data.ts`.
 >
-> **Related:** `docs/CITY_DATA_PLAN.md`, `docs/ARCHITECTURE.md` §10, `supabase/migrations/00005_city_parking_data.sql`.
+> **Related:** `docs/CITY_DATA_PLAN.md`, `docs/ARCHITECTURE.md` §10, `docs/DATASF_REGULATION_JOIN.md`, `supabase/migrations/00005_city_parking_data.sql`.
 
 This document answers: what is the smallest correct relational design that can preserve every DataSF Parking Regulations (`hi6h-neyh`) row, instead of merging them onto singular columns of `city_parking_blocks`.
 
@@ -96,7 +96,7 @@ Metered blocks (`27b3-yjjx`) full fetch: **1773** rows. Live keys are `objectid`
 
 **Live ingest implication:** `regulationBlockfaceId()` matches nothing on current `hi6h-neyh` rows, so `ingestRegulations()` would count **all 7788 as unmatched and persist none**. The code overwrite path remains real; on today's field names the dominant live failure is **drop**, not overwrite. `mapBlockRow()` likewise does not read blocks.`block_id`, so `city_parking_blocks.blockface_id` would also be null from current `27b3-yjjx` JSON. Meter `blockface_id` values (e.g. `667121`) are a third ID space.
 
-A later join-key or spatial-association design is required before regulations can attach to CITY candidates. That is **out of scope for this storage design**, but it constrains `block_id` to be **nullable**.
+A later join-key or spatial-association design is required before regulations can attach to CITY candidates. **Join discovery V1** (`docs/DATASF_REGULATION_JOIN.md`) found **no verified identifier join** (recommendation **C**). That is **out of scope for this storage design**, but it constrains `block_id` to be **nullable**.
 
 ---
 
@@ -266,10 +266,6 @@ Existing block summary columns can be left as a stale convenience copy; they are
 
 ## 13. Open follow-up (not this design)
 
-How to associate a regulation geometry/row to `city_parking_blocks` / meters without inventing IDs. Candidates for a later audit, not decisions here:
-
-- Spatial intersection (would need geometry, omitted in V1 storage)
-- A documented SFMTA key that does not appear on live `hi6h-neyh` JSON
-- Ingest-key fixes for blocks (`block_id`) and meters (`blockface_id`) which today are different ID spaces
+**Join discovery V1 (2026-09-15):** no verified deterministic identifier associates `hi6h-neyh` with `city_parking_blocks` / meters. See [`DATASF_REGULATION_JOIN.md`](./DATASF_REGULATION_JOIN.md). Recommendation **C** — keep `block_id` null; spatial association is a later design, not a current join.
 
 Until that is solved, lossless **storage** and **location-complete coverage** are different problems.

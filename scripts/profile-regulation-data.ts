@@ -620,3 +620,5 @@ main().catch((err) => {
   console.error("[profile] ERROR:", err instanceof Error ? err.message : err);
   process.exit(1);
 });
+
+export {};

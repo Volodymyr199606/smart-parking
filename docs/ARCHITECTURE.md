@@ -432,7 +432,7 @@ DataSF Socrata API          scripts/ingest-sf-parking-data.ts
 |---|---|---|
 | SFMTA Metered Street Blocks | `27b3-yjjx` | `city_parking_blocks` |
 | Parking Meters | `8vzz-qzz9` | `city_parking_meters` |
-| Parking Regulations (blockface map) | `hi6h-neyh` | `city_parking_blocks` (merged; lossy — see `docs/CITY_REGULATION_STORAGE.md`) |
+| Parking Regulations (blockface map) | `hi6h-neyh` | `city_parking_blocks` (merged; lossy — see `docs/CITY_REGULATION_STORAGE.md`). No verified identifier join to blocks/meters: `docs/DATASF_REGULATION_JOIN.md` |
 
 ### Ingestion scripts
 
@@ -444,6 +444,8 @@ DataSF Socrata API          scripts/ingest-sf-parking-data.ts
 | `pnpm verify:normalized-parking` | `scripts/verify-normalized-parking.ts` | Read-only validation of normalized rows |
 | `pnpm check:city-parking` | `scripts/check-city-parking-data.ts` | Inspects `city_parking_meters_clean` view |
 | `pnpm check:city-parking-service` | `scripts/check-city-parking-service.ts` | Tests `cityParkingService.ts` queries |
+| `pnpm profile:regulation-data` | `scripts/profile-regulation-data.ts` | Read-only DataSF regulation field profile |
+| `pnpm profile:regulation-join` | `scripts/profile-regulation-join.ts` | Read-only regulation↔block identifier discovery |
 
 All ingest scripts require `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the repo-root `.env`.
 

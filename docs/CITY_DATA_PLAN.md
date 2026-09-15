@@ -30,7 +30,7 @@
 
 1. [SFMTA Metered Street Blocks](https://data.sfgov.org/d/27b3-yjjx) (`27b3-yjjx`) → `city_parking_blocks`
 2. [Parking Meters](https://data.sfgov.org/d/8vzz-qzz9) (`8vzz-qzz9`) → `city_parking_meters` — **first real run:** `pnpm ingest:sf-parking:meters` (100 rows)
-3. [Parking regulations (blockface map)](https://data.sfgov.org/d/hi6h-neyh) (`hi6h-neyh`) → updates matching `city_parking_blocks` by `blockface_id` (lossy merge; see [CITY_REGULATION_STORAGE.md](./CITY_REGULATION_STORAGE.md) for the planned one-to-many table — design only, not implemented)
+3. [Parking regulations (blockface map)](https://data.sfgov.org/d/hi6h-neyh) (`hi6h-neyh`) → updates matching `city_parking_blocks` by `blockface_id` (lossy merge; see [CITY_REGULATION_STORAGE.md](./CITY_REGULATION_STORAGE.md) for the planned one-to-many table — design only, not implemented). **Join discovery V1:** there is no verified identifier joining live `hi6h-neyh` rows to blocks/meters ([DATASF_REGULATION_JOIN.md](./DATASF_REGULATION_JOIN.md); recommendation C).
 
 **Why the MVP is unaffected:** The mobile app still reads only `parking_spots` and `parking_reports`. City tables are optional, read-only for clients, and populated by a local script — not wired into the map UI yet.
 
@@ -241,7 +241,7 @@ It is **not** wired into `evaluateParkingLegality` (the known-rule engine is unc
 
 **Verification.** `scripts/verify-regulation-coverage.ts` (`pnpm verify:regulation-coverage`). Coverage-gated final conclusions are verified by `scripts/verify-legal-conclusion.ts` (`pnpm verify:legal-conclusion`).
 
-**Storage implication (design only).** A lossless one-to-many `city_parking_regulations` table is proposed in [`CITY_REGULATION_STORAGE.md`](./CITY_REGULATION_STORAGE.md). It is **not implemented**. Full-dataset profiling (7788 rows, 2026-09-15) found `objectid` unique and ingest `blockface_id` keys **absent** on every live regulation row, so today's ingest would drop rather than store those rows. That design does **not** make CITY coverage `READY`.
+**Storage implication (design only).** A lossless one-to-many `city_parking_regulations` table is proposed in [`CITY_REGULATION_STORAGE.md`](./CITY_REGULATION_STORAGE.md). It is **not implemented**. Full-dataset profiling (7788 rows, 2026-09-15) found `objectid` unique and ingest `blockface_id` keys **absent** on every live regulation row, so today's ingest would drop rather than store those rows. Join discovery V1 ([`DATASF_REGULATION_JOIN.md`](./DATASF_REGULATION_JOIN.md)) found **no verified identifier join** to `city_parking_blocks` / meters (recommendation **C**). That design does **not** make CITY coverage `READY`.
 
 ### Regulation schedule data profiling (V1) — observed facts, not a parser design
 
