@@ -14,7 +14,7 @@
  */
 
 import { evaluateParkingLegality } from "../packages/shared/src/services/legality";
-import type { ParkingRule, ParkingRuleKind } from "../packages/shared/src/domain/rule";
+import type { ParkingRule, ParkingRuleKind, DayOfWeek, ParkingTimeWindow } from "../packages/shared/src/domain/rule";
 import type {
   LegalityReasonCode,
   LegalityStatus,
@@ -36,6 +36,9 @@ function makeRule(overrides: {
   kind: ParkingRuleKind;
   maxDurationMinutes?: number | null;
   allDay?: boolean | null;
+  daysOfWeek?: readonly DayOfWeek[] | null;
+  timeWindow?: ParkingTimeWindow | null;
+  timezone?: string | null;
 }): ParkingRule {
   ruleCounter += 1;
   return {
@@ -45,11 +48,11 @@ function makeRule(overrides: {
       overrides.kind === "METERED"
         ? null
         : {
-            daysOfWeek: null,
-            timeWindow: null,
+            daysOfWeek: overrides.daysOfWeek ?? null,
+            timeWindow: overrides.timeWindow ?? null,
             allDay: overrides.allDay ?? null,
             maxDurationMinutes: overrides.maxDurationMinutes ?? null,
-            timezone: null,
+            timezone: overrides.timezone ?? null,
           },
     sourceRegulationType: null,
     agency: null,
@@ -72,6 +75,29 @@ function interval(arrival: string, departure: string): ParkingRequestedInterval 
 
 const BASE_INTERVAL = interval("2026-01-01T10:00:00Z", "2026-01-01T11:00:00Z"); // 60 min
 const LONG_INTERVAL = interval("2026-01-01T10:00:00Z", "2026-01-01T13:00:00Z"); // 180 min
+
+const MON_FRI: readonly DayOfWeek[] = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+const WINDOW_8_18: ParkingTimeWindow = { startLocalTime: "08:00", endLocalTime: "18:00" };
+const LA = "America/Los_Angeles";
+
+/** Parsed M-F 08:00–18:00 TIME_LIMIT (allDay false) — DataSF-shaped, not legacy all-day. */
+function makeParsedWeekdayLimit(maxDurationMinutes: number): ParkingRule {
+  return makeRule({
+    kind: "TIME_LIMIT",
+    maxDurationMinutes,
+    allDay: false,
+    daysOfWeek: MON_FRI,
+    timeWindow: WINDOW_8_18,
+    timezone: LA,
+  });
+}
+
+/** Tuesday 2026-09-15 is PDT (UTC-7). */
+const TUE_10_13 = interval("2026-09-15T10:00:00-07:00", "2026-09-15T13:00:00-07:00"); // 180 min, APPLIES
+const TUE_10_11 = interval("2026-09-15T10:00:00-07:00", "2026-09-15T11:00:00-07:00"); // 60 min, APPLIES
+const TUE_19_22 = interval("2026-09-15T19:00:00-07:00", "2026-09-15T22:00:00-07:00"); // outside window
+const TUE_17_19 = interval("2026-09-15T17:00:00-07:00", "2026-09-15T19:00:00-07:00"); // partial overlap
+const SAT_10_13 = interval("2026-09-19T10:00:00-07:00", "2026-09-19T13:00:00-07:00"); // Saturday
 
 interface TestCase {
   readonly name: string;
@@ -269,6 +295,107 @@ const cases: TestCase[] = [
     interval: BASE_INTERVAL, // 60 min fits under both
     expectedStatus: "LEGAL",
     expectedReasonCode: null,
+  },
+
+  // --- Parsed time-window TIME_LIMIT (schedule-applicability integration) --
+  {
+    name: "parsed M-F 08:00-18:00, Tue 10:00-13:00, limit 120 -> ILLEGAL / EXCEEDS_MAX_DURATION",
+    rules: [makeParsedWeekdayLimit(120)],
+    interval: TUE_10_13,
+    expectedStatus: "ILLEGAL",
+    expectedReasonCode: "EXCEEDS_MAX_DURATION",
+  },
+  {
+    name: "parsed M-F 08:00-18:00, Tue 10:00-11:00, limit 120 -> UNKNOWN, NOT LEGAL",
+    rules: [makeParsedWeekdayLimit(120)],
+    interval: TUE_10_11,
+    expectedStatus: "UNKNOWN",
+    expectedReasonCode: "INSUFFICIENT_RULE_DATA",
+  },
+  {
+    name: "parsed M-F 08:00-18:00, Tue 19:00-22:00 (outside window) -> UNKNOWN, NOT ILLEGAL",
+    rules: [makeParsedWeekdayLimit(120)],
+    interval: TUE_19_22,
+    expectedStatus: "UNKNOWN",
+    expectedReasonCode: "INSUFFICIENT_RULE_DATA",
+  },
+  {
+    name: "parsed M-F 08:00-18:00, Saturday 10:00-13:00 (outside day) -> UNKNOWN",
+    rules: [makeParsedWeekdayLimit(120)],
+    interval: SAT_10_13,
+    expectedStatus: "UNKNOWN",
+    expectedReasonCode: "INSUFFICIENT_RULE_DATA",
+  },
+  {
+    name: "parsed M-F 08:00-18:00, Tue 17:00-19:00 partial overlap, limit 60, duration 120 -> UNKNOWN, NOT ILLEGAL",
+    rules: [makeParsedWeekdayLimit(60)],
+    interval: TUE_17_19,
+    expectedStatus: "UNKNOWN",
+    expectedReasonCode: "INSUFFICIENT_RULE_DATA",
+  },
+  {
+    name: "days present, time missing, duration exceeds limit -> UNKNOWN (applicability unresolved)",
+    rules: [
+      makeRule({
+        kind: "TIME_LIMIT",
+        maxDurationMinutes: 60,
+        allDay: null,
+        daysOfWeek: MON_FRI,
+        timeWindow: null,
+        timezone: LA,
+      }),
+    ],
+    interval: TUE_10_13, // 180 min > 60
+    expectedStatus: "UNKNOWN",
+    expectedReasonCode: "INSUFFICIENT_RULE_DATA",
+  },
+  {
+    name: "parsed window APPLIES and exceeded + OTHER -> ILLEGAL (violation dominates)",
+    rules: [makeParsedWeekdayLimit(120), makeRule({ kind: "OTHER" })],
+    interval: TUE_10_13,
+    expectedStatus: "ILLEGAL",
+    expectedReasonCode: "EXCEEDS_MAX_DURATION",
+  },
+  {
+    name: "parsed window APPLIES and not exceeded + OTHER -> UNKNOWN / UNPARSED_RESTRICTION",
+    rules: [makeParsedWeekdayLimit(120), makeRule({ kind: "OTHER" })],
+    interval: TUE_10_11,
+    expectedStatus: "UNKNOWN",
+    expectedReasonCode: "UNPARSED_RESTRICTION",
+  },
+  {
+    name: "parsed window one exceeded (APPLIES) + one DOES_NOT_APPLY -> ILLEGAL",
+    rules: [
+      makeParsedWeekdayLimit(120),
+      makeRule({
+        kind: "TIME_LIMIT",
+        maxDurationMinutes: 30,
+        allDay: false,
+        daysOfWeek: ["SATURDAY"],
+        timeWindow: WINDOW_8_18,
+        timezone: LA,
+      }),
+    ],
+    interval: TUE_10_13,
+    expectedStatus: "ILLEGAL",
+    expectedReasonCode: "EXCEEDS_MAX_DURATION",
+  },
+  {
+    name: "parsed window APPLIES not exceeded + one DOES_NOT_APPLY -> UNKNOWN, NOT LEGAL",
+    rules: [
+      makeParsedWeekdayLimit(120),
+      makeRule({
+        kind: "TIME_LIMIT",
+        maxDurationMinutes: 30,
+        allDay: false,
+        daysOfWeek: ["SATURDAY"],
+        timeWindow: WINDOW_8_18,
+        timezone: LA,
+      }),
+    ],
+    interval: TUE_10_11,
+    expectedStatus: "UNKNOWN",
+    expectedReasonCode: "INSUFFICIENT_RULE_DATA",
   },
 ];
 

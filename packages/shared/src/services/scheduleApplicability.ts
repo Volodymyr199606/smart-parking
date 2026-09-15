@@ -8,15 +8,13 @@
  * produce the same output.
  *
  * ============================================================================
- * WHY A SEPARATE LAYER, NOT A CHANGE TO evaluateParkingLegality:
+ * WHY THIS LAYER IS SEPARATE FROM evaluateParkingLegality:
  * ============================================================================
- * `evaluateParkingLegality` (./legality.ts) is intentionally NOT modified
- * by this milestone. Introducing timezone/local-calendar logic and
- * connecting it to real LEGAL/ILLEGAL verdicts in the same step would
- * conflate two independent risks (schedule-applicability correctness vs.
- * legality-precedence correctness). This module can be verified
- * exhaustively on its own; a future milestone wires its result into
- * `evaluateParkingLegality`'s applicability gate.
+ * Timezone/local-calendar logic lives here so it can be verified on its
+ * own. `evaluateParkingLegality` (./legality.ts) calls this function as
+ * its TIME_LIMIT applicability gate; it does not reimplement weekday,
+ * window, DST, or timezone conversion. This file's behavior must stay
+ * stable — legality integration must not silently change these rules.
  *
  * ============================================================================
  * allDay IS NOT REPURPOSED:
@@ -129,7 +127,7 @@
 
 import type { DayOfWeek, ParkingRuleSchedule } from "../domain/rule";
 import type { ParkingRequestedInterval } from "../domain/legality";
-import { parseInstantMs } from "./legality";
+import { parseInstantMs } from "./isoInstant";
 
 // ---------------------------------------------------------------------------
 // Result type
