@@ -338,7 +338,7 @@ A future spatial design must leave unmatched rows unmatched. Do not add PostGIS 
 
 ## 11. Impact on future `city_parking_regulations.block_id`
 
-Unchanged from [`CITY_REGULATION_STORAGE.md`](./CITY_REGULATION_STORAGE.md):
+Implemented in migration `00011` with **`block_id` nullable**. Join discovery is unchanged:
 
 - Keep **`block_id` nullable**.
 - Ingest **all** `hi6h-neyh` rows losslessly by `objectid`.

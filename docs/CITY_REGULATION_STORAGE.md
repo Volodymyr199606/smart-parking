@@ -1,8 +1,8 @@
-# City Regulation Storage Normalization — Design / Audit V1
+# City Regulation Storage Normalization — Implementation V1
 
-> **Status:** design only. No migration was written or applied. No production schema, ingest, adapter, lookup, legality, coverage, or UI code was changed except read-only profiling in `scripts/profile-regulation-data.ts`.
+> **Status:** implemented (additive table + dual-write ingest). Runtime lookup, adapters, legality, coverage, and UI are unchanged. No spatial join.
 >
-> **Related:** `docs/CITY_DATA_PLAN.md`, `docs/ARCHITECTURE.md` §10, `docs/DATASF_REGULATION_JOIN.md`, `supabase/migrations/00005_city_parking_data.sql`.
+> **Related:** `docs/CITY_DATA_PLAN.md`, `docs/ARCHITECTURE.md` §10, `docs/DATASF_REGULATION_JOIN.md`, `supabase/migrations/00005_city_parking_data.sql`, `supabase/migrations/00011_city_parking_regulations.sql`.
 
 This document answers: what is the smallest correct relational design that can preserve every DataSF Parking Regulations (`hi6h-neyh`) row, instead of merging them onto singular columns of `city_parking_blocks`.
 
@@ -15,9 +15,11 @@ It does **not** claim that this design makes CITY coverage `READY`.
 ```
 DataSF hi6h-neyh row
   → scripts/ingest-sf-parking-data.ts ingestRegulations()
-  → UPDATE city_parking_blocks (singular regulation columns)
-      unmatched rows: dropped (log count only)
-  → apps/mobile regulationService.ts
+      1. UPSERT city_parking_regulations by (source_id, objectid)
+         block_id = null (no verified join)
+      2. legacy UPDATE city_parking_blocks (singular columns)
+         unmatched blockface lookups: dropped from the block table only
+  → apps/mobile regulationService.ts  (still reads city_parking_blocks)
       candidate → meter.block_id FK → one block
       or conservative blockface fallback (0/1 keep, 2+ → [])
   → packages/shared adapters.mapCityRegulationRowToParkingRules
@@ -100,9 +102,9 @@ A later join-key or spatial-association design is required before regulations ca
 
 ---
 
-## 5. Proposed table (plan only — not a migration)
+## 5. Table (implemented — migration `00011`)
 
-Additive table `public.city_parking_regulations`. Do **not** drop or rename `city_parking_blocks` regulation columns in the first migration.
+Additive table `public.city_parking_regulations`. Existing `city_parking_blocks` regulation columns were **not** dropped or renamed.
 
 ```text
 city_parking_blocks (unchanged)
@@ -118,7 +120,7 @@ city_parking_regulations  (many)
 | Column | Type | Why |
 |---|---|---|
 | `id` | uuid PK | Internal PK, same pattern as other city tables |
-| `source_id` | uuid NOT NULL FK → `city_parking_sources` | Which dataset/registry row |
+| `source_id` | uuid NOT NULL FK → `city_parking_sources` | Same convention as blocks/meters (not a text dataset id) |
 | `external_id` | text NOT NULL | DataSF `objectid` |
 | `block_id` | uuid NULL FK → `city_parking_blocks(id)` ON DELETE SET NULL | Proven association when one exists; **null until a join is verified** |
 | `regulation_type` | text | Mapped today from `regulation` |
@@ -136,9 +138,19 @@ city_parking_regulations  (many)
 
 **Unique:** `(source_id, external_id)` — idempotent UPSERT key.
 
-**Indexes:** `(block_id)` for lookup-by-block; unique already covers identity.
+**Indexes:** unique `(source_id, external_id)`; `(block_id)` for a later lookup-by-block; `(source_id)`; `(imported_at DESC)`. No `source_fid_100` index (not a join key).
 
-**RLS:** public SELECT, service-role writes — same as other city tables.
+**RLS:** public SELECT for `anon`/`authenticated`; service-role writes — same as other city tables.
+
+### Implemented ingest behavior
+
+- Mapper: `scripts/map-city-parking-regulation.ts`
+- UPSERT every fetched source row into `city_parking_regulations` on `(source_id, external_id)`
+- `external_id = string(objectid)`; missing `objectid` **throws** (no array index / `fid_100` identity)
+- `block_id` is always `null` in V1 (join discovery recommendation C)
+- Legacy `city_parking_blocks` UPDATE remains (lossy / deprecated compatibility path)
+- Runtime lookup still reads block columns only
+- Verify: `pnpm verify:regulation-storage`
 
 ### Explicitly not first-class columns
 
@@ -168,24 +180,26 @@ Nullable `block_id` is honest: the pipeline cannot currently prove block associa
 
 ---
 
-## 7. Idempotent ingest (future, not implemented)
+## 7. Idempotent ingest (implemented)
 
 - UPSERT on `(source_id, external_id)` where `external_id = string(objectid)`.
 - Same source row twice → one DB row, columns updated.
 - New `objectid` → insert.
 - Changed payload → update `raw_source` and mapped columns.
+- Partial `--limit` fetches UPSERT only the fetched page; they are **not** a full sync.
+- V1 does **not** delete rows missing from a later fetch (including after a partial run).
 
-If `objectid` were ever missing, **stop** — do not fall back to array index. That case was not observed (7788/7788 present and unique).
+If `objectid` were ever missing, ingest **stops** — it does not fall back to array index. That case was not observed (7788/7788 present and unique).
 
 ---
 
-## 8. Source deletion / staleness (design only)
+## 8. Source deletion / staleness (V1: upsert-only)
 
-**Safest V1:** UPSERT/update only. Do **not** delete rows that disappear from DataSF.
+**V1:** UPSERT/update only. Do **not** delete rows that disappear from DataSF. Do **not** soft-delete.
 
 A missing source row might be a fetch failure, pagination hole, or a real repeal. Automatic delete would drop evidence the legality engine might still need.
 
-Later (not V1): `active boolean` / `absent_from_source_at` soft-deactivate after N successful full syncs that omit the `objectid`. Historical retain. No hard delete in the first implementation.
+Later (not V1): `active boolean` / `absent_from_source_at` soft-deactivate after N successful full syncs that omit the `objectid`. Historical retain. No hard delete in this implementation.
 
 ---
 
@@ -238,27 +252,34 @@ Normalized storage is necessary but not sufficient for CITY coverage `READY`.
 
 ---
 
-## 11. Additive migration sequence (plan only)
+## 11. Additive migration sequence
 
-Do **not** implement these now.
-
-1. **Migration N (additive):** create `city_parking_regulations` + indexes + FK + RLS. Leave `city_parking_blocks` regulation columns in place.
-2. **Ingest dual-write:** UPSERT regulations by `objectid`; do not stop writing the old block patch yet (or stop the patch once dual-read is verified — product choice, default: keep patch during transition so today's lookup does not go empty).
-3. **Verify:** row counts vs DataSF 7788; unique `external_id`; `block_id` null rate documented.
-4. **Lookup switch:** fetch `city_parking_regulations` by `block_id` after association exists; keep conservative blockface fallback.
-5. **Adapter switch:** map regulation table rows, not block summary columns.
-6. **Regression:** existing verify scripts + new ingest/lookup checks. No legality/coverage semantic change.
+1. **Migration `00011` (done):** create `city_parking_regulations` + indexes + FK + RLS. Leave `city_parking_blocks` regulation columns in place.
+2. **Ingest dual-write (done):** UPSERT regulations by `objectid`; keep writing the old block patch so today's lookup does not go empty.
+3. **Verify mapping:** `pnpm verify:regulation-storage`. After a live `--full` ingest: row counts vs DataSF 7788; unique `external_id`; `block_id` null rate 100% until a join exists.
+4. **Lookup switch (not this milestone):** fetch `city_parking_regulations` by `block_id` after association exists; keep conservative blockface fallback.
+5. **Adapter switch (not this milestone):** map regulation table rows, not block summary columns.
+6. **Regression:** existing verify scripts + ingest/lookup checks. No legality/coverage semantic change in V1.
 7. **Later deprecation:** stop writing block regulation columns; eventually drop them in a **separate** migration after dual-read is gone.
 
-First migration must not drop columns.
+First migration must not drop columns. `00011` does not.
 
 ---
 
 ## 12. Backfill
 
-Copying current `city_parking_blocks` regulation columns into the new table **cannot** recover overwritten or never-matched source rows.
+Copying current `city_parking_blocks` regulation columns into the new table **cannot** recover overwritten or never-matched source rows. Do not backfill from those columns.
 
-**Required backfill:** re-fetch `hi6h-neyh` (full, `--full` ingest) and UPSERT into `city_parking_regulations` by `objectid`. Geometry may be omitted. `block_id` remains null until a join design exists.
+**Required backfill (normal ingest, not a one-off script):**
+
+1. Apply `supabase/migrations/00011_city_parking_regulations.sql` to the target Supabase project (SQL Editor or CLI). Do not apply to production automatically from this repo.
+2. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in repo-root `.env`.
+3. Re-fetch DataSF: `pnpm ingest:sf-parking -- --only=regulations --full`
+4. Confirm `city_parking_regulations` row count vs live `hi6h-neyh` (7788 at last profile), unique `(source_id, external_id)`, and `block_id` IS NULL for every live row.
+
+`--limit` is a bounded/dev ingest only. It UPSERTs that page and must not be treated as a complete source sync.
+
+Geometry is omitted. `block_id` remains null until a join design exists.
 
 Existing block summary columns can be left as a stale convenience copy; they are not a lossless archive.
 

@@ -2,11 +2,13 @@
  * Smart Parking — DataSF city parking ingestion (prototype)
  *
  * Fetches public JSON from DataSF (Socrata) and upserts into:
- *   city_parking_sources, city_parking_blocks, city_parking_meters
+ *   city_parking_sources, city_parking_blocks, city_parking_meters,
+ *   city_parking_regulations
  *
  * Does NOT read or write public.parking_spots.
  *
- * Requires migration 00005_city_parking_data.sql applied.
+ * Requires migrations 00005_city_parking_data.sql and
+ * 00011_city_parking_regulations.sql applied.
  *
  * Usage:
  *   pnpm ingest:sf-parking:meters     # first run: 100 meters only (default batch)
@@ -18,6 +20,7 @@
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { mapCityParkingRegulationRow } from "./map-city-parking-regulation";
 
 const SOCRATA_BASE = "https://data.sfgov.org/resource";
 const PAGE_SIZE = 1000;
@@ -53,7 +56,7 @@ const DATASETS: Record<
     displayName: "Parking Regulations (blockface map)",
     datasetId: "hi6h-neyh",
     description:
-      "Parking regulations except non-metered color curb — merged onto blocks by blockface.",
+      "Parking regulations except non-metered color curb — lossless rows in city_parking_regulations; lossy merge onto blocks is legacy.",
   },
 };
 
@@ -586,9 +589,21 @@ async function ingestRegulations(
   sourceId: string,
   dryRun: boolean,
   limit: number | null
-): Promise<{ matched: number; unmatched: number }> {
+): Promise<{
+  fetched: number;
+  upserted: number;
+  matched: number;
+  unmatched: number;
+}> {
   const datasetId = DATASETS.regulations.datasetId;
-  log(`ingesting regulations from ${datasetId} (merge onto blocks)...`);
+  log(
+    `ingesting regulations from ${datasetId} (lossless city_parking_regulations + legacy block merge)...`
+  );
+  if (limit !== null) {
+    log(
+      `  partial fetch limit=${limit}: this is not a complete source sync; absent objectids are not deleted`
+    );
+  }
 
   const blockIdByBlockface = dryRun
     ? new Map<string, string>()
@@ -596,9 +611,37 @@ async function ingestRegulations(
 
   const rows = await fetchAllRows(datasetId, limit);
   const importedAt = new Date().toISOString();
+  const payload = rows.map((row) =>
+    mapCityParkingRegulationRow(row, sourceId, importedAt)
+  );
+
+  log(
+    `regulations mapped: fetched=${rows.length} upsertReady=${payload.length} (block_id always null)`
+  );
+
+  let upserted = 0;
+  if (dryRun) {
+    log(`[dry-run] would upsert ${payload.length} rows into city_parking_regulations`);
+    upserted = payload.length;
+  } else {
+    for (let i = 0; i < payload.length; i += 200) {
+      const chunk = payload.slice(i, i + 200);
+      const { error } = await supabase
+        .from("city_parking_regulations")
+        .upsert(chunk, { onConflict: "source_id,external_id" });
+      if (error) throw new Error(`regulations upsert: ${error.message}`);
+      upserted += chunk.length;
+      log(`  upserted ${upserted}/${payload.length} into city_parking_regulations`);
+    }
+  }
+
   let matched = 0;
   let unmatched = 0;
 
+  // Legacy / deprecated: lossy singular columns on city_parking_blocks so
+  // current runtime lookup is unchanged. Live hi6h-neyh rows have no
+  // blockface keys, so this path still matches nothing. Do not use it as
+  // the lossless archive.
   for (const row of rows) {
     const blockfaceId = regulationBlockfaceId(row);
     if (!blockfaceId) {
@@ -663,14 +706,16 @@ async function ingestRegulations(
       .from("city_parking_sources")
       .update({
         last_imported_at: importedAt,
-        last_row_count: matched,
+        last_row_count: upserted,
         updated_at: importedAt,
       })
       .eq("id", sourceId);
   }
 
-  log(`regulations: matched=${matched} unmatched=${unmatched}`);
-  return { matched, unmatched };
+  log(
+    `regulations: upserted=${upserted} legacyBlockMatched=${matched} legacyBlockUnmatched=${unmatched}`
+  );
+  return { fetched: rows.length, upserted, matched, unmatched };
 }
 
 async function main(): Promise<void> {

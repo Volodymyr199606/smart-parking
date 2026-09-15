@@ -53,7 +53,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...your-key-he
 
 This creates the tables, indexes, RLS policies, and triggers.
 
-There are **10 migrations** to apply for the current MVP (in order):
+There are **11 migrations** to apply for the current MVP plus optional city data (in order):
 
 | # | File | Purpose |
 |---|------|---------|
@@ -67,13 +67,14 @@ There are **10 migrations** to apply for the current MVP (in order):
 | 8 | `00008_favorite_parking_spots.sql` | User favorites (mobile) |
 | 9 | `00009_analytics_events.sql` | Append-only analytics (mobile) |
 | 10 | `00010_secure_parking_spot_status_update.sql` | Secure status RPC; removes broad spot UPDATE |
+| 11 | `00011_city_parking_regulations.sql` | Lossless city regulation rows (optional) |
 
-> **City migrations (00005–00007)** are optional. See [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md). They do **not** modify `parking_spots` or the Expo Go list MVP.
+> **City migrations (00005–00007, 00011)** are optional. See [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md). They do **not** modify `parking_spots` or the Expo Go list MVP.
 
 **Option A: Supabase Dashboard (recommended for first setup)**
 
 1. In your Supabase project, go to **SQL Editor**
-2. For each migration file in order (`00001` through `00010`):
+2. For each migration file in order (`00001` through `00011`):
    - Click **"New query"**
    - Copy and paste the entire contents of the migration file
    - Click **"Run"** (or press Ctrl+Enter)
@@ -95,11 +96,11 @@ npx supabase link --project-ref YOUR_PROJECT_REF
 npx supabase db push
 ```
 
-Apply all **10 migrations** (`00001`–`00010`) for the full MVP. Migrations `00008`–`00010` add favorites, analytics events, and the secure status-update RPC — all required for the current mobile app. Migrations `00005`–`00007` add optional city data tables (ingest prototype, not required for Expo Go list MVP).
+Apply all **10 core migrations** (`00001`–`00004`, `00008`–`00010`) for the mobile MVP, plus `00005`–`00007` and `00011` for optional city data. Migrations `00008`–`00010` add favorites, analytics events, and the secure status-update RPC — all required for the current mobile app. Migrations `00005`–`00007` and `00011` add optional city data tables (ingest prototype, not required for Expo Go list MVP).
 
 ### City data ingestion (optional)
 
-1. Apply `00005_city_parking_data.sql` in the SQL Editor.
+1. Apply `00005_city_parking_data.sql` (and `00007`, `00011` for normalized locations + lossless regulations) in the SQL Editor.
 2. At repo root, copy `.env.example` → `.env` and set `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`.
 3. Run:
 
@@ -185,7 +186,7 @@ Mobile variables are loaded automatically by Expo. Website variables are loaded 
 | `favorite_parking_spots` | 00008 | User-saved favorite spots (per-user, authenticated) |
 | `analytics_events` | 00009 | Append-only product analytics events |
 
-### City data tables (migrations `00005`–`00007` — ingest prototype, optional)
+### City data tables (migrations `00005`–`00007`, `00011` — ingest prototype, optional)
 
 | Table | Migration | Purpose |
 |-------|-----------|---------|
@@ -193,6 +194,7 @@ Mobile variables are loaded automatically by Expo. Website variables are loaded 
 | `city_parking_blocks` | 00005 | SFMTA metered street blocks + regulation fields |
 | `city_parking_meters` | 00005 | Parking meter point locations |
 | `normalized_parking_locations` | 00007 | Canonical city inventory layer (normalized from meters) |
+| `city_parking_regulations` | 00011 | Lossless DataSF regulation rows (`objectid`; `block_id` null until a join exists) |
 
 Populated by service-role ingestion scripts (see `scripts/`). These tables contain **parking inventory and legal/rule data** — not live occupancy or availability. The mobile app currently reads only `parking_spots` for its list and map views.
 
@@ -304,7 +306,8 @@ supabase/
 │   ├── 00007_normalized_city_parking.sql               → normalized_parking_locations table (optional)
 │   ├── 00008_favorite_parking_spots.sql                → User favorites table
 │   ├── 00009_analytics_events.sql                      → Analytics events table
-│   └── 00010_secure_parking_spot_status_update.sql     → Secure status RPC; removes 00002 policy
+│   ├── 00010_secure_parking_spot_status_update.sql     → Secure status RPC; removes 00002 policy
+│   └── 00011_city_parking_regulations.sql              → Lossless city regulation rows (optional)
 ├── scripts/
 │   ├── apply_00005_00009_safe.sql                      → Idempotent helper for city + app migrations
 │   └── apply_00010_secure_status_update_safe.sql       → Idempotent helper for migration 00010
@@ -318,7 +321,7 @@ supabase/
 - Seed data uses `source = 'MOCK'` — will be replaced with real DataSF/SFMTA data later.
 - PostGIS is not enabled yet (using lat/lng columns for now). Will add when spatial queries are needed.
 - No Edge Functions yet — will be added for data sync and background jobs.
-- **City ingest:** apply `00005_city_parking_data.sql`, then run `pnpm ingest:sf-parking` from repo root — see [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md).
+- **City ingest:** apply `00005` + `00011`, then run `pnpm ingest:sf-parking` from repo root — see [`docs/CITY_DATA_PLAN.md`](../docs/CITY_DATA_PLAN.md).
 
 ## Troubleshooting
 

@@ -48,7 +48,7 @@ smart-parking/
 ├── packages/
 │   └── shared/          → Shared types/constants/utils (not currently imported by either app — see §4.5)
 ├── supabase/
-│   ├── migrations/      → 10 SQL migration files (00001–00010)
+│   ├── migrations/      → 11 SQL migration files (00001–00011)
 │   ├── scripts/         → Idempotent helper SQL for safe re-application
 │   └── seed/            → 26 mock SF parking spots
 ├── scripts/             → City data ingestion pipeline (TypeScript, service-role only)
@@ -282,7 +282,7 @@ Both clients (`apps/mobile` and `apps/web`) connect using the **anon key**. The 
 
 ## 7. Database Schema
 
-All 10 migrations are applied in order. Summary of tables:
+All 11 migrations are applied in order (`00001`–`00011`; `00005`–`00007` and `00011` are optional city data). Summary of tables:
 
 ### parking_spots
 | Column | Type | Notes |
@@ -416,8 +416,8 @@ DataSF Socrata API          scripts/ingest-sf-parking-data.ts
                       city_parking_sources
                       city_parking_blocks
                       city_parking_meters
-                      (planned, not built: city_parking_regulations
-                       — docs/CITY_REGULATION_STORAGE.md)
+                      city_parking_regulations  (lossless hi6h-neyh rows;
+                       block_id null — docs/CITY_REGULATION_STORAGE.md)
                             ↓
                       scripts/normalize-city-parking.ts
                             ↓
@@ -432,7 +432,7 @@ DataSF Socrata API          scripts/ingest-sf-parking-data.ts
 |---|---|---|
 | SFMTA Metered Street Blocks | `27b3-yjjx` | `city_parking_blocks` |
 | Parking Meters | `8vzz-qzz9` | `city_parking_meters` |
-| Parking Regulations (blockface map) | `hi6h-neyh` | `city_parking_blocks` (merged; lossy — see `docs/CITY_REGULATION_STORAGE.md`). No verified identifier join to blocks/meters: `docs/DATASF_REGULATION_JOIN.md` |
+| Parking Regulations (blockface map) | `hi6h-neyh` | `city_parking_regulations` (lossless by `objectid`; `block_id` null). Legacy lossy merge onto `city_parking_blocks` remains for current lookup. See `docs/CITY_REGULATION_STORAGE.md`, `docs/DATASF_REGULATION_JOIN.md` |
 
 ### Ingestion scripts
 
@@ -446,6 +446,7 @@ DataSF Socrata API          scripts/ingest-sf-parking-data.ts
 | `pnpm check:city-parking-service` | `scripts/check-city-parking-service.ts` | Tests `cityParkingService.ts` queries |
 | `pnpm profile:regulation-data` | `scripts/profile-regulation-data.ts` | Read-only DataSF regulation field profile |
 | `pnpm profile:regulation-join` | `scripts/profile-regulation-join.ts` | Read-only regulation↔block identifier discovery |
+| `pnpm verify:regulation-storage` | `scripts/verify-regulation-storage.ts` | Mapping checks for city_parking_regulations ingest |
 
 All ingest scripts require `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the repo-root `.env`.
 
@@ -826,7 +827,7 @@ A `sync-city-parking` Edge Function (not yet created) would replace the local in
 ```
 Supabase cron → Edge Function (service role)
   → DataSF / SFMTA paginated fetch
-  → upsert city_parking_sources / city_parking_blocks / city_parking_meters
+  → upsert city_parking_sources / city_parking_blocks / city_parking_meters / city_parking_regulations
   → trigger normalize step
   → update import audit log
 ```
