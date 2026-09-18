@@ -101,7 +101,7 @@ Apply all **10 core migrations** (`00001`–`00004`, `00008`–`00010`) for the 
 ### City data ingestion (optional)
 
 1. Apply `00005_city_parking_data.sql` (and `00007`, `00011` for normalized locations + lossless regulations) in the SQL Editor.
-2. At repo root, copy `.env.example` → `.env` and set `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`.
+2. For city data, including regulation ingestion, copy `.env.example` → `.env` at the repo root and set `SUPABASE_URL` plus either `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`. If both server-side keys are set, `SUPABASE_SERVICE_ROLE_KEY` takes precedence.
 3. Run:
 
 ```bash
@@ -167,7 +167,8 @@ npx supabase db reset
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes (web) | `apps/web` | Same project URL for the website |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes (web) | `apps/web` | Same anon key for the website |
 | `SUPABASE_URL` | Ingest only | root `.env` | Same project URL — for ingest scripts |
-| `SUPABASE_SERVICE_ROLE_KEY` | Ingest only | root `.env` | **Service role key** — required for city data ingestion scripts. Never commit this. Never ship in client apps. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Ingest only | root `.env` | **Service role key** — preferred server-side credential for city data ingestion. Never commit this. Never ship in client apps. |
+| `SUPABASE_SECRET_KEY` | Ingest only | root `.env` | **Secret key** — fallback server-side credential when `SUPABASE_SERVICE_ROLE_KEY` is not set. Never commit this. Never ship in client apps. |
 
 Mobile variables are loaded automatically by Expo. Website variables are loaded by Next.js. Ingest scripts read from a `.env` file at the repository root.
 
@@ -285,7 +286,7 @@ All tables have RLS enabled. Client roles (anon, authenticated) can only perform
 
 Migration `00010` removed the broad authenticated UPDATE policy that `00002` added. Clients must now call the `update_parking_spot_status(spot_id, new_status)` RPC function (SECURITY DEFINER) to change a spot's status. This restricts updates to the three valid status values (`AVAILABLE`, `OCCUPIED`, `UNKNOWN`) and prevents clients from writing arbitrary columns. The mobile app's `reportParkingSpot()` service calls this RPC.
 
-**City data ingestion** always uses the **service role key** (never the anon key). The service role key must not be committed to source control and must not be shipped in client apps.
+**City data ingestion** always uses a server-side key (`SUPABASE_SERVICE_ROLE_KEY`, or `SUPABASE_SECRET_KEY` as a fallback), never the anon key. Server-side keys must not be committed to source control or shipped in client apps.
 
 ## Auto-Triggers
 

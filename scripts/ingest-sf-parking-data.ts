@@ -270,6 +270,20 @@ function requireEnv(name: string): string {
   return v.trim();
 }
 
+function requireSupabaseServerKey(): string {
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_SECRET_KEY?.trim();
+
+  if (!key) {
+    throw new Error(
+      "Missing server-side Supabase key. Set SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY in the environment or a root .env file (not committed)."
+    );
+  }
+
+  return key;
+}
+
 async function ensureSources(
   supabase: SupabaseClient,
   dryRun: boolean,
@@ -727,16 +741,14 @@ async function main(): Promise<void> {
       `only=${only ? [...only].join(",") : "all"}`
   );
 
-  if (!dryRun) {
-    requireEnv("SUPABASE_URL");
-    requireEnv("SUPABASE_SERVICE_ROLE_KEY");
-  }
+  const supabaseUrl = dryRun ? null : requireEnv("SUPABASE_URL");
+  const supabaseServerKey = dryRun ? null : requireSupabaseServerKey();
 
   const supabase = dryRun
     ? (null as unknown as SupabaseClient)
     : createClient(
-        requireEnv("SUPABASE_URL"),
-        requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
+        supabaseUrl!,
+        supabaseServerKey!,
         { auth: { persistSession: false, autoRefreshToken: false } }
       );
 
