@@ -21,6 +21,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { mapCityParkingRegulationRow } from "./map-city-parking-regulation";
+import { fetchDataSfJson } from "./fetch-datasf-json";
 
 const SOCRATA_BASE = "https://data.sfgov.org/resource";
 const PAGE_SIZE = 1000;
@@ -212,18 +213,7 @@ async function fetchSocrataPage(
   url.searchParams.set("$limit", String(pageSize));
   url.searchParams.set("$offset", String(offset));
 
-  const res = await fetch(url.toString(), {
-    headers: { Accept: "application/json" },
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(
-      `DataSF ${datasetId} HTTP ${res.status}: ${body.slice(0, 200)}`
-    );
-  }
-
-  const data = (await res.json()) as unknown;
+  const data = await fetchDataSfJson(url.toString(), log);
   if (!Array.isArray(data)) {
     throw new Error(`DataSF ${datasetId}: expected JSON array`);
   }

@@ -64,6 +64,8 @@
  * representative examples per field.
  */
 
+import { fetchDataSfJson } from "./fetch-datasf-json";
+
 const SOCRATA_BASE = "https://data.sfgov.org/resource";
 /** Same dataset id as DATASETS.regulations.datasetId in scripts/ingest-sf-parking-data.ts. */
 const REGULATIONS_DATASET_ID = "hi6h-neyh";
@@ -112,27 +114,11 @@ async function fetchSocrataPage(
   url.searchParams.set("$limit", String(limit));
   url.searchParams.set("$offset", String(offset));
 
-  let lastError = "";
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
-    const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
-    if (res.ok) {
-      const data = (await res.json()) as unknown;
-      if (!Array.isArray(data)) {
-        throw new Error(`DataSF ${datasetId}: expected a JSON array`);
-      }
-      return (data as SocrataRow[]).map(omitGeometry);
-    }
-    const body = await res.text().catch(() => "");
-    lastError = `HTTP ${res.status}: ${body.slice(0, 200)}`;
-    if (res.status === 425 || res.status === 429 || res.status === 503) {
-      const backoffMs = 1000 * attempt * attempt;
-      log(`  ${datasetId} offset=${offset} ${lastError.trim()} — retry ${attempt}/5 in ${backoffMs}ms`);
-      await sleep(backoffMs);
-      continue;
-    }
-    throw new Error(`DataSF ${datasetId} ${lastError}`);
+  const data = await fetchDataSfJson(url.toString(), log);
+  if (!Array.isArray(data)) {
+    throw new Error(`DataSF ${datasetId}: expected a JSON array`);
   }
-  throw new Error(`DataSF ${datasetId} ${lastError}`);
+  return (data as SocrataRow[]).map(omitGeometry);
 }
 
 async function fetchSample(datasetId: string, sampleSize: number): Promise<SocrataRow[]> {

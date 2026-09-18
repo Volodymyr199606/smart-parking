@@ -22,6 +22,7 @@
     "verify:regulation-coverage": "tsx scripts/verify-regulation-coverage.ts",
     "verify:legal-conclusion": "tsx scripts/verify-legal-conclusion.ts",
     "verify:regulation-storage": "tsx scripts/verify-regulation-storage.ts",
+    "verify:datasf-retry": "tsx scripts/verify-datasf-retry.ts",
     "profile:regulation-data": "tsx scripts/profile-regulation-data.ts",
     "profile:regulation-join": "tsx scripts/profile-regulation-join.ts"
   },

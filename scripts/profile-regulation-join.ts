@@ -13,6 +13,8 @@
  *   pnpm profile:regulation-join
  */
 
+import { fetchDataSfJson } from "./fetch-datasf-json";
+
 const SOCRATA_BASE = "https://data.sfgov.org/resource";
 const VIEWS_BASE = "https://data.sfgov.org/api/views";
 const PAGE_SIZE = 1000;
@@ -50,21 +52,7 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function fetchJson(url: string): Promise<unknown> {
-  let lastError = "";
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (res.ok) return res.json();
-    const body = await res.text().catch(() => "");
-    lastError = `HTTP ${res.status}: ${body.slice(0, 180)}`;
-    if (res.status === 425 || res.status === 429 || res.status === 503) {
-      const backoffMs = 1000 * attempt * attempt;
-      log(`  retry ${attempt}/5 after ${lastError.trim()} in ${backoffMs}ms`);
-      await sleep(backoffMs);
-      continue;
-    }
-    throw new Error(`${url} ${lastError}`);
-  }
-  throw new Error(`${url} ${lastError}`);
+  return fetchDataSfJson(url, log);
 }
 
 interface ViewColumn {
