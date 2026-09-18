@@ -290,3 +290,7 @@ Existing block summary columns can be left as a stale convenience copy; they are
 **Join discovery V1 (2026-09-15):** no verified deterministic identifier associates `hi6h-neyh` with `city_parking_blocks` / meters. See [`DATASF_REGULATION_JOIN.md`](./DATASF_REGULATION_JOIN.md). Recommendation **C** — keep `block_id` null; spatial association is a later design, not a current join.
 
 Until that is solved, lossless **storage** and **location-complete coverage** are different problems.
+
+**Spatial association design V1 (2026-09-18):** [new geometry evidence and the proposed result contract](./DATASF_REGULATION_JOIN.md#15-spatial-association-design-v1--2026-09-18) leave association **PLAUSIBLE_BUT_UNPROVEN**. Of 266 sampled regulations, 221 had one citywide curb candidate under an experimental 80%-length-within-3-m test; this does not verify curb-side identity. No associations were accepted. Normalized regulation geometry remains intentionally omitted; a future pipeline needs versioned external geometry and source identity provenance.
+
+The earlier block-FK lookup sketches are conditional, not a complete side-specific design. A street-block polygon can combine opposite sides, and a long regulation can cover multiple curb intervals. A future regulation-to-curb relation may therefore be needed before a lookup switch; do not automatically populate the existing singular `block_id` from proximity. Production storage/backfill/idempotency are complete per the supplied baseline, while runtime remains unchanged and CITY remains **INCOMPLETE**.

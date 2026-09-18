@@ -1,5 +1,7 @@
 # DataSF Regulation-to-Block Join Discovery V1
 
+**Current follow-up (2026-09-18):** [Spatial association design V1](#15-spatial-association-design-v1--2026-09-18) contains new public-source geometry measurements. The earlier sections record identifier-join discovery; their milestone exclusions are historical. Production storage/backfill/idempotency are complete per the supplied baseline, but no regulation association is verified or implemented.
+
 > **Status:** read-only research. No migration, ingest write, lookup, legality, coverage, spatial join, or UI change was implemented.
 >
 > **Date:** 2026-09-15.
@@ -371,3 +373,159 @@ None in this milestone (no runtime change). Discovery confirms the storage-desig
 ## 14. What this milestone did not do
 
 No `city_parking_regulations` table, no ingest writes, no mobile lookup change, no PostGIS, no geospatial matcher, no `ParkingRule` / legality / coverage / UI / AI / agent / MCP work.
+
+---
+
+## 15. Spatial association design V1 — 2026-09-18
+
+### Decision and scope
+
+**Curb-line association is PLAUSIBLE_BUT_UNPROVEN.** Citywide `pep9-66vw` lines provide the strongest measured geometric correspondence. Neither closeness nor a unique candidate proves the regulation's physical side, authoritative extent, or current applicability. There are no accepted matches in this milestone. Keep `city_parking_regulations.block_id` null and runtime on the existing block lookup; CITY remains **INCOMPLETE**.
+
+The supplied production baseline is 7,788 regulations, idempotent ingestion, and 7,788 null `block_id` values. This task did not re-read production rows or ingest anything. New evidence below comes from public DataSF GETs and a read-only extension-metadata access attempt.
+
+### Geometry inventory and current storage
+
+Metadata endpoints are linked per dataset. Counts are from the profiler run beginning **2026-09-18 20:19:46 UTC**, not metadata's cached row counts. “Usable” means coordinates passed this diagnostic's shape/finite/San Francisco bounds checks; it does not certify topology. Excluded rows remain valid storage identities and must not disappear from a future association audit.
+
+| Dataset | Actual geometry / identity | Fetched / usable geometry rows | Components and approximate lengths |
+|---|---|---:|---|
+| Regulations [`hi6h-neyh`](https://data.sfgov.org/api/views/hi6h-neyh.json) | `shape`: MultiLineString; `objectid` is source identity | 7,788 / 7,778 | All usable lines have one component; min 0.211 m, median 81.873 m, p90 171.243 m, max 3,165.625 m |
+| Metered blocks [`27b3-yjjx`](https://data.sfgov.org/api/views/27b3-yjjx.json) | `shape`: Polygon; `block_id` | 1,773 / 1,770 | One ring in each usable polygon; perimeter min 51.449 m, median 261.971 m, max 1,569.797 m (not curb length) |
+| Meters [`8vzz-qzz9`](https://data.sfgov.org/api/views/8vzz-qzz9.json) | `shape`: Point; also longitude/latitude; `post_id` | 38,717 / 38,699 | Points have no length; 27,950 distinct usable `post_id`/geometry pairs |
+| Metered blockfaces [`mk27-a5x2`](https://data.sfgov.org/api/views/mk27-a5x2.json) | `shape`: LineString; `blockface_id`, with `block_id` hop | 3,172 / 3,166 | One line; min 0.059 m, median 72.483 m, p90 149.427 m, max 265.406 m |
+| Citywide blockfaces [`pep9-66vw`](https://data.sfgov.org/api/views/pep9-66vw.json) | `shape`: LineString; `globalid` for source provenance, partially populated `sfpark_id` | 18,355 / 18,355 | One line; min 0.354 m, median 82.252 m, p90 183.311 m, max 1,159.459 m |
+
+Meter retrieval contained 10,749 repeated `post_id` groups, all with identical geometry per identity. The profiler collapses identical identity/geometry pairs and reports this explicitly. It cannot establish whether repetitions originate in the published view or pagination, and does not reconcile differing non-geometric attributes: meter eligibility uses the first fetched representative. Meter statistics are consequently corroborating diagnostics only. Other sources had no repeated usable identities or conflicting geometries per identity.
+
+Current repository storage contracts, inspected in migrations `00005`, `00007`, `00011`, `ingest-sf-parking-data.ts`, and `normalize-city-parking.ts`:
+
+- `city_parking_blocks`: raw source `shape` is retained in `raw_payload` when supplied. No typed geometry column; nullable latitude/longitude are not derived from polygon centroids by the mapper. Source polygons identify street blocks, not a single curb side.
+- `city_parking_meters`: raw source geometry in `raw_payload` plus explicit latitude/longitude. Meter `blockface_id` describes a side of street, but a point does not establish the whole curb's extent.
+- `normalized_parking_locations`: meter-derived latitude/longitude points with city-row/blockface provenance in `raw_source`; no retained full curb geometry.
+- `city_parking_regulations`: no geometry column; `raw_source` deliberately excludes `shape`, `the_geom`, and `location`. This profile fetches geometry separately; it does not alter storage.
+- `mk27-a5x2` and `pep9-66vw` are public research inputs, not newly ingested tables. A future pipeline needs versioned geometry and identity provenance rather than silently attaching today's public geometry to an older stored regulation snapshot.
+
+### CRS and side-of-street evidence
+
+DataSF's Socrata [MultiLine](https://dev.socrata.com/docs/datatypes/multiline) and [Line](https://dev.socrata.com/docs/datatypes/line) geometry use WGS84 longitude/latitude. Observed coordinates are in San Francisco (approximately longitude -122.514 to -122.366 and latitude 37.707 to 37.822 across these sources). Degrees are not metres. The profiler uses a fixed local equirectangular approximation centered on (-122.44, 37.77), Earth radius 6,371,008.8 m. Distances are exploratory and not survey-grade acceptance thresholds.
+
+The related SFMTA [metered-blockface ArcGIS layer](https://services.sfmta.com/arcgis/rest/services/Parking/parking/MapServer/12?f=pjson) advertises spatial reference 4326. The related [time-limit/RPP ArcGIS layer](https://services.sfmta.com/arcgis/rest/services/Parking/parkingregulations_timelimited/MapServer/0?f=pjson) instead advertises a custom CCSF-CS13 Transverse Mercator system in US feet, NAD83(2011). That service is not assumed to be the complete DataSF regulation source. Do not mix native ArcGIS feet, WGS84 degrees, and projected metres.
+
+Regulations expose no usable street name, side, odd/even parity, or left/right orientation field. Their `globalid` field is unpopulated. Coordinate order alone does not establish a semantic left or right side.
+
+Metered blockfaces expose `blockface_orientation` (N/S/E/W/NE/NW/SE/SW), `str_num_parity` (Odd/Even, mixed case), `str_seg_orientation` (L/R), street name, and address ranges. Orientation/parity values are populated on all 3,172 fetched rows. However, metadata and ArcGIS domains do not document the L/R reference direction sufficiently to interpret it as an independently verified side rule. There is no matching regulation-side attribute to corroborate these labels.
+
+Meter metadata explicitly calls `blockface_id` a side-of-street ID, but `orientation` and `parity_digit_position` are empty on all 38,717 fetched rows. Citywide curb metadata describes curb-coincident geometry assembled from several methods, including partial regulation segments; attributes were described as in progress/unverified except `SFPARK_ID`. Its cached metadata reports only 1,910 populated `sfpark_id` rows, with 1,907 distinct values; `globalid` is populated on all 18,355 fetched usable rows. Thus source-row provenance exists even where a meter/block-side identity is unavailable. This corrects any implication in historical sections that citywide source identities themselves are all missing.
+
+### Reproducible profile and limitations
+
+Run `pnpm.cmd exec tsx scripts/profile-regulation-spatial.ts`. Optional `--self-check` runs arithmetic checks without network access. The script loads no credentials, opens no database connection, writes no files, exports no matcher, and selects no target. It uses the existing DataSF retry helper, not a new GIS dependency.
+
+All five public sources were fetched through existing `$limit`/`$offset` pagination; `rowsUpdatedAt` was unchanged before/after each fetch. This is not a transactionally stable snapshot, and default pagination ordering is a limitation. Per-source identity/geometry digests and exclusions are emitted to make later comparisons possible. Source `rowsUpdatedAt` values were regulations 1781371764, blocks 1788629267, meters 1788629318, metered faces 1788629262, citywide curbs 1602522061; the citywide layer's age is an additional validation concern.
+
+Full-source equality/grouping uses all **7,778 usable regulations**. Other spatial tests use **266 regulations**: 256 systematic positions in numeric `objectid` order plus the five shortest and five longest, deduplicated. No multipart additions were needed. This purposive sample is not a random citywide match-rate estimate. Sample identity digest: `036fdc3292cadb01eb212065e7d0a542ff6f29a87c0d4b58c783918cd184e021`.
+
+Strategies:
+
+- **Exact coordinate fingerprint:** reversal/component-order insensitive, but preserves vertices and precision. Zero equal fingerprints does not prove zero topological equality after resampling.
+- **Minimum line distance:** analytic segment distance at 3/10/25 m; one close endpoint suffices. It is not a safe association criterion.
+- **Buffered length coverage:** length-weighted midpoints of subsegments at most 5 m long; fraction of regulation length within a target's 3/10/25 m buffer. This estimates overlap; it is not a robust topological intersection length or proof of equal extents.
+- **Sampled symmetric Hausdorff:** maximum of distances in both directions, using the same samples plus original vertices; threshold 5 m. Approximate, not continuous Hausdorff distance. Endpoint tests require both paired endpoints within 5 m, allowing reversed direction.
+- **Intersection/containment:** planar segment crossing/touching and polygon interior diagnostics; boundary tolerance 1e-7 m. Floating-point arithmetic and source geometry have not undergone robust topology validation.
+- **Meter proximity:** distinct nonzero `blockface_id` groups from deduplicated active on-street M/T meter points; also at least three distinct posts on a face within 3 m. No curb is reconstructed from points.
+
+Robust line-overlap lengths, projection selection/accuracy validation, geometry repair, positional uncertainty, independently verified curb sides, and ground-truth acceptance testing are deferred. Existing JS tooling has no GIS topology framework; these bounded diagnostics are not reusable production GIS logic. No centroid-based assignment was attempted.
+
+### Candidate counts (0 / 1 / 2+)
+
+Every row below uses the 266-regulation sample unless marked **full**. “1” means one geometrically eligible target under that experiment, not an accepted match. Thresholds are experiments, not proposed production defaults.
+
+| Strategy | Metered blockface lines: 0 / 1 / 2+ | Citywide curb lines: 0 / 1 / 2+ |
+|---|---:|---:|
+| Exact coordinate fingerprint, **full 7,778** | 7,778 / 0 / 0 | 7,778 / 0 / 0 |
+| Minimum distance <=3 m | 251 / 15 / 0 | 33 / 226 / 7 |
+| >=80% regulation length within 3 m | 259 / 7 / 0 | 45 / 221 / 0 |
+| Minimum distance <=10 m | 234 / 26 / 6 | 13 / 25 / 228 |
+| >=80% regulation length within 10 m | 252 / 11 / 3 | 28 / 187 / 51 |
+| Minimum distance <=25 m | 208 / 12 / 46 | 4 / 1 / 261 |
+| >=80% regulation length within 25 m | 248 / 4 / 14 | 13 / 46 / 207 |
+| Sampled symmetric Hausdorff <=5 m | 265 / 1 / 0 | 61 / 205 / 0 |
+| Both paired endpoints <=5 m | 265 / 1 / 0 | 61 / 205 / 0 |
+| Planar line intersection/touch | 266 / 0 / 0 | 256 / 10 / 0 |
+
+Citywide curbs yield unique candidates for **221/266 (83.1%)** under the 80%-within-3-m experiment and **205/266 (77.1%)** under sampled Hausdorff <=5 m. Metered blockfaces yield 7/266 (2.6%) and 1/266 (0.4%) respectively. Do not extrapolate these sample rates, intersect the reported sets without measuring that intersection, or label them accuracy/confidence percentages.
+
+| Other strategy | 0 / 1 / 2+ |
+|---|---:|
+| Metered-block polygon intersection | 247 / 19 / 0 |
+| >=80% regulation length inside a metered-block polygon | 252 / 14 / 0 |
+| Meter face groups within 3 m | 261 / 5 / 0 |
+| Meter face groups within 10 m | 249 / 17 / 0 |
+| Meter face groups within 25 m | 213 / 24 / 29 |
+| At least three distinct meter posts on one face within 3 m | 265 / 1 / 0 |
+| Other regulation lines within 3 m | 225 / 38 / 3 |
+| >=80% regulation length within another regulation's 3 m buffer | 255 / 11 / 0 |
+| Other regulation lines within 10 m | 31 / 84 / 151 |
+| >=80% regulation length within another regulation's 10 m buffer | 200 / 62 / 4 |
+| Other regulation lines within 25 m | 5 / 7 / 254 |
+| >=80% regulation length within another regulation's 25 m buffer | 40 / 202 / 24 |
+| Other regulation sampled Hausdorff <=5 m / paired endpoints <=5 m / intersection (each) | 258 / 8 / 0 |
+
+Meter diagnostics used 22,432 eligible deduplicated points. Counts for other regulations exclude each sampled row itself.
+
+### Ambiguity and grouping evidence
+
+- **Opposite curbs:** 1,427 metered-face pairs share block/street IDs and have opposite cardinal side labels. Of these, 88 have minimum separation <=10 m and 1,261 <=25 m; median minimum separation is 14.664 m. Example block `10802`: faces `108022`/`108021`, E/W, Even/Odd, separation 12.236 m. A 25 m candidate search around 35/266 sampled regulations includes such opposite-labelled pairs. Wide distance buffers cannot resolve side. Citywide curb “opposite side” counts are unavailable because equivalent side attributes are absent; a reported zero from that diagnostic is not evidence of safety.
+- **Corners/short lines:** the full usable regulation set includes 244 lines shorter than 20 m. The shortest is objectid `5538`, 0.211 m. A corner-like diagnostic (minimum distance <=3 m, but <20% length coverage) finds 8 regulation/metered-face pairs, 16 regulation/citywide-curb pairs, and 28 regulation/other-regulation pairs. These are potential endpoint/corner interactions, not independently labelled intersection locations. Any touch or closest endpoint is insufficient evidence.
+- **Long/multi-block lines:** 76 usable regulations exceed 300 m. Longest IDs/lengths: `1895` 733.305 m; `2674` 839.269 m; `6514` 870.120 m; `440` 1,059.398 m; `6913` 3,165.625 m. None of these five intersects a fetched metered-block polygon. No multi-polygon intersections appeared in the 266 sample. This does not establish that long lines stay within one city block: the target inventory is metered blocks only. Citywide block segmentation and full-source robust multi-block tests remain unresolved. A singular block FK is not an adequate assumption for long regulations.
+- **Shared geometry/stacked rules:** 32 exact-coordinate groups contain 65 regulation rows, maximum group size 3. Twenty-two groups have differing rule attributes. For example IDs `82` and `6036` share geometry but describe time-limited M-Sa 800-1800 versus no-oversized-vehicles M-Su 2400-600. This supports potential stacked rules and requires preserving all source identities, not collapsing regulations by geometry. It does not resolve schedule applicability, conflicts, or rule priority.
+- **`fid_100`:** among usable regulations, 425 lack it and 328 contain sentinel `0`. The 125 repeated nonzero groups contain 439 rows and 2,061 within-group pairs: only 20 pairs share exact coordinates; 24 have >=80% one-direction buffered coverage within 3 m; 1,821 are separated by >25 m. These categories overlap where appropriate. Shared `fid_100` is neither a unique geometry identity nor a block/curb join.
+
+### Target classification and next design
+
+| Target representation | Classification for regulation association | Evidence / limitation |
+|---|---|---|
+| Metered-block polygons (`27b3-yjjx` / stored source polygon) | **UNSAFE** as a sole side-specific target | Can combine both sides, only 19 sample intersections, and no regulation-side identity; useful only as later coarse corroboration |
+| Metered blockface lines (`mk27-a5x2`) | **PLAUSIBLE_BUT_UNPROVEN** | Blockface identity and side-labelled attributes exist; geometry follows meter spacing, which need not equal full regulation extent; only 7 unique strict buffered candidates |
+| Citywide curb lines (`pep9-66vw`) | **PLAUSIBLE_BUT_UNPROVEN**, strongest geometry candidate | 221 unique strict buffered candidates; physically curb-coincident metadata, but age, incomplete side identities, unverified attributes, and partial segments prevent verified association |
+| Meter points (`8vzz-qzz9`) | **PLAUSIBLE_BUT_UNPROVEN** as corroboration; **UNSAFE** as sole curb extent | Point/blockface identities help check a known side, but points omit intervening geometry, corners, gaps, and unmetered curbs |
+| Inferred complete curb geometry from meter points | **UNAVAILABLE** in current storage/profile | No authoritative reconstruction or ordered curb topology is present; no inferred lines were created |
+
+No regulation-to-target association is **VERIFIED_CANDIDATE** yet. The strongest next investigation is versioned citywide curb lines with bidirectional extent checks, explicit enumeration of neighbouring/opposite-side alternatives, and independent validation of side and identity. Metered-face identities and meter points can corroborate only where their actual extents and provenance agree. Do not pick the nearest target, break ties arbitrarily, or transfer a blockface's rules to the opposite side through a shared block polygon.
+
+Deterministic unique association appears feasible for a **subset**, given the 205 unique sampled Hausdorff candidates, but is not yet safe for automation. Validate a labelled set including corners, short/long lines, parallel/opposite sides, and all exclusion classes; establish a suitable metric CRS and positional-error budget; test complete candidate enumeration; then measure false associations. Do not fill `block_id` on the strength of this profile.
+
+### Proposed future result contract (documentation only)
+
+Each result should identify the regulation source key/`objectid`, source and target snapshot versions, geometry digests, target dataset/row identity and independently verified curb-side identity, algorithm/threshold version, measured distances/covered intervals in both directions, every competing candidate, and categorical rejection reasons. Keep diagnostic candidates separate from accepted associations. No confidence percentage.
+
+| Category | Required future evidence |
+|---|---|
+| `VERIFIED_EXACT` | Valid, versioned geometries with verified topological equality **and** authoritative same-side/extent identity; coordinate fingerprint equality alone is insufficient |
+| `VERIFIED_UNIQUE_SPATIAL` | Exactly one target passes calibrated distance, bidirectional extent, identity and independently verified side checks, with complete nearby candidate enumeration and no unresolved corner/multi-block ambiguity |
+| `AMBIGUOUS` | Multiple viable targets, uncertain side/identity, unresolved extent, or contradictory corroboration; includes a single geometric candidate whose semantic identity remains unverified |
+| `UNMATCHED` | No qualifying candidate or missing/unusable geometry, with distinct reason codes so unavailable evidence is not mistaken for “no regulation” |
+
+Preserve many regulation rows on the same curb. Long regulations may need several verified curb intervals with source provenance; never silently shorten the source line or force it into a single block. A future explicit regulation-to-curb/interval relation is likely needed. A nullable FK to a street-block polygon cannot encode side or many-to-many extents on its own. This is a design proposal, not a schema change or implemented helper.
+
+### PostGIS: useful later; live availability unconfirmed
+
+The repository does not enable or use PostGIS. A read-only production REST request for `pg_catalog.pg_extension` returned HTTP 406 / `PGRST106` (schema not exposed). The REST OpenAPI document exposes no PostGIS metadata views/functions. Neither observation proves the extension is absent; direct SQL metadata access is unavailable in this environment. **Live availability is UNKNOWN.** The SQL Editor check requested from the user is read-only:
+
+```sql
+SELECT e.extname, e.extversion, n.nspname AS schema_name
+FROM pg_extension AS e
+JOIN pg_namespace AS n ON n.oid = e.extnamespace
+WHERE e.extname = 'postgis';
+```
+
+A returned row confirms installation and its schema; zero rows confirms absence in that database. No extension was enabled or schema modified.
+
+PostGIS would materially help a later validated implementation: indexed [`ST_DWithin`](https://postgis.net/docs/ST_DWithin.html) for candidate enumeration with correct distance units; [`ST_Intersects`](https://postgis.net/docs/ST_Intersects.html) for robust topology (but corner touches still need rejection); [`ST_LineLocatePoint`](https://postgis.net/docs/ST_LineLocatePoint.html) for positions along a line and interval comparisons; [`ST_HausdorffDistance`](https://postgis.net/docs/ST_HausdorffDistance.html) for densified discrete shape distance. Geometry distances use CRS units; geography distances use metres. Hausdorff remains a discrete approximation. These functions do not supply missing curb-side semantics or ground truth.
+
+### Coverage and verification
+
+Reliable association would solve **regulation row -> physical curb/location** only. Street sweeping, permit semantics, meter-payment interpretation, `OTHER` rule semantics, unsupported schedule grammar, and completeness across all applicable city sources remain unresolved. Geometric association never implies CITY `READY`.
+
+The full public-source profiler completed with exit 0; transient DataSF HTTP 425 retries recovered. Arithmetic self-checks and `pnpm.cmd typecheck` passed. No ingest, production-row read/write, migration, extension enablement, `block_id` update, runtime lookup, legality, coverage, AI/agent/MCP, or UI implementation was performed. The only Supabase access was read-only metadata inspection; no secrets were printed.
