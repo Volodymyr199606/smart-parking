@@ -1,5 +1,7 @@
 # City Curb Snapshot + Canonicalization Contract V1
 
+**Interval follow-up:** [Curb Interval Measurement V1](./CITY_CURB_INTERVAL_CONTRACT.md) now supplies the offline target measurement, projection/tie and fraction-serialization contract. References below to unresolved interval measurement describe this snapshot milestone's original boundary. Live capture validation, operational artifact retention and database publication/immutability guards still block migration; interval measurements do not verify associations.
+
 Status: offline contract and verification; public capture experiment blocked by HTTP 403. No production migration, ingest, database access, or runtime integration. This refines [curb storage V1](./CITY_CURB_STORAGE.md) for capture consistency, retained artifacts, and canonical digests only. Interval measurement and database publication/immutability guards remain separate blockers. CITY remains **INCOMPLETE**.
 
 ## 1. Existing conventions and scope

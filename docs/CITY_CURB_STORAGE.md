@@ -1,5 +1,7 @@
 # City Curb Feature Storage Design V1
 
+**Interval contract follow-up:** [Curb Interval Measurement V1](./CITY_CURB_INTERVAL_CONTRACT.md) now defines the SF planar micrometre model, nine-decimal target fractions, explicit projection ties and conditional interval construction. Pure offline helpers and conformance fixtures are implemented. This settles interval fields sufficiently for schema design; live snapshot validation, operational artifact retention and database publication/immutability guards still block migration. No verified association or runtime integration follows from these measurements.
+
 **Status: design and public read-only profiling; migration/types deferred.** No database access, curb ingestion, association population, PostGIS enablement or runtime change. This provides the target-storage design needed by [Association Storage V1](./CITY_REGULATION_ASSOCIATION_STORAGE.md), not verified regulation associations. CITY remains **INCOMPLETE**.
 
 **Snapshot contract follow-up:** [City Curb Snapshot + Canonicalization Contract V1](./CITY_CURB_SNAPSHOT_CONTRACT.md) now specifies ordered capture, conservative consistency states, retained raw bodies/manifest, and exact `curb-jcs-v1` digests with an offline implementation and conformance checks. It supersedes the tentative capture/canonicalization choices below. Live double-capture validation was blocked by HTTP 403 before any source rows were fetched. Durable storage operations, interval measurement and database publication/immutability guards still prevent migration readiness.
@@ -215,7 +217,7 @@ The association run must additionally reference **`target_snapshot_id -> city_pa
 
 Represent partial scope with normalized `[from_fraction, to_fraction]`, `0 <= from < to <= 1`, relative to stored coordinate direction and the specific version. Whole-feature scope is explicitly `[0,1]`. Initial association-ready targets are single LineStrings, component index 0; unexpected multipart data is retained but not auto-associated. Keep source regulation component/interval separately. Multiple link rows may reference complementary intervals on one or several target versions; duplicate identity includes the target version and both source/target intervals.
 
-Fractional arclength requires a **versioned measurement model**: validated metric CRS/transformation, segment-length and interpolation algorithm, precision and tool versions. Record that model in run parameters and the interval reference; changing it requires reassessment. Decimal interval serialization/rounding must be fixed and tested. Do not derive fractions from the approximate profiler and declare them authoritative. Projected metre offsets and subsegment geometries may be retained as derived evidence, not competing canonical extents. Projection logic is not implemented here.
+Fractional arclength now uses the offline [interval contract](./CITY_CURB_INTERVAL_CONTRACT.md): `sf-curb-planar-um-v1`, a fixed SF affine frame with derived integer micrometre coordinates/lengths, deterministic all-segment projection and explicit ties. Target fractions serialize to nine decimal places with proposed `numeric(10,9)` storage. Record the model in the interval reference/run; changing it requires reassessment. Metre offsets and subsegment geometries remain diagnostics, not competing authoritative extents. The helpers implement measurement only; independent side/extent evidence and metric calibration remain necessary for association acceptance.
 
 ## 9. Immutability, refresh and future ingestion
 
@@ -239,7 +241,7 @@ Proposed new tables: RLS enabled; no anon/authenticated INSERT/UPDATE/DELETE pol
 
 Default the new base snapshot/version/membership tables to **server-only reads**, including raw source/artifact manifests. If a real client feature later needs curb geometry, expose a narrowly scoped read projection of usable members of the current published snapshot, excluding private artifact/reviewer details. This projection is not built now; existing source-registry and city-table policies remain unchanged. Publishing curb data says nothing about verified regulation associations or coverage readiness.
 
-**Migration deferred; no SQL migration file or shared type export created.** Snapshot identity and FK direction do not depend on pretending lifetime physical identity is known. Capture consistency/artifact retention and numeric/canonicalization contracts now have an offline specification and verification; live capture validation and operational artifact retention remain outstanding. Linear referencing and immutable version/publication concurrency guards remain unimplemented. Unknown physical-curb continuity is also a separate blocker to automatic association promotion; neither a UUID nor PostGIS resolves it.
+**Migration deferred; no SQL migration file or shared type export created.** Snapshot identity and FK direction do not depend on pretending lifetime physical identity is known. Capture, canonicalization and interval measurement now have offline contracts and verification. Live capture validation, operational artifact retention, and immutable version/publication concurrency guards remain outstanding. Metric calibration and unknown physical-curb continuity are separate blockers to automatic association promotion; neither a UUID nor PostGIS resolves them.
 
 Before migration implementation: settle and test these contracts in an isolated environment with duplicate IDs, coordinate reversal, metadata-only changes, repeated identical captures, disappearing/reappearing IDs, failed captures, concurrent publication and attempted historical mutation. This task runs only the source profiler and repository checks; it does not create these ingestion tests or schema.
 
@@ -297,7 +299,7 @@ interface CurbIntervalReference {
   readonly fromFraction: FractionDecimal;
   readonly toFraction: FractionDecimal;
   readonly measurementModelVersion: string;
-  readonly transformationManifestSha256: Sha256;
+  readonly geometrySha256: Sha256; // Must agree with the referenced immutable version.
 }
 ```
 
