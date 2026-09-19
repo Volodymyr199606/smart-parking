@@ -8,6 +8,8 @@ This document answers: what is the smallest correct relational design that can p
 
 It does **not** claim that this design makes CITY coverage `READY`.
 
+**Association storage follow-up:** [City Regulation Association Storage Design V1](./CITY_REGULATION_ASSOCIATION_STORAGE.md) proposes run manifests, per-regulation assessments and reviewed curb/interval candidate links. The required curb-version entity does not exist; migration and shared types are deferred. This does not populate `block_id` or change the implemented regulation storage/runtime path described here.
+
 ---
 
 ## 1. Current data flow (verified)

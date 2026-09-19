@@ -1,5 +1,7 @@
 # DataSF Regulation-to-Block Join Discovery V1
 
+**Storage design follow-up:** [City Regulation Association Storage Design V1](./CITY_REGULATION_ASSOCIATION_STORAGE.md) turns the research requirements into a proposed normalized run/assessment/link model, review/publication contract, conditional SQL draft and TypeScript DTOs. Missing persisted curb-version identity blocks migration creation; no associations or runtime changes are implemented.
+
 **Latest follow-up:** [Spatial association validation V2](#16-spatial-association-validation-v2--2026-09-18) completed full-source competition profiling. Of 7,778 usable regulations, 165 pass an experimental geometry-only screen; **zero are independently verified**. The user confirmed that production PostGIS is **not enabled**. No associations or production changes were made.
 
 **Current follow-up (2026-09-18):** [Spatial association design V1](#15-spatial-association-design-v1--2026-09-18) contains new public-source geometry measurements. The earlier sections record identifier-join discovery; their milestone exclusions are historical. Production storage/backfill/idempotency are complete per the supplied baseline, but no regulation association is verified or implemented.
