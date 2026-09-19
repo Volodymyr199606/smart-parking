@@ -1,5 +1,7 @@
 # DataSF Regulation-to-Block Join Discovery V1
 
+**Latest follow-up:** [Spatial association validation V2](#16-spatial-association-validation-v2--2026-09-18) completed full-source competition profiling. Of 7,778 usable regulations, 165 pass an experimental geometry-only screen; **zero are independently verified**. The user confirmed that production PostGIS is **not enabled**. No associations or production changes were made.
+
 **Current follow-up (2026-09-18):** [Spatial association design V1](#15-spatial-association-design-v1--2026-09-18) contains new public-source geometry measurements. The earlier sections record identifier-join discovery; their milestone exclusions are historical. Production storage/backfill/idempotency are complete per the supplied baseline, but no regulation association is verified or implemented.
 
 > **Status:** read-only research. No migration, ingest write, lookup, legality, coverage, spatial join, or UI change was implemented.
@@ -529,3 +531,163 @@ PostGIS would materially help a later validated implementation: indexed [`ST_DWi
 Reliable association would solve **regulation row -> physical curb/location** only. Street sweeping, permit semantics, meter-payment interpretation, `OTHER` rule semantics, unsupported schedule grammar, and completeness across all applicable city sources remain unresolved. Geometric association never implies CITY `READY`.
 
 The full public-source profiler completed with exit 0; transient DataSF HTTP 425 retries recovered. Arithmetic self-checks and `pnpm.cmd typecheck` passed. No ingest, production-row read/write, migration, extension enablement, `block_id` update, runtime lookup, legality, coverage, AI/agent/MCP, or UI implementation was performed. The only Supabase access was read-only metadata inspection; no secrets were printed.
+
+---
+
+## 16. Spatial association validation V2 — 2026-09-18
+
+### Result and scope
+
+**No association currently qualifies as `VERIFIED_UNIQUE_SPATIAL`.** Full-source geometry analysis yields 165 promising rows after conservative geometric exclusions, but neither their curb-side semantics nor their authoritative extents have been independently validated. These are review candidates, not a safe production backfill. CITY remains **INCOMPLETE** and `block_id` remains untouched.
+
+The user supplied the production SQL result for `SELECT extname, extversion FROM pg_extension WHERE extname = 'postgis';`: **Success. No rows returned.** Therefore **PostGIS is not enabled in that database**, superseding V1's unknown status. This is user-reported SQL evidence; V2 made no Supabase connection and enabled nothing.
+
+### Completed run and reusable evidence
+
+Command: `pnpm.cmd exec tsx scripts/profile-regulation-spatial.ts --v2 --evidence`. The completed run began **2026-09-18T23:29:57.837Z**, exited **0**, and recovered from **35 HTTP 425 retry events** using the existing fetch helper. No restart/refetch was needed after the interruption: the original process completed and its output was reused.
+
+Evidence is retained locally at `%TEMP%\smart-parking-spatial-v2.jsonl`. Despite the filename, this is **tagged JSON records interspersed with progress lines**, not bare JSONL; split a record at its first space before parsing JSON. PowerShell redirection produced UTF-16LE. Integrity inspection found the completion marker, zero malformed tagged records, **7,778 `V2_ROW` records with 7,778 distinct regulation IDs**, and **83,796 candidate pairs**. The approximately 75.9 MB log contains measurements, not giant coordinate arrays or credentials. It is temporary evidence, not a committed artifact. The tables and bounded cases below preserve the main findings in the repository.
+
+Each `V2_ROW` retains every curb within the 50 m minimum-distance search bound, not only the diagnostic best: target ID, minimum distance, paired endpoint distance, symmetric sampled Hausdorff, regulation length fractions within 3/5/10 m, reverse 3 m coverage, length ratio, undirected chord-angle difference, second-best gap, parallel/opposite competitors, corner/fragment flags, source text, and an explicit null accepted association. Full-source geometry digests and metadata are emitted separately. `--self-check` runs without network; the original V1 mode remains available without `--v2`.
+
+| Source | Fetched | Usable | Excluded | Geometry |
+|---|---:|---:|---:|---|
+| `hi6h-neyh` regulations | 7,788 | 7,778 | 10 | Single-component MultiLineString |
+| `pep9-66vw` citywide curbs | 18,355 | 18,355 | 0 | LineString |
+| `mk27-a5x2` metered faces | 3,172 | 3,166 | 6 | LineString |
+
+All usable source IDs were unique. Geometry/identity digests match V1: regulations `d15a726a3f7c89587e9be242e8882ab2017b8baac0a8c088f14f55615914d534`; curbs `16c97866a440b45d510db842f2c396c864a2d893c54cf7585df9a43f3b72a18e`; metered faces `e630ffe5859fd287627e418569eef9833a38cba46a14af60dfe274b69dcd3882`. Metadata `rowsUpdatedAt` remained unchanged during each fetch. Offset pagination is still not a transactional snapshot. V2 did not refetch metered polygons or meter points, which were evaluated in V1.
+
+### Metadata reinspection: supporting evidence is not independent verification
+
+The profiler now inventories every public metadata column and counts meaningful values from fetched rows, excluding empty/null-placeholder strings. Live metadata: [regulations](https://data.sfgov.org/api/views/hi6h-neyh.json), [citywide curbs](https://data.sfgov.org/api/views/pep9-66vw.json), [metered faces](https://data.sfgov.org/api/views/mk27-a5x2.json).
+
+| Source fields | Observed availability / semantics | Corroboration value |
+|---|---|---|
+| Regulation `regdetails`, `mtab_reso_text` | 946 / 274 populated rows | Sometimes street, cross streets, side, address/offset extent, resolution references; potentially independent historical text, but clause-to-row identity and current applicability require validation |
+| Regulation `mtab_motion`, `mtab_date`, `enacted` | 437 / 518 / 781 populated | Possible links to original resolutions; not curb identifiers |
+| Regulation `analysis_neighborhood`, `supervisor_district` | Both 7,778 | Explicitly derived from geometry midpoint, so not independent corroboration; useful only for sample diversity |
+| Regulation `objectid`, `fid_100`, `globalid` | 7,788 / 7,358 / 0 populated | Row identity / unverified grouping / unavailable; no regulation-to-curb key |
+| Regulation `length_ft` | 7,489 populated | A length attribute, with no independent survey provenance established |
+| Regulation RPP fields, `agency`, `exceptions`, `conflict`, symbols, schedules, edit/audit fields | Present with varying completeness | Rule content, regional scope, provenance, or undocumented flags; not street-side identity. `from_time`/`to_time` are not from/to street names |
+| Curb `popupinfo`, `street_nam` | 964 / 113 meaningful values | Some street, from/to cross-street and side descriptions; metadata explicitly says attributes are unverified except `SFPARK_ID` |
+| Curb `name` | 18,355 populated | Often `Placemark` or a numeric ID; not an authoritative street name |
+| Curb `sfpark_id`, `blockface_`, `cnn_id`, `globalid` | 1,910 / 1,910 / 1,888 / 18,355 | Partial meter-face identity / undocumented label / segment-like ID without verified regulation semantics / source identity |
+| Curb `shape_leng` | 18,355 populated | Undocumented units/provenance; not used as independent measured length |
+| Metered face `street_name`, `street_id`, `block_id`, `block_num`, `blockface_id` | All 3,172 | Target identity/context; does not add a regulation identity hop |
+| Metered face `fm_addr_no`, `to_addr_no` | Both 3,171 | Address ranges; no matching structured regulation address fields |
+| Metered face orientation/parity/L-R | All 3,172 | Target side labels; L/R reference convention remains undocumented |
+| Metered face `neighborhood_id`, `pm_district_id`, `area_type` | 3,164 / 3,170 / 1,302 | Target grouping without verified cross-source semantics; do not equate these to regulation neighborhood text |
+| Metered face derived neighborhood/district, endpoint coordinates, edit/load fields | Present | Geometry-derived context and provenance, not independent side truth |
+
+There are no dedicated regulation street-name/from-street/to-street/address-range/side/parity columns. Nevertheless, V1's broad statement that there is no usable textual location information needs qualification: narrative fields **do** contain location clues. A cardinal-side phrase appears on **186 usable regulations**, including **10** with a strong geometric candidate. Some narratives mention both sides, several streets, multiple disconnected intervals, or visibly truncated clauses. No automatic text agreement/disagreement parser or resolution lookup was implemented.
+
+### Search, measurements, and experimental screen
+
+A 100 m grid indexes complete curb bounding boxes. Every regulation queries all intersecting cells within an expanded 50 m bbox, then exact diagnostic segment distance removes candidates beyond 50 m. This reduced **142,765,190** possible pairs to **94,970 bbox candidates** and **83,796 measured pairs**. Grid-vs-brute-bbox checks on every 97th regulation and synthetic negative-coordinate/boundary cases passed. No nearest-only truncation is used.
+
+V1's local equirectangular metric, <=5 m sample spacing, and floating-point topology limitations remain. Coverage is buffered sampled length, not exact overlap; raw fractions may exceed 1 by floating-point epsilon. Direction is endpoint-chord orientation modulo 180 degrees, not semantic side, travel direction, or robust orientation on curved/multipart geometry. Hausdorff, endpoints, coverage, length and angle are related geometric measurements, not independent corroborating sources. Near-identical shapes and a recurring approximately 1.287 m offset may reflect common source lineage or transformations; neither is evidence of independent ground truth.
+
+An experimental **strong geometry** pair requires symmetric sampled Hausdorff <=5 m, both paired endpoints <=5 m, >=80% length coverage in both directions at 3 m, regulation/curb length ratio 0.8–1.25, and chord-angle difference <=10 degrees. A further **geometry-only screen** requires exactly one such pair, that pair also best by Hausdorff, second-best Hausdorff >=15 m and gap >=10 m, no flagged parallel/opposite competitor, no corner or multi-curb proxy, and regulation length 20–300 m. These are sensitivity/rejection experiments, not finalized acceptance thresholds.
+
+### Full-source candidate and margin statistics
+
+All counts below use **7,778 usable regulations**; columns are candidate multiplicities, not successful matches.
+
+| Experiment | 0 candidates | 1 candidate | 2+ candidates |
+|---|---:|---:|---:|
+| Exact coordinate fingerprint | 7,778 | 0 | 0 |
+| Minimum distance <=3 m | 658 | 6,774 | 346 |
+| Minimum distance <=5 m | 463 | 5,799 | 1,516 |
+| Minimum distance <=10 m | 261 | 960 | 6,557 |
+| Minimum distance <=25 m | 111 | 95 | 7,572 |
+| Minimum distance <=50 m | 83 | 18 | 7,677 |
+| >=80% regulation length within 3 m | 1,118 | 6,608 | 52 |
+| >=80% regulation length within 5 m | 960 | 6,757 | 61 |
+| >=80% regulation length within 10 m | 800 | 5,901 | 1,077 |
+| Sampled Hausdorff <=5 m | 1,574 | 6,176 | 28 |
+| Paired endpoints <=5 m | 1,574 | 6,176 | 28 |
+| Strong geometry conjunction | 1,613 | 6,137 | 28 |
+
+The full source exposes ambiguity absent from V1's 266-row sample. For example regulation `6930` has two curb IDs (`{A91ECFEB-742D-481C-B90E-022B9BD7EB93}` and `{C35B71EB-4B26-477E-9986-5BE1F7188315}`) with identical retained strong-pair measurements and a zero gap. Do not break such ties by ID.
+
+Best/second-best refer to **all retained candidates within the minimum-distance search bound**, ordered by symmetric sampled Hausdorff. Among 7,695 rows with candidates, best Hausdorff median is 1.287 m (p90 23.500 m). Among 7,677 rows with two or more, second-best median is 16.156 m and gap median 13.183 m (p10 7.312, p90 72.887). Strong-candidate rows have gap median 13.043 m (p10 8.960, p90 70.580).
+
+| Gap within retained candidate set | All rows with 2+ candidates | Rows with a strong pair and 2+ candidates |
+|---|---:|---:|
+| <2 m | 187 | 29 |
+| 2–<5 m | 253 | 19 |
+| 5–<10 m | 1,556 | 1,332 |
+| 10–<20 m | 3,199 | 3,045 |
+| >=20 m | 2,482 | 1,739 |
+
+The experimental margin test passes for **3,713** rows, including **2,817** with a strong pair. Eighteen rows have only one candidate; their missing second is censored with a >50 m Hausdorff lower bound, not measured infinity. Likewise, a measured second-best above 50 m is **not** proven globally second-best: an excluded curb could have a Hausdorff between 50 m and that value. For a strong best <=5 m, the outside-search lower bound still exceeds the proposed 15 m / 10 m margin experiment. Large gaps printed above 50 m must not be represented as globally measured separation.
+
+### Opposite-side, corner, extent, and stacked-rule findings
+
+**Parallel/opposite-curb proxies:** a competitor is flagged when its chord differs from the best curb by <=15 degrees, minimum curb-to-curb separation is 3–30 m, and projected longitudinal overlap covers >=50% of the shorter extent. **6,230 regulations** have such a competitor, including **5,370 of the 6,165 rows with a strong pair**. These are possible opposite sides, not verified street topology. A separate partial `sfpark_id` -> unique metered-face identity check finds opposite-labelled pairs for **52 rows**, including **2 strong-candidate rows**. No side is selected from a small distance advantage. Missing labels do not prove absence of opposite-side ambiguity.
+
+**Corner/intersection proxies:** a regulation endpoint within 10 m of endpoints from two curb segments, whose endpoints are within 10 m of one another and whose chords differ by >=25 degrees, is flagged. There are **5,906 cases**, including **5,374 strong-candidate rows**. This is intentionally overinclusive: normal full-block curbs end at intersections. It is not a measured false-match count. A future rejection rule should reject unresolved endpoint-to-junction/branch assignment until authoritative topology and interval extent prove the intended segment; the broad 10 m proxy must be calibrated against labelled examples before use.
+
+**Extent:** the best-candidate regulation/curb length ratio is <0.5 for **252 rows** and >2 for **61**; median ratio is 1.000. There are **244 regulations shorter than 20 m** and **76 longer than 300 m**. Longest objectid `6913` is 3,165.625 m, with 53 nearby curbs; its diagnostic best has Hausdorff 1,516.808 m and length ratio 17.130. Objectids `440` (1,059.398 m) and `6514` (870.120 m) have nearly identical whole-curb geometries, demonstrating that a source curb record itself need not correspond to one conventional city block.
+
+**Potential multi-curb extent:** two rows, `3475` (231.552 m) and `6168` (132.569 m), have at least two partial curb candidates whose union covers 95.745% and 92.593% of regulation length within 3 m. Each fragment covers 10–<80% of the regulation, >=80% of itself is near the regulation, its angle differs by <=20 degrees, and it is shorter than the regulation. Neither pair passes the additional <=10 m endpoint adjacency check, so the strict multi-curb proxy reports **0**. This is evidence of possible fragmented/gapped extent, **not proof of genuinely adjacent physical curbs**, and zero strict cases does not establish that the singular FK is sufficient. Preserve these unresolved cases rather than forcing the best fragment.
+
+**Stacked rules:** all **32 identical-coordinate groups (65 rows)** share a diagnostic best curb; V1's rule comparison found differing attributes in 22 groups. Additionally, **21 nonidentical regulation pairs** have sampled Hausdorff <=2 m, all sharing the same diagnostic best. In total **758 curb IDs** are best for multiple regulations, but that broader number is not a count of verified stacks. Example `3632` (time-limited) and `6771` (no oversized vehicles) both point geometrically to `{A212C57B-1DA3-4791-983F-0B383B66A442}`. Preserve multiple rule identities; do not confuse multiple rules on one curb with one rule having several competing curbs.
+
+### Bounded inspection sample
+
+The completed profiler emitted 18 sample slots / **14 distinct regulation IDs**, spanning downtown-area, residential-area, angled, short, long, corner, opposite-curb, stacked, and narrative-side categories; categories can overlap. Neighborhood-based labels are sampling proxies, not independently verified land use. Dossiers contain source text, regulation endpoint coordinates, full competing-ID lists, and detailed top-three measurements/target metadata without full geometry arrays. The following cases were reviewed at the metadata/diagnostic level; **no field survey, authoritative map-side validation, or human-labelled accuracy study occurred**.
+
+| Regulation ID(s) | Review evidence | Finding |
+|---|---|---|
+| `2705` | South of Market; 246.631 m; best curb `{2117E736-4729-4880-96FF-B3D176B140CB}`; best H 1.171 m, observed second H 269.057 m | Passes geometry screen; second is search-censored globally; target is only labelled `Placemark`, leaving identity unverified |
+| `4173` | South of Market; best H 1.172 m; gap 21.788 m | Parallel competitor remains despite clear geometric preference |
+| `6180`, `3974` | Sunset/Parkside; 20.855 m / 355.289 m; nearly coincident best curbs | Residential-area, corner and parallel-curb cases; `3974` is also a long-line example |
+| `2509`, `368` | Bernal Heights / Bayview; chord angles 62.986 / 55.128 degrees | Angled geometries with strong bests still have parallel/corner flags |
+| `2512`, `5144` | 16.283 / 18.951 m; nearly coincident best curbs | Short extents remain excluded; `2512`'s target popup names Wawona Street's north side, but regulation detail only describes vehicle dimensions |
+| `887` | 548.857 m; nearly coincident whole-curb best; six parallel competitors | Long curb identity is not proof of a single block or side-safe association |
+| `1967` | 63.556 m; nearly coincident best; gap 35.646 m | Clear separation does not remove a parallel-curb competitor |
+| `3632`, `6771` | Same geometry, time-limited vs oversized restriction; best H 1.286 m; gap 13.543 m | Expected possible many-rules-to-one-curb; parallel and corner uncertainty still shared |
+| `6017` | Text names Taraval Street, south side, 29th–30th Avenue; 74.075 m; best H <0.001 m; gap 18.548 m | Promising row-specific text, but target lacks verified street/side attributes and parallel/corner flags remain |
+| `3383` | Grove Street narrative includes both north whole-block and south partial intervals; best H 1.287 m | Cannot assign all resolution clauses to this one geometry. Metered-face context identifies a south competitor, not an independent identity for the best curb |
+
+Additional retained-evidence review: `3361` passes the geometry screen (25.069 m, best H 1.287 m, observed gap 44.259 m), but its resolution text includes Eddy and Jones Streets on several sides and is truncated. Of the 165 screened rows, only six have either narrative field populated; five contain resolution numbers or generic vehicle definitions, and `3361` is the sole side-bearing narrative. No screened row therefore gained independently verified side/extent from this review. Fragmented candidates `3475`/`6168` are documented above.
+
+No direct textual street contradiction was established for an inspected best candidate; most targets lack reliable comparable text. That absence is not agreement. Any demonstrated street/side/extent disagreement must reject a future candidate, while multi-clause or unverified text stays ambiguous. No candidate was upgraded by textual proximity or keyword overlap.
+
+### Conservative future contract and estimated coverage
+
+Use only `VERIFIED_UNIQUE_SPATIAL`, `AMBIGUOUS`, and `UNMATCHED` for this proposed contract. **Drop `VERIFIED_EXACT` for now:** exact coordinate fingerprints found no matches, near-zero sampled distances are not exact topology, and neither establishes independent side identity.
+
+A future `VERIFIED_UNIQUE_SPATIAL` result must have versioned valid geometry in a validated metric CRS; calibrated bidirectional shape/extent agreement; one independently identified physical curb/interval; a defensible second-candidate margin with search-bound provenance; no unresolved parallel/opposite-side or corner/branch ambiguity; and independent, row-specific side/extent corroboration (validated source text or equivalent authoritative evidence). Geometry metrics alone do not meet the independent-evidence requirement. Short, long, fragmented, curved, and conflicting-text cases need explicit validated handling. The exploratory thresholds above are not final acceptance defaults.
+
+| Profiling category | Count | % of 7,778 usable | % of 7,788 source rows |
+|---|---:|---:|---:|
+| Potential verified with currently established independent evidence | **0** | **0%** | **0%** |
+| `AMBIGUOUS`: candidate(s) exist, acceptance evidence unresolved | **7,695** | **98.933%** | **98.806%** |
+| `UNMATCHED`: no curb within the 50 m diagnostic search bound | **83** | **1.067%** | **1.066%** |
+| Excluded/unavailable geometry | **10** | Outside usable denominator | **0.128%** |
+
+The **165 geometry-only screened rows (2.121% of usable)** are a subset of `AMBIGUOUS`, not an additional category, verified coverage, or measured accuracy. The zero verified count reflects the unmet independent-evidence gate, not proof that every geometric candidate is wrong. `UNMATCHED` means no candidate in this bounded inventory/search, not no applicable parking regulation. Rows with weak candidates remain ambiguous in this conservative taxonomy rather than being silently dropped.
+
+### Storage and computation recommendation
+
+Do not treat the existing singular `city_parking_regulations.block_id` as a sufficient general association model. It identifies a street-block row, not an independently verified curb side or interval. Long source records, partial extents, stacked rules, and the two fragmented candidates justify designing an explicit relation, even though V2 has not proved physical adjacency for a multi-curb case.
+
+Future design: `city_parking_regulation_associations` with regulation identity, target ID/type (curb/interval), categorical match quality, evidence/provenance including source and target snapshot/geometry versions, matcher version, and creation time. Allow many rules per target and potentially multiple verified intervals per regulation; preserve interval boundaries and reasons. Store unresolved candidate evidence separately from accepted links. Define idempotent identities over regulation/target/interval/version and a reviewed promotion process. This is documentation only, not a migration or SQL write.
+
+| Future approach | Assessment |
+|---|---|
+| Application-side runtime matching | Not recommended: repeats expensive geometry work at lookup time, makes reproducibility harder, and exposes changing source evidence to runtime decisions |
+| PostGIS through a future controlled migration | Recommended for robust spatial operations and indexed enumeration after CRS/topology validation; installation alone does not solve side semantics |
+| Offline/precomputed association | Recommended execution model: versioned snapshots, complete evidence, reviewable rejected cases, and deterministic reruns before any promotion |
+| Hybrid | **Preferred:** offline batch validation using PostGIS in an isolated development/analysis database, reviewed versioned association artifacts, and eventual simple runtime lookup only in a separately authorized milestone |
+
+The measured workload (83,796 candidate pairs after grid filtering) is practical for batch processing; it does not justify a runtime JS matcher or a heavy dependency in this profiling task. PostGIS offers indexed [distance enumeration](https://postgis.net/docs/ST_DWithin.html) with explicit CRS units and [densified discrete Hausdorff](https://postgis.net/docs/ST_HausdorffDistance.html), plus topology/interval tools discussed in V1. Use a future controlled extension decision; do not enable it on production merely to repeat this experiment.
+
+Association would address regulation-row-to-physical-location linkage only. Street sweeping, permit interpretation, meter payment, `OTHER` semantics, unsupported schedules, and complete city-source coverage remain unresolved. **CITY remains INCOMPLETE.**
+
+### Validation and safety
+
+Full V2 profiler: exit 0. Arithmetic and grid checks: passed. `pnpm.cmd typecheck`: passed, including scripts and all workspaces, again when continuing from the interruption. Evidence integrity and candidate multiplicity totals: checked. `git diff --check`: passed (line-ending notices only). Changes are limited to the profiler and the three design documents. No production access/writes, ingest, `block_id` population, extension enablement, migration, runtime/legality/coverage/AI/agent/MCP/UI changes, secrets, or commit were introduced by V2.
