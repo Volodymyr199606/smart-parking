@@ -1,5 +1,7 @@
 # City Regulation Association Storage Design V1
 
+**Snapshot contract follow-up:** [Curb Snapshot + Canonicalization V1](./CITY_CURB_SNAPSHOT_CONTRACT.md) defines the target capture/retention and offline digest contract, including direction-sensitive geometry and snapshot membership identity. This covers curb targets only; regulation snapshot retention remains separate. Public double-capture validation was blocked by HTTP 403. Interval measurement and database publication/immutability guards remain unresolved; no association migration or population is authorized by this contract.
+
 **Curb-storage follow-up:** [City Curb Feature Storage Design V1](./CITY_CURB_STORAGE.md) recommends immutable source-feature content versions plus source snapshots and snapshot membership. A version may be reused across identical captures; a run must bind a specific snapshot and validate membership. This refines the target prerequisite below but does not create the missing tables or unblock association migration/publication by itself.
 
 **Status: documentation only; migration and shared types deferred.** No matching, associations, database access, PostGIS enablement, or runtime changes. This design follows [Spatial Validation V2](./DATASF_REGULATION_JOIN.md#16-spatial-association-validation-v2--2026-09-18): 7,778 usable regulations, 83,796 measured pairs, 165 geometry-only screened rows, **zero independently verified associations**. The production storage baseline is supplied by the user, not re-queried here. CITY remains **INCOMPLETE**.

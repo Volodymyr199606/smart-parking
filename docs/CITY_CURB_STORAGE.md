@@ -2,6 +2,8 @@
 
 **Status: design and public read-only profiling; migration/types deferred.** No database access, curb ingestion, association population, PostGIS enablement or runtime change. This provides the target-storage design needed by [Association Storage V1](./CITY_REGULATION_ASSOCIATION_STORAGE.md), not verified regulation associations. CITY remains **INCOMPLETE**.
 
+**Snapshot contract follow-up:** [City Curb Snapshot + Canonicalization Contract V1](./CITY_CURB_SNAPSHOT_CONTRACT.md) now specifies ordered capture, conservative consistency states, retained raw bodies/manifest, and exact `curb-jcs-v1` digests with an offline implementation and conformance checks. It supersedes the tentative capture/canonicalization choices below. Live double-capture validation was blocked by HTTP 403 before any source rows were fetched. Durable storage operations, interval measurement and database publication/immutability guards still prevent migration readiness.
+
 ## 1. Existing storage and reusable conventions
 
 Inspected migrations, `ingest-sf-parking-data.ts`, `normalize-city-parking.ts`, both regulation profilers, shared domain/adapters, and the regulation storage, association storage, spatial research, city plan and architecture documents.
@@ -178,7 +180,7 @@ Unchanged content shares a version across snapshots. Changed geometry **or any r
 
 Two separate needs must not be conflated: reproducible ordered geometry for interval references, and diagnostic geometric equivalence.
 
-Proposed production contract `curb-jcs-v1` uses SHA-256 over UTF-8, explicitly domain-separated inputs. Use a tested implementation of [RFC 8785 JCS](https://www.rfc-editor.org/rfc/rfc8785) later, not a hand-written heavy canonicalizer now. JCS removes whitespace/property-order variability, preserves array order and uses defined JSON primitive serialization. It is not topology normalization. Reject unsupported canonical inputs rather than silently coercing them; retain raw bytes for source-number lexemes and parser audit.
+Contract `curb-jcs-v1` uses SHA-256 over UTF-8, explicitly domain-separated inputs. The [snapshot contract](./CITY_CURB_SNAPSHOT_CONTRACT.md#6-canonical-input-and-serialization) defines the implemented offline JCS serialization and stricter source decimal round-trip acceptance, duplicate-key and Unicode validation. Formatting/property order does not change identity; array order remains significant. This is not topology normalization. Raw bytes retain source-number lexemes and parser evidence; unsupported precision fails instead of silently rounding. The helper is outside production ingestion and runtime.
 
 ```text
 geometry_sha256 = SHA256("city-curb/geometry/v1\n" + JCS(geometryEnvelope))
@@ -229,7 +231,7 @@ The future ingestion sequence, **not implemented or run**, is:
 
 Freeze version identity/content/geometry/digests and published snapshot manifests/membership. Permit only guarded lifecycle transitions on snapshots; no payload mutation on published or retired captures. Use RESTRICT FKs and no routine DELETE privileges. If storage cleanup is later needed, it must respect every historical association and retention requirement. Missing features in a new complete snapshot disappear only from its membership, not from old versions/history.
 
-Current `$limit`/`$offset` profiling plus unchanged metadata is not proof of an atomic upstream snapshot. Future capture must define a consistency policy (for example a versioned export or validated stable enumeration with complete-set checks), record its limits, and retain exactly the bytes analyzed. Reproducibility of a captured set and authority/completeness of the upstream set are distinct. This capture/publication policy is one reason migration creation remains deferred.
+The earlier profiler's `$limit`/`$offset` plus unchanged metadata is not proof of an atomic upstream snapshot. The [snapshot contract](./CITY_CURB_SNAPSHOT_CONTRACT.md#3-consistency-and-change-detection) now requires explicit ID ordering, counts, schema/metadata checks, strict identities and retained bodies, while explicitly limiting `CONSISTENT` to observed agreement. Its live validation is still blocked. Reproducibility of captured bytes and authority/completeness of the upstream set remain distinct.
 
 ## 10. RLS, publication and migration readiness
 
@@ -237,7 +239,7 @@ Proposed new tables: RLS enabled; no anon/authenticated INSERT/UPDATE/DELETE pol
 
 Default the new base snapshot/version/membership tables to **server-only reads**, including raw source/artifact manifests. If a real client feature later needs curb geometry, expose a narrowly scoped read projection of usable members of the current published snapshot, excluding private artifact/reviewer details. This projection is not built now; existing source-registry and city-table policies remain unchanged. Publishing curb data says nothing about verified regulation associations or coverage readiness.
 
-**Migration deferred; no SQL migration file or shared type export created.** The snapshot-scoped identity and FK direction are now explicit and do not depend on pretending lifetime physical identity is known. However, capture consistency/durable artifact policy, numeric/canonicalization conformance fixtures, linear referencing convention, and immutable version/publication concurrency guards are not implemented or sufficiently validated for a production migration. Unknown physical-curb continuity also remains a separate blocker to automatic association promotion. Do not present that semantic uncertainty as something a UUID or PostGIS extension fixes.
+**Migration deferred; no SQL migration file or shared type export created.** Snapshot identity and FK direction do not depend on pretending lifetime physical identity is known. Capture consistency/artifact retention and numeric/canonicalization contracts now have an offline specification and verification; live capture validation and operational artifact retention remain outstanding. Linear referencing and immutable version/publication concurrency guards remain unimplemented. Unknown physical-curb continuity is also a separate blocker to automatic association promotion; neither a UUID nor PostGIS resolves it.
 
 Before migration implementation: settle and test these contracts in an isolated environment with duplicate IDs, coordinate reversal, metadata-only changes, repeated identical captures, disappearing/reappearing IDs, failed captures, concurrent publication and attempted historical mutation. This task runs only the source profiler and repository checks; it does not create these ingestion tests or schema.
 
