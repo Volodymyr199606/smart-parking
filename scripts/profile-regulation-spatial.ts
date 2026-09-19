@@ -5,6 +5,7 @@
  * evidence plus bounded examples. Thresholds are experiments, NOT acceptance criteria.
  * Run: pnpm.cmd exec tsx scripts/profile-regulation-spatial.ts
  * V2 full competition: add --v2; add --evidence for complete pair evidence on stdout.
+ * Curb storage research only: --curb-storage (public pep9-66vw, no regulations).
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -162,6 +163,7 @@ async function fetchDataset(dataset: Dataset): Promise<Feature[]> {
   if (!complete) throw new Error(`${id}: safety cap, incomplete source`);
   const endMeta = await fetchDataSfJson(`https://data.sfgov.org/api/views/${id}.json`, log) as typeof meta;
   if (endMeta.rowsUpdatedAt !== meta.rowsUpdatedAt) throw new Error(`${id}: upstream changed during pagination`);
+  if (process.argv.includes("--curb-storage") && dataset === "curbs") curbStorageProfile(rows, meta);
   const features = rows.map((row, index) => feature(row, index, dataset)).filter((f): f is Feature => f !== null);
   const duplicateIds = [...groupBy(features, f => f.id).values()].filter(group => group.length > 1);
   const unique = [...groupBy(features, f => `${f.id}:${f.fingerprint}`).values()].map(group => group[0]);
@@ -454,6 +456,66 @@ function fullCompetition(regs: Feature[], curbs: Feature[], faces: Feature[]) {
         meterFaceMetadata: (faceIds.get(str(p.target.row.sfpark_id)) ?? []).slice(0, 2).map(textEvidence) })) })) });
   }
 }
+function curbGeometryIssue(value: unknown): "missing" | "malformed" | "unsupported" | null {
+  if (value == null) return "missing";
+  if (typeof value !== "object" || Array.isArray(value)) return "malformed";
+  const g = value as { type?: unknown; coordinates?: unknown };
+  if (g.type !== "LineString" && g.type !== "MultiLineString") return "unsupported";
+  const parts = g.type === "LineString" ? [g.coordinates] : g.coordinates;
+  if (!Array.isArray(parts) || !parts.length || parts.some(part => !Array.isArray(part) || part.length < 2 || part.some(p =>
+    !Array.isArray(p) || p.length < 2 || !p.every(v => typeof v === "number" && Number.isFinite(v)) || p[0] < -180 || p[0] > 180 || p[1] < -90 || p[1] > 90))) return "malformed";
+  return null;
+}
+function curbStorageProfile(rows: Row[], metadata: unknown) {
+  const meta = metadata as { createdAt?: number; rowsUpdatedAt?: number; viewLastModified?: number; publicationDate?: number; description?: string; columns: { fieldName: string; dataTypeName: string; description?: string }[] };
+  const columns = meta.columns.filter(c => !c.fieldName.startsWith(":" )).map(c => ({ field: c.fieldName, type: c.dataTypeName, description: c.description ?? "" }));
+  emit("CURB_METADATA", { createdAt: meta.createdAt, rowsUpdatedAt: meta.rowsUpdatedAt, viewLastModified: meta.viewLastModified, publicationDate: meta.publicationDate,
+    description: meta.description, columns, rowDateFields: columns.filter(c => /date|time|updated|created|modified|version/.test(c.field) || /date|time/.test(c.type)),
+    schemaDescriptorDiagnosticDigest: hash(columns) });
+  for (const key of ["globalid", "objectid", "id", "name", "sfpark_id", "blockface_", "cnn_id"]) {
+    const missing = rows.filter(r => r[key] == null).length;
+    const values = rows.map(r => str(r[key])).filter(meaningful);
+    const groups = [...groupBy(values, v => v).entries()], repeated = groups.filter(([, g]) => g.length > 1);
+    emit("CURB_IDENTITY", { field: key, total: rows.length, missingOrNull: missing, blankOrNullPlaceholder: rows.length - missing - values.length,
+      meaningful: values.length, distinct: groups.length, duplicateGroups: repeated.length, rowsInDuplicateGroups: repeated.reduce((n, [, g]) => n + g.length, 0),
+      extraDuplicateRows: values.length - groups.length, examples: repeated.slice(0, 4).map(([value, g]) => ({ value, rows: g.length })) });
+  }
+  const issues = rows.map(r => curbGeometryIssue(r.shape));
+  const syntacticallyUsable = rows.filter((_, i) => issues[i] === null);
+  const features = syntacticallyUsable.map((r, i) => feature(r, i, "curbs")).filter((f): f is Feature => f !== null);
+  const exactOrdered = [...groupBy(features, f => hash(f.row.shape)).values()].filter(g => g.length > 1);
+  const reverseEqual = [...groupBy(features, f => f.fingerprint).values()].filter(g => g.length > 1);
+  const grid = new DiagnosticGrid(features), nearIds = new Set<string>();
+  let bboxPairs = 0, measuredPairs = 0, nearPairs = 0, nearQuarterMeter = 0;
+  const nearExamples: unknown[] = [];
+  for (const [i, a] of features.entries()) {
+    if (i % 997 === 0) assert.deepEqual(grid.query(a.box, 2).map(f => f.id).sort(), features.filter(f => near(a.box, f.box, 2)).map(f => f.id).sort());
+    for (const b of grid.query(a.box, 2)) {
+      if (a.id.localeCompare(b.id) >= 0) continue;
+      bboxPairs++;
+      if (a.fingerprint === b.fingerprint || lineDistance(a, b) > 2) continue;
+      measuredPairs++;
+      const hd = Math.max(directedDistance(a, b), directedDistance(b, a));
+      if (hd > 2) continue;
+      nearPairs++; if (hd <= .25) nearQuarterMeter++;
+      nearIds.add(a.id); nearIds.add(b.id);
+      if (nearExamples.length < 4) nearExamples.push({ ids: [a.id, b.id], sampledHausdorffM: hd, lengthsM: [a.length, b.length], sfparkIds: [a.row.sfpark_id ?? null, b.row.sfpark_id ?? null] });
+    }
+  }
+  const repeatedIds = [...groupBy(features.filter(f => meaningful(f.row.sfpark_id)), f => str(f.row.sfpark_id)).entries()].filter(([, g]) => g.length > 1);
+  emit("CURB_GEOMETRY", { rows: rows.length, nullOrMissing: issues.filter(x => x === "missing").length,
+    malformed: issues.filter(x => x === "malformed").length, unsupported: issues.filter(x => x === "unsupported").length,
+    outsideDiagnosticBounds: syntacticallyUsable.length - features.length, usable: features.length, types: frequencies(features.map(f => f.type)), components: frequencies(features.map(f => String(f.parts.length))),
+    exactOrderedDuplicateGroups: exactOrdered.length, exactOrderedDuplicateRows: exactOrdered.reduce((n, g) => n + g.length, 0),
+    reverseInsensitiveDuplicateGroups: reverseEqual.length, reverseInsensitiveDuplicateRows: reverseEqual.reduce((n, g) => n + g.length, 0),
+    maxExactGroup: Math.max(0, ...reverseEqual.map(g => g.length)), exactExamples: reverseEqual.slice(0, 4).map(g => g.map(f => ({ id: f.id, sfparkId: f.row.sfpark_id ?? null }))),
+    nearNonExactPairsWithin2m: nearPairs, nearNonExactPairsWithinQuarterMeter: nearQuarterMeter, nearDistinctRows: nearIds.size, nearExamples, bboxPairs, measuredPairs,
+    lengthMeters: summarize(features.map(f => f.length)), zeroLength: features.filter(f => f.length <= 1e-9).length,
+    under1m: features.filter(f => f.length < 1).length, under5m: features.filter(f => f.length < 5).length, over300m: features.filter(f => f.length > 300).length, over500m: features.filter(f => f.length > 500).length,
+    longest: [...features].sort((a, b) => b.length - a.length).slice(0, 3).map(f => ({ id: f.id, meters: f.length })),
+    repeatedSfpark: repeatedIds.map(([id, g]) => ({ id, rows: g.map(f => ({ globalid: f.id, geometryFingerprint: f.fingerprint, lengthM: f.length })) })),
+    note: "read-only diagnostic; no topology repair, identity merging, canonicalizer, association, or database access" });
+}
 function selfCheck() {
   assert.equal(pointSegment([5, 3], [[0, 0], [10, 0]]), 3);
   assert.equal(segmentDistance([[0, 0], [10, 10]], [[0, 10], [10, 0]]), 0);
@@ -472,11 +534,23 @@ function selfCheck() {
   assert.equal(angleDifference(f, reversed), 0);
   assert.equal(endpoints(f, reversed), 0);
   assert(strongGeometry(measurePair(f, reversed, 0)));
+  assert.equal(curbGeometryIssue(null), "missing");
+  assert.equal(curbGeometryIssue({ type: "LineString", coordinates: [[-122, 37], [-122, 38]] }), null);
+  assert.equal(curbGeometryIssue({ type: "LineString", coordinates: [[-122, 37]] }), "malformed");
+  assert.equal(curbGeometryIssue({ type: "LineString", coordinates: [[-122, 37], [NaN, 38]] }), "malformed");
+  assert.equal(curbGeometryIssue({ type: "MultiLineString", coordinates: [] }), "malformed");
+  assert.equal(curbGeometryIssue({ type: "Point", coordinates: [-122, 37] }), "unsupported");
   log("diagnostic arithmetic self-checks passed");
 }
 async function main() {
   selfCheck();
   if (process.argv.includes("--self-check")) return;
+  if (process.argv.includes("--curb-storage")) {
+    emit("CURB_STORAGE_METHOD", { timestamp: new Date().toISOString(), source: DATASETS.curbs, sampleSpacingMeters: SPACING, projection: "V1 local equirectangular", nearDuplicateMeters: 2 });
+    await fetchDataset("curbs");
+    log("Curb storage profile complete: public GETs only; no ingestion, database access, or associations.");
+    return;
+  }
   if (process.argv.includes("--v2")) {
     emit("V2_METHOD", { timestamp: new Date().toISOString(), searchMeters: SEARCH, gridMeters: 100, sampleSpacingMeters: SPACING,
       projection: "local equirectangular; same V1 diagnostic metric", thresholds: "experimental only", writes: false,

@@ -1,0 +1,308 @@
+# City Curb Feature Storage Design V1
+
+**Status: design and public read-only profiling; migration/types deferred.** No database access, curb ingestion, association population, PostGIS enablement or runtime change. This provides the target-storage design needed by [Association Storage V1](./CITY_REGULATION_ASSOCIATION_STORAGE.md), not verified regulation associations. CITY remains **INCOMPLETE**.
+
+## 1. Existing storage and reusable conventions
+
+Inspected migrations, `ingest-sf-parking-data.ts`, `normalize-city-parking.ts`, both regulation profilers, shared domain/adapters, and the regulation storage, association storage, spatial research, city plan and architecture documents.
+
+| Persisted entity | Identity / provenance | Versioning limitation |
+|---|---|---|
+| `city_parking_sources` | Generated UUID; unique `source_key`; provider/dataset/API metadata and latest import counters | Mutable registry, not a capture manifest |
+| `city_parking_blocks` | UUID; unique `(source_id, external_id)`; source geometry in `raw_payload`; nullable/non-unique blockface text | Upserted current row; no immutable geometry history |
+| `city_parking_meters` | UUID; unique `(source_id, external_id)`; meter/blockface text, coordinates, nullable block FK, `raw_payload` | A meter point, not a curb version |
+| `normalized_parking_locations` | UUID; unique `(source_type, source_id)` where `source_id` is external **text**; `raw_source` links city row/source metadata | Normalized meter inventory points, updated in place |
+| `city_parking_regulations` | UUID; unique `(source_id UUID FK, external_id text)`; geometry omitted from `raw_source`; nullable `block_id` | Rule storage, not a spatial target or immutable snapshot |
+
+Reuse generated internal UUIDs, source-registry FKs, explicit external text identity, `timestamptz` defaults, source raw-data preservation, and server-owned writes. Do **not** reuse current-row overwrites for historical target versions. `ParkingLocation` remains a point-oriented runtime type; `ParkingEvidence` remains CITY/COMMUNITY/MOCK fact provenance, not a geometry version or quality score. No shared source category is added.
+
+No separate persisted curb/blockface entity exists. The ingest source list does not register `pep9-66vw`; a future source key such as `datasf_citywide_curbs` is a **proposal**, not a source row created by this task. Registry metadata should identify the dataset once; snapshot records capture observations of it.
+
+## 2. Live `pep9-66vw` identity evidence
+
+Run: `pnpm.cmd exec tsx scripts/profile-regulation-spatial.ts --curb-storage`, starting **2026-09-19T01:00:55.071Z** (September 18 local Pacific date). It fetched all **18,355 rows**, used the existing retry helper, and exited **0**. No other dataset or production database was queried by this mode. Transient HTTP 425 retries recovered. Dataset metadata before/after the pagination had unchanged `rowsUpdatedAt`.
+
+The [DataSF metadata](https://data.sfgov.org/api/views/pep9-66vw.json) exposes exactly these public fields: `name`, `popupinfo`, `shape_leng`, `street_nam`, `blockface_`, `sfpark_id`, `cnn_id`, `globalid`, `shape`. It describes curb-coincident line features assembled through manual drawing, offsets, centerlines and a blockface tool. Some features represent only portions of streets originally drawn for regulation extents. Attributes are described as unverified except `SFPARK_ID`.
+
+| Candidate field | Missing/null | Blank/null placeholders | Meaningful rows | Distinct meaningful values | Duplicate groups | Rows in duplicate groups |
+|---|---:|---:|---:|---:|---:|---:|
+| `globalid` | 0 | 0 | 18,355 | 18,355 | 0 | 0 |
+| `objectid` | 18,355 | 0 | 0 | 0 | 0 | 0 |
+| `id` | 18,355 | 0 | 0 | 0 | 0 | 0 |
+| `name` | 0 | 0 | 18,355 | 1,908 | 4 | 16,451 |
+| `sfpark_id` | 16,445 | 0 | 1,910 | 1,907 | 3 | 6 |
+| `blockface_` | 16,445 | 0 | 1,910 | 1,906 | 4 | 8 |
+| `cnn_id` | 16,445 | 22 | 1,888 | 1,183 | 698 | 1,403 |
+
+Counts refer to returned public row fields; omitted keys and JSON nulls are grouped. The 22 `cnn_id` placeholders are excluded from meaningful uniqueness. `name = Placemark` occurs 16,445 times. Neither `objectid` nor `id` is a public source column; hidden Socrata row metadata, if obtainable separately, is not assumed to be a physical identity or used as a fallback.
+
+`sfpark_id` is documented as an ID generated for the meter database/parking-space inventory, related to meter/block/management-district identifiers. That is useful context, **not** a guarantee of unique physical curb identity in this layer. Duplicate values are `306221`, `687001`, `306222`: the first two each have different geometries/lengths (51.339 vs 58.464 m; 81.813 vs 128.731 m); the last has two different `globalid`s with equal geometry (54.407 m). `blockface_` duplicates include `24S`, `101`, `200`, `24T`. There is no documented parent/split/merge/version chain explaining these records.
+
+### Identity and stability conclusions
+
+- **Row identity:** a record observed in one captured snapshot. `(snapshot_id, external_id)` is sufficient for the currently observed unique `globalid` values.
+- **Source feature identity:** `globalid` is the best observed feature-label candidate, but its metadata description is empty. Its persistence through redraw, split, merge, deletion or republishing is **not established**. Keep the source string, including braces/case, rather than casting it into an internal UUID or silently normalizing it.
+- **Physical curb identity:** an independently established real-world curb/extent. No field in this profile proves a one-to-one mapping to such an identity. Equal coordinates, shared meter IDs, or a unique global ID do not establish it.
+
+The current ID/geometry diagnostic digest `16c97866a440b45d510db842f2c396c864a2d893c54cf7585df9a43f3b72a18e` matches V1/V2, providing short observation-window consistency only. It is not a lifetime identity contract or evidence that the source reflects today's curbs.
+
+There are **no per-feature update/version timestamp columns**. Catalog timestamps are: created 2019-05-01T23:11:30Z; publication 2019-05-01T23:49:05Z; rows updated **2020-10-12T17:01:01Z**; view last modified **2025-08-21T16:53:35Z**. View metadata modification is not a feature edit timestamp. Do not fill `valid_from` with any of these or with retrieval time. The descriptions still refer to development work in June 2015.
+
+Distinct rows could be partial features, duplicates, redraws or split representations, but a single snapshot does not establish historical succession or physical equivalence. No synthetic curb lineage or automatic geometry-based identity merge is warranted.
+
+## 3. Geometry findings
+
+`shape` contains **18,355 LineStrings**, each with one component. Missing/null geometry: **0**; malformed coordinates/line structure: **0**; unsupported types: **0**; outside the profiler's SF diagnostic bounds: **0**. These checks validate finite coordinates, geographic bounds and minimum line structure, not survey accuracy, self-intersection validity or topology.
+
+The DataSF geometry is WGS84 longitude/latitude GeoJSON. [Socrata line documentation](https://dev.socrata.com/docs/datatypes/line) and [GeoJSON RFC 7946](https://www.rfc-editor.org/rfc/rfc7946) establish coordinate-order/representation context. Store explicit `OGC:CRS84`/longitude-latitude semantics; do not confuse degree coordinates with metres or import a related ArcGIS layer's native feet without transformation provenance.
+
+| Diagnostic | Result |
+|---|---:|
+| Ordered parsed-GeoJSON equality | 16 groups / 32 rows |
+| Coordinate equality allowing line reversal | 17 groups / 34 rows; largest group 2 |
+| Additional non-exact pairs, sampled symmetric Hausdorff <=2 m | 9 pairs / 18 distinct rows |
+| Additional non-exact pairs <=0.25 m | 0 |
+| Zero-length lines | 0 |
+| Length <1 m / <5 m | 1 / 2 |
+| Length >300 m / >500 m | 209 / 47 |
+| Min / median / p90 / p99 / max length | 0.354 / 82.252 / 183.311 / 314.419 / 1,159.459 m |
+
+Near-duplicate analysis used the existing 100 m grid, a 2 m expanded-bbox search, minimum segment-distance prefilter, and <=5 m sampling plus original vertices in both directions. It considered 11,339 unordered bbox pairs, measured 193 non-exact nearby pairs, and found the nine above. Grid-vs-brute-bbox checks and local arithmetic checks passed. Lengths/distances use the V1 local equirectangular approximation; neither near equality nor the parsed-JSON fingerprint is a production canonical geometry predicate.
+
+Example equal-geometry rows: `{A341035D-0EDB-4E0D-B24E-FBBDDF6634EF}` and `{170A0458-850A-4F37-95F8-88761EABAD63}`, both `sfpark_id=306222`. Example near pair: `{39201823-F39A-427E-B5ED-EA9AE3FEDFC0}` and `{B8A75B97-1A46-456A-9634-CB1AD2A6120C}`, sampled Hausdorff 0.750 m. Preserve every source identity; do not deduplicate source features by these metrics.
+
+The longest feature, `{E34C53F7-9B43-4B4D-8FA7-1730B5806FCC}`, is approximately 1,159.459 m. Long features and partial features mean “one source row = one city block” is not a safe domain assumption. No multipart geometry was observed; unexpected future MultiLineString/other geometry should be preserved and quarantined for an explicit contract revision rather than silently split into invented source IDs.
+
+## 4. Representation and model choice
+
+**Store the original parsed GeoJSON geometry as a first-class `geometry_geojson jsonb` value on an immutable version, plus non-geometry source fields in `raw_source jsonb`.** Preserve exact fetched response bytes in durable, checksummed snapshot artifacts when implementing ingestion. JSONB preserves values, not original wire formatting/order/number lexemes; the artifact provides byte-level reproducibility.
+
+| Option | Decision |
+|---|---|
+| Raw GeoJSON | Preferred: retains explicit type/order and permits future spatial conversion |
+| Separate coordinate array | Unnecessary duplicate representation; loses type/context unless wrapped again |
+| WKT | Optional later derived export, not canonical source storage |
+| Digest + live external fetch only | Insufficient: upstream changes/deletes would destroy reproducibility |
+| PostGIS geometry | Possible derived analysis representation later; not required or enabled here |
+
+Compare version models:
+
+- In-place overwrite cannot retain accepted evidence.
+- A logical `city_parking_curbs` row with a current-version pointer assumes identity continuity that the source has not established.
+- Snapshot-local feature copies retain history but duplicate unchanged geometry on every capture.
+- **Recommended hybrid: snapshots + immutable content versions + snapshot membership.** It avoids a claimed physical-curb entity while reusing exactly unchanged content for the same external key.
+
+No `city_parking_curbs` physical-entity table or per-curb current pointer is proposed for V1. “Current” is membership in the current published snapshot. A namespaced external ID is an observed source label; a reused version means the same recorded content, not proof of real-world entity continuity or approval continuity.
+
+## 5. Proposed storage contract (not a migration)
+
+### `city_parking_source_snapshots`
+
+One capture of a registered source. Reuse `city_parking_sources` for dataset registration; do not copy its mutable import counters as historical evidence.
+
+| Fields | Purpose / constraints |
+|---|---|
+| `id uuid` | Generated PK |
+| `source_id uuid` | FK to `city_parking_sources(id)`, RESTRICT deletion |
+| `capture_key text` | Unique with `source_id`; stable key for resuming the same capture, not a content ID |
+| `retrieval_started_at`, `retrieval_completed_at` | Actual observation times; completion nullable while staging |
+| `upstream_rows_updated_at`, `upstream_view_modified_at` | Nullable catalog observations; never physical valid-time claims |
+| `schema_sha256`, `source_content_sha256`, `identity_geometry_sha256` | Versioned manifest digests; non-null before publication |
+| `row_count`, `usable_geometry_count`, `excluded_geometry_count` | Validated manifest counts; usable + excluded = total; identity failures reject capture |
+| `fetch_tool_version`, `canonicalization_version` | Explicit, nonempty versions |
+| `manifest jsonb` | Captured provider/dataset/URL, metadata artifact, raw page/export artifacts and hashes, ordering, paging, capture consistency, field/schema descriptors and validation report |
+| `lifecycle` | `DRAFT / PUBLISHED / RETIRED / REJECTED`; rejection reasons required for failed capture |
+| `published_at`, `retired_at`, `created_at` | Server timestamps; not source validity dates |
+
+Use `UNIQUE(source_id, capture_key)` and `UNIQUE(id, source_id)` for membership FKs; a partial unique index on `source_id WHERE lifecycle='PUBLISHED'` allows one current curb snapshot per source. Retired published captures remain historical evidence; rejected captures preserve failure artifacts but cannot be association targets. Additional index: `(source_id, retrieval_completed_at DESC)`.
+
+Source registry identity should not be repurposed for a different provider/dataset. Capture-time provider/dataset strings in the manifest are intentional audit copies, guarding history against later registry-label edits. Capturing identical content at a later time creates a new snapshot observation but can reuse every version; retrying one capture reuses its capture key. Completeness refers to the observed dataset, not complete city regulation coverage.
+
+### `city_parking_curb_versions`
+
+An immutable **source-feature content version**, not a physical-curb entity. Its UUID is the exact future association FK target.
+
+| Fields | Purpose / constraints |
+|---|---|
+| `id uuid` | Generated internal PK; never copied/cast from DataSF `globalid` |
+| `source_id uuid` | FK to source registry, RESTRICT |
+| `external_id text` | Verbatim nonempty `globalid`; no random fallback or geometry-derived identity |
+| `canonicalization_version text` | Identifies digest input/serialization contract |
+| `geometry_presence` | `ABSENT / NULL / VALUE`; preserves source distinction for reproducible digest input |
+| `geometry_geojson jsonb` | Original parsed `shape`; nullable for missing input; retain malformed JSON values as quarantined source evidence |
+| `geometry_sha256 text` | Strict ordered geometry-value digest, including a versioned missing/null encoding if absent |
+| `attributes_sha256 text`, `content_sha256 text` | Non-geometry values and the full feature identity/content envelope |
+| `raw_source jsonb` | All source columns except `shape`, preserving values/types, placeholders and original `globalid` |
+| `geometry_state` | `USABLE / MISSING / MALFORMED / UNSUPPORTED`; not a spatial-match quality |
+| `validation_version`, `validation_reasons` | Frozen structural validation provenance; thresholds must not silently change old rows |
+| `created_at timestamptz` | Database creation time only |
+
+Unique content key: **`(source_id, external_id, canonicalization_version, content_sha256)`**. Verify equal canonical content before reusing a row; a digest collision or disagreement is an error, not an overwrite. Keep `UNIQUE(id, source_id, external_id)` for the membership composite FK. Index `(source_id, external_id)` for history discovery. No unique geometry digest: different external IDs with identical geometry must remain distinct. Do not constrain `sfpark_id`, `cnn_id`, name or geometry similarity as identity.
+
+`USABLE` initially means structurally usable, nonzero LineString under a frozen validation policy; it does not certify curb side or survey accuracy. Tiny/long features remain retained with review flags rather than arbitrary deletion. Future changes in validation should be recorded in a separate assessment or a deliberately revised canonical/validation contract, not mutate an accepted version's payload/state.
+
+No `updated_at`, per-version mutable `current` bit, source `valid_from`, or `valid_to` is appropriate on immutable content. Presence/absence and capture chronology belong to snapshots. A disappearance is not a proven physical demolition; reappearance is not a proven same curb. Artifact manifests retain exact omitted-vs-null geometry information so these cases can hash distinctly even if the projected JSONB geometry column is null for both.
+
+### `city_parking_curb_snapshot_features`
+
+Membership binds each observed row to its content version:
+
+```text
+snapshot_id UUID NOT NULL
+source_id UUID NOT NULL
+external_id TEXT NOT NULL
+curb_version_id UUID NOT NULL
+PRIMARY KEY (snapshot_id, external_id)
+UNIQUE (snapshot_id, curb_version_id)
+FOREIGN KEY (snapshot_id, source_id)
+  -> city_parking_source_snapshots(id, source_id) ON DELETE RESTRICT
+FOREIGN KEY (curb_version_id, source_id, external_id)
+  -> city_parking_curb_versions(id, source_id, external_id) ON DELETE RESTRICT
+INDEX (curb_version_id)
+```
+
+The repeated namespace/key columns here enforce same-source/same-external-ID membership; they are not an invented identity. A snapshot belongs to one source, so its `(snapshot_id, external_id)` PK is the enforceable equivalent of `(source_id, snapshot_id, external_id)`. **Do not use `UNIQUE(source_id, external_id)` on versions**, which would prevent history. A duplicate/missing global ID in one future capture fails publication and retains the raw capture for investigation; it must not be silently deduplicated or assigned a synthetic key.
+
+```mermaid
+erDiagram
+    CITY_PARKING_SOURCE ||--o{ SOURCE_SNAPSHOT : captured_as
+    CITY_PARKING_SOURCE ||--o{ CURB_VERSION : namespaces
+    SOURCE_SNAPSHOT ||--o{ SNAPSHOT_FEATURE : contains
+    CURB_VERSION ||--o{ SNAPSHOT_FEATURE : observed_in
+    CURB_VERSION ||--o{ FUTURE_ASSOCIATION : immutable_target
+```
+
+Unchanged content shares a version across snapshots. Changed geometry **or any retained source attribute** creates new content under the same external key. A source key that disappears/reappears with the same content may reuse storage bytes/version, but new snapshot membership does not transfer approval. Splits/merges/renumbering create observations under new external keys; lineage remains unasserted until separate evidence supports it.
+
+## 6. Digest strategy
+
+Two separate needs must not be conflated: reproducible ordered geometry for interval references, and diagnostic geometric equivalence.
+
+Proposed production contract `curb-jcs-v1` uses SHA-256 over UTF-8, explicitly domain-separated inputs. Use a tested implementation of [RFC 8785 JCS](https://www.rfc-editor.org/rfc/rfc8785) later, not a hand-written heavy canonicalizer now. JCS removes whitespace/property-order variability, preserves array order and uses defined JSON primitive serialization. It is not topology normalization. Reject unsupported canonical inputs rather than silently coercing them; retain raw bytes for source-number lexemes and parser audit.
+
+```text
+geometry_sha256 = SHA256("city-curb/geometry/v1\n" + JCS(geometryEnvelope))
+attributes_sha256 = SHA256("city-curb/attributes/v1\n" + JCS(rowWithoutShape))
+content_sha256 = SHA256("city-curb/content/v1\n" + JCS({
+  provider, dataset_id, external_id, canonicalization_version,
+  geometry_sha256, attributes_sha256
+}))
+```
+
+`geometryEnvelope` records whether `shape` was absent, explicitly null, or present, and its exact parsed value. Do not round coordinates, reverse lines, sort vertices, remove repeated vertices, snap points, simplify curves, project coordinates, or equate LineString with MultiLineString before the strict digest. Changed precision/vertices/direction creates a distinct version; JSON formatting and object-member order do not. Coordinate number spelling alone is a byte-artifact difference, not necessarily a parsed-value difference. Reject inputs outside the chosen numeric/Unicode contract and explicitly test negative zero and precision behavior before implementation.
+
+Optional **diagnostic** reverse-insensitive fingerprints may group equivalent coordinate sequences; keep them separate from identity/version uniqueness. V1/V2's sorted/reversed `JSON.stringify` fingerprint is such a diagnostic, not `curb-jcs-v1`. It does not prove topological equality under resampling. A reversal could map fraction `f` to `1-f`; never remap a stored association automatically.
+
+Snapshot digests: sort observed external IDs using the documented deterministic string ordering and hash a canonical array of `[external_id, content_sha256]` for `source_content_sha256`; similarly hash `[external_id, geometry_sha256]` for `identity_geometry_sha256`. Include provider/dataset/canonicalization version in both envelopes. Duplicate IDs reject the snapshot, rather than creating ambiguous sorting semantics. Geometry identity digest equality means the same identities and ordered geometries, not physical-curb equivalence independent of IDs. Capture/page ordering does not affect these logical-set digests.
+
+`schema_sha256` covers sorted public field names/types and captured geometry/CRS interpretation; a separately checksummed metadata artifact retains descriptions/catalog values. Description/view changes should be visible in metadata without necessarily creating new feature versions. Tool versions, canonicalization versions and original artifact hashes let later work distinguish source changes from transformation changes. No production canonicalizer or digest migration is implemented here.
+
+## 7. Raw preservation and bounded duplication
+
+Keep the original geometry exactly once per content version in `geometry_geojson`; omit `shape` from `raw_source`. Retain `globalid`, `name`, `popupinfo`, `shape_leng`, `street_nam`, `blockface_`, `sfpark_id`, `cnn_id` as source values in `raw_source`, including literal `NULL` placeholders. `external_id` intentionally repeats the original `globalid` as an indexed identity column. Do not duplicate every optional scalar into SQL columns before there is a real query need; later validated projections can extract street/meter identifiers without promoting them to identity.
+
+Do not add inferred street side, stable physical-curb ID, nearest block, regulation ID, or legality to source versions. `shape_leng` has undocumented units/provenance in this feed; retain it verbatim, while measured lengths belong to versioned analysis evidence with explicit units/method.
+
+Raw response/export bytes and dataset metadata belong to a durable snapshot artifact store with checksums, retention and restore verification. They need not be copied to every version. All source keys, including newly observed fields, are preserved in the artifact; unknown schema/geometry changes require validation before publication. A temporary local log or current API URL is not a durable archive. Storage backend, permissions, retention and size bounds remain implementation prerequisites.
+
+## 8. Exact future association and interval reference
+
+Recommended FK: **`city_parking_regulation_associations.curb_version_id -> public.city_parking_curb_versions(id)`**, RESTRICT deletion. It never points at `globalid`, a mutable “current” curb, or a street-block polygon.
+
+The association run must additionally reference **`target_snapshot_id -> city_parking_source_snapshots(id)`**. Publication verifies that every link's version belongs to that snapshot through `city_parking_curb_snapshot_features`, belongs to the expected source and is usable. The version FK alone does not enforce membership in a particular snapshot. A shared version can belong to several captures, so a single snapshot column on the version would be misleading.
+
+Represent partial scope with normalized `[from_fraction, to_fraction]`, `0 <= from < to <= 1`, relative to stored coordinate direction and the specific version. Whole-feature scope is explicitly `[0,1]`. Initial association-ready targets are single LineStrings, component index 0; unexpected multipart data is retained but not auto-associated. Keep source regulation component/interval separately. Multiple link rows may reference complementary intervals on one or several target versions; duplicate identity includes the target version and both source/target intervals.
+
+Fractional arclength requires a **versioned measurement model**: validated metric CRS/transformation, segment-length and interpolation algorithm, precision and tool versions. Record that model in run parameters and the interval reference; changing it requires reassessment. Decimal interval serialization/rounding must be fixed and tested. Do not derive fractions from the approximate profiler and declare them authoritative. Projected metre offsets and subsegment geometries may be retained as derived evidence, not competing canonical extents. Projection logic is not implemented here.
+
+## 9. Immutability, refresh and future ingestion
+
+The future ingestion sequence, **not implemented or run**, is:
+
+1. Register/resolve the source using the existing catalog mechanism, verifying provider/dataset identity; do not overwrite another dataset's registry identity.
+2. Create/resume a DRAFT snapshot by capture key. Fetch a complete source capture and metadata; archive original responses and record ordering, page bounds, retries and capture consistency.
+3. Validate row identities/schema and geometry without lossy repair. Preserve missing/malformed/unsupported geometry as quarantined content with reasons; identity conflicts prevent publishing the capture. Do not hide exclusions by reducing the source count.
+4. Compute tested canonical geometry/attribute/content digests. Reuse a version only for equal content under the same source/external key/canonicalization contract; otherwise create a generated internal UUID version. Do not overwrite old rows.
+5. Create snapshot membership idempotently. Compare exact identity sets, counts, artifacts and digests; a repeated membership insert must agree with the existing version, not change it in place.
+6. Under a source-level lock, validate the complete manifest and membership set, retire the previous current snapshot and publish the new one atomically. Failed or partial captures never replace current state. Concurrent publishers must not mix capture membership.
+7. Trigger an explicit association revalidation/release workflow for changed/current snapshot context. Historical version references and old evidence stay queryable. Reusing identical content is not automatic approval or freshness renewal.
+
+Freeze version identity/content/geometry/digests and published snapshot manifests/membership. Permit only guarded lifecycle transitions on snapshots; no payload mutation on published or retired captures. Use RESTRICT FKs and no routine DELETE privileges. If storage cleanup is later needed, it must respect every historical association and retention requirement. Missing features in a new complete snapshot disappear only from its membership, not from old versions/history.
+
+Current `$limit`/`$offset` profiling plus unchanged metadata is not proof of an atomic upstream snapshot. Future capture must define a consistency policy (for example a versioned export or validated stable enumeration with complete-set checks), record its limits, and retain exactly the bytes analyzed. Reproducibility of a captured set and authority/completeness of the upstream set are distinct. This capture/publication policy is one reason migration creation remains deferred.
+
+## 10. RLS, publication and migration readiness
+
+Proposed new tables: RLS enabled; no anon/authenticated INSERT/UPDATE/DELETE policies or privileges. Immutable versions/history are never client-editable. Future trusted ingest/review tooling owns writes with narrow privileges and transaction/immutability guards. A service role bypassing RLS does not replace these guards.
+
+Default the new base snapshot/version/membership tables to **server-only reads**, including raw source/artifact manifests. If a real client feature later needs curb geometry, expose a narrowly scoped read projection of usable members of the current published snapshot, excluding private artifact/reviewer details. This projection is not built now; existing source-registry and city-table policies remain unchanged. Publishing curb data says nothing about verified regulation associations or coverage readiness.
+
+**Migration deferred; no SQL migration file or shared type export created.** The snapshot-scoped identity and FK direction are now explicit and do not depend on pretending lifetime physical identity is known. However, capture consistency/durable artifact policy, numeric/canonicalization conformance fixtures, linear referencing convention, and immutable version/publication concurrency guards are not implemented or sufficiently validated for a production migration. Unknown physical-curb continuity also remains a separate blocker to automatic association promotion. Do not present that semantic uncertainty as something a UUID or PostGIS extension fixes.
+
+Before migration implementation: settle and test these contracts in an isolated environment with duplicate IDs, coordinate reversal, metadata-only changes, repeated identical captures, disappearing/reappearing IDs, failed captures, concurrent publication and attempted historical mutation. This task runs only the source profiler and repository checks; it does not create these ingestion tests or schema.
+
+## 11. Proposed TypeScript contracts (documentation only)
+
+```typescript
+type SnapshotLifecycle = 'DRAFT' | 'PUBLISHED' | 'RETIRED' | 'REJECTED';
+type GeometryState = 'USABLE' | 'MISSING' | 'MALFORMED' | 'UNSUPPORTED';
+type Sha256 = string; // Validated lowercase 64-hex, not an arbitrary string.
+type FractionDecimal = string; // Validated interval decimal; not a JS float ID.
+
+interface CurbSourceFeature {
+  readonly sourceRegistryId: string;
+  readonly sourceSnapshotId: string;
+  readonly externalId: string; // Source globalid text; not an internal UUID.
+  readonly curbVersionId: string;
+}
+interface CurbVersion {
+  readonly id: string;
+  readonly sourceRegistryId: string;
+  readonly externalId: string;
+  readonly canonicalizationVersion: string;
+  readonly geometryPresence: 'ABSENT' | 'NULL' | 'VALUE';
+  readonly geometryGeoJson: unknown; // Validate; malformed source is retained.
+  readonly geometryState: GeometryState;
+  readonly geometrySha256: Sha256;
+  readonly attributesSha256: Sha256;
+  readonly contentSha256: Sha256;
+  readonly rawSource: Readonly<Record<string, unknown>>; // Excludes shape.
+  readonly validationVersion: string;
+  readonly validationReasons: readonly string[];
+  readonly createdAt: string; // ISO capture/storage time, not physical valid_from.
+}
+interface CurbSourceSnapshot {
+  readonly id: string;
+  readonly sourceRegistryId: string;
+  readonly captureKey: string;
+  readonly retrievalStartedAt: string;
+  readonly retrievalCompletedAt: string | null;
+  readonly lifecycle: SnapshotLifecycle;
+  readonly schemaSha256: Sha256 | null;
+  readonly sourceContentSha256: Sha256 | null;
+  readonly identityGeometrySha256: Sha256 | null;
+  readonly fetchToolVersion: string;
+  readonly canonicalizationVersion: string;
+  readonly rowCount: number | null;
+  readonly usableGeometryCount: number | null;
+  readonly excludedGeometryCount: number | null;
+  readonly manifest: Readonly<Record<string, unknown>>; // Versioned schema.
+}
+interface CurbIntervalReference {
+  readonly sourceSnapshotId: string;
+  readonly curbVersionId: string;
+  readonly componentIndex: 0; // Initial usable target contract is LineString.
+  readonly fromFraction: FractionDecimal;
+  readonly toFraction: FractionDecimal;
+  readonly measurementModelVersion: string;
+  readonly transformationManifestSha256: Sha256;
+}
+```
+
+A future usable-geometry read DTO can narrow `geometryGeoJson` to a validated GeoJSON LineString. These research DTOs are not `ParkingLocation`, legality or availability facts, and TypeScript alone does not establish source truth or enforce the SQL/manifest invariants.
+
+## 12. Coverage and validation
+
+Persisting curb features creates a durable **spatial target** only. Still unresolved: verified regulation-to-curb association, parking-location-to-curb resolution, street sweeping, permit interpretation, meter-payment interpretation, `OTHER` semantics, unsupported schedules and complete city-source coverage. **CITY remains INCOMPLETE.**
+
+Public curb-only profiler: exit 0; local geometry/grid checks passed; no source rows modified. `pnpm.cmd typecheck` passed across all workspaces/scripts. No production connection, ingestion, migration, PostGIS enablement, association population, runtime/legality/coverage/UI/AI/agent/MCP changes or commit occurred.

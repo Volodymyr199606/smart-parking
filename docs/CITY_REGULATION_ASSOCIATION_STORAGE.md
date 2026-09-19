@@ -1,5 +1,7 @@
 # City Regulation Association Storage Design V1
 
+**Curb-storage follow-up:** [City Curb Feature Storage Design V1](./CITY_CURB_STORAGE.md) recommends immutable source-feature content versions plus source snapshots and snapshot membership. A version may be reused across identical captures; a run must bind a specific snapshot and validate membership. This refines the target prerequisite below but does not create the missing tables or unblock association migration/publication by itself.
+
 **Status: documentation only; migration and shared types deferred.** No matching, associations, database access, PostGIS enablement, or runtime changes. This design follows [Spatial Validation V2](./DATASF_REGULATION_JOIN.md#16-spatial-association-validation-v2--2026-09-18): 7,778 usable regulations, 83,796 measured pairs, 165 geometry-only screened rows, **zero independently verified associations**. The production storage baseline is supplied by the user, not re-queried here. CITY remains **INCOMPLETE**.
 
 ## 1. Existing identities and the missing target
@@ -29,10 +31,10 @@ Target an **immutable, versioned citywide curb source feature and, where justifi
 
 A future curb-storage milestone must settle identity, lifecycle, snapshot retention, and side semantics first. Its proposed contract, **not an existing schema**, is:
 
-- A durable target version has a generated database UUID and a real FK-backed snapshot identity. Its external identity is namespaced by provider/dataset, not a bare global ID.
+- A durable target version has a generated database UUID and real FK-backed snapshot membership. Its external identity is namespaced by provider/dataset, not a bare global ID; identical content can belong to multiple snapshots.
 - A snapshot manifest identifies immutable source bytes, capture time, upstream version, content digest, CRS, geometry canonicalization/version, inventory completeness and exclusions. A URL or `rowsUpdatedAt` alone is insufficient.
-- Within a snapshot, `(dataset identity, external_id)` is unique. A changed source geometry/attributes yields a new immutable version; historical references remain valid. Equal geometry under different source IDs does not automatically merge identities.
-- The provisional relation name used below is `city_parking_curb_versions`; it must supply `id UUID PRIMARY KEY` and a snapshot identity/digest that can be validated against the run. A final name and FK signature await that milestone.
+- Within a snapshot, `(dataset identity, external_id)` is unique. Changed source geometry/attributes yields a new immutable version; unchanged content can reuse one through snapshot membership. Historical references remain valid. Equal geometry under different source IDs does not automatically merge identities or prove stable physical-curb continuity.
+- The proposed target is `city_parking_curb_versions(id UUID PRIMARY KEY)`. Validate `city_parking_curb_snapshot_features` membership against the run's `target_snapshot_id`; do not put a misleading single capture ID on a reusable content version. These proposed tables do not yet exist.
 - Store authoritative geometry/attributes or retain a durable, content-addressed artifact with deterministic retrieval. Choose representation in the curb milestone; this design does not require production PostGIS.
 - A target interval uses a documented component/order and fractional arclength in the immutable version. Fractions are not portable across geometry revisions or reversals. Preserve source component/order and any transformation manifest.
 
@@ -136,7 +138,9 @@ CREATE TABLE public.city_parking_regulation_association_runs (
   matcher_version text NOT NULL CHECK (length(btrim(matcher_version)) > 0),
   evidence_schema_version text NOT NULL CHECK (length(btrim(evidence_schema_version)) > 0),
   source_snapshot jsonb NOT NULL CHECK (jsonb_typeof(source_snapshot) = 'object'),
-  target_snapshot jsonb NOT NULL CHECK (jsonb_typeof(target_snapshot) = 'object'),
+  -- BLOCKED prerequisite: proposed curb snapshot registry, not created yet.
+  target_snapshot_id uuid NOT NULL REFERENCES public.city_parking_source_snapshots(id)
+    ON DELETE RESTRICT,
   parameters jsonb NOT NULL CHECK (jsonb_typeof(parameters) = 'object'),
   lifecycle text NOT NULL DEFAULT 'DRAFT'
     CHECK (lifecycle IN ('DRAFT', 'PUBLISHED', 'RETIRED')),
@@ -258,13 +262,13 @@ GRANT SELECT, INSERT, UPDATE ON public.city_parking_regulation_association_runs,
 
 The proposed UUID/timestamp defaults and `public.set_updated_at()` reuse existing conventions. Text CHECKs match the repo's style and avoid premature global enums. FKs use RESTRICT to preserve reviewed evidence: future source/regulation deletion workflows would have to retire/archive dependent evidence explicitly, rather than silently cascading it away. Unique indexes already cover `run_id` on assessments and `assessment_id` on links through their leading columns; additional indexes address reverse target/regulation lookup and review queues. No speculative JSON GIN or spatial indexes are proposed for these evidence tables.
 
-`regulation_id` and `matcher_version` are resolved through the assessment/run, not copied onto every link. Target geometry/snapshot provenance is resolved through the immutable target version. A source MultiLineString component is explicit; the prerequisite target version is one LineString. Fractions have a defined decimal identity precision for idempotency; the evidence artifact retains unrounded measures. A proposed full-feature pair uses explicitly supplied [0,1] extents, never defaults that pretend partial extent was verified.
+`regulation_id` and `matcher_version` are resolved through the assessment/run, not copied onto every link. Target geometry is resolved through the immutable target version; snapshot provenance uses the run's `target_snapshot_id` and validated membership. A source MultiLineString component is explicit; the prerequisite usable target version is one LineString. Fractions have a defined decimal identity precision for idempotency and require a versioned arclength/CRS transformation model in run parameters; the evidence artifact retains unrounded measures. A proposed full-feature pair uses explicitly supplied [0,1] extents, never defaults that pretend partial extent was verified.
 
 ### Required guards before this can become a migration
 
 The DDL is intentionally **not** a complete deployable migration. CHECKs cannot safely assert other rows' state; [PostgreSQL documents this limitation](https://www.postgresql.org/docs/current/ddl-constraints.html). The future migration must also implement and test restricted write/publication functions or lock-aware triggers enforcing:
 
-1. Run source is the intended regulation dataset; assessment regulation source matches it; target-version snapshot/dataset agrees with the run target manifest. Validate artifact identity/digests and evidence schema, not just JSON object shapes.
+1. Run source is the intended regulation dataset; assessment regulation source matches it; every target version belongs to the run's `target_snapshot_id` through `city_parking_curb_snapshot_features`, with matching dataset and usable geometry. Validate artifact identity/digests and evidence schema, not just JSON object shapes or existence of a version UUID.
 2. `CANDIDATES` has >=1 child; `UNMATCHED` and `EXCLUDED` have zero. Publication covers exactly the source-snapshot identity set. Candidate references in evidence point to retained rows/artifacts from that assessment.
 3. APPROVED has >=1 SELECTED child and no PROPOSED child; REJECTED has only rejected children; unreviewed assessments cannot expose selected links. Whole-set approval checks alternative rejection, independent side/extent support, no text conflict and valid complementary intervals. No overlapping alternative selections for the same source interval. An approved set must resolve the declared assessment scope, not silently omit unresolved fragments.
 4. Freeze run manifests, assessments, evidence and review decisions once published; permit only publication/retirement lifecycle transitions through the trusted gate. Forbid deletes and mutation/republication of retired releases. Draft retirement is allowed without a prior publication timestamp.
@@ -306,6 +310,7 @@ interface AssociationRun {
   readonly matcherVersion: string;
   readonly evidenceSchemaVersion: string;
   readonly sourceSnapshot: SnapshotManifest;
+  readonly targetSnapshotId: string;
   readonly targetSnapshot: SnapshotManifest;
   readonly parameters: Readonly<Record<string, unknown>>; // Version-validated.
   readonly lifecycle: RunLifecycle;
@@ -352,7 +357,7 @@ interface AssociationCandidate {
 
 These DTOs do not confer verification by construction. A future trusted read adapter must validate the published/approved/selected set and current versions before emitting a verified association DTO. Retain existing `ParkingEvidence` for the resulting domain fact; an association evidence reference can link back to the server-side audit record without exposing reviewer details. No matcher/helper or runtime adapter is added now.
 
-The snapshot DTO is the common manifest header; versioned artifacts supply per-row geometry/attribute digests, exclusions, completeness and transformation details. SUPPORTS/CONFLICTS claims require non-null proof references/digests and validated operator/time under the future schema validator; nullable fields permit UNKNOWN, not unsupported attestation. Ordinary TypeScript interfaces and JSON object CHECKs cannot enforce those semantic conditions on untrusted input.
+The snapshot DTO is the common manifest header; `targetSnapshot` is resolved through `targetSnapshotId`, not a second authoritative JSON copy in the run table. Versioned artifacts supply per-row geometry/attribute digests, exclusions, completeness and transformation details. SUPPORTS/CONFLICTS claims require non-null proof references/digests and validated operator/time under the future schema validator; nullable fields permit UNKNOWN, not unsupported attestation. Ordinary TypeScript interfaces and JSON object CHECKs cannot enforce those semantic conditions on untrusted input.
 
 ## 8. Future runtime contract and invalidation
 

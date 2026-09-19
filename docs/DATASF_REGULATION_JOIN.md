@@ -1,5 +1,7 @@
 # DataSF Regulation-to-Block Join Discovery V1
 
+**Curb feature storage follow-up:** [City Curb Feature Storage Design V1](./CITY_CURB_STORAGE.md) profiles all 18,355 `pep9-66vw` rows: `globalid` is unique in this capture, but lifetime physical identity is undocumented; 17 direction-insensitive equal-geometry groups contain 34 rows. The proposed storage uses immutable content versions and snapshot membership. No source identities were merged, targets persisted, or associations verified.
+
 **Storage design follow-up:** [City Regulation Association Storage Design V1](./CITY_REGULATION_ASSOCIATION_STORAGE.md) turns the research requirements into a proposed normalized run/assessment/link model, review/publication contract, conditional SQL draft and TypeScript DTOs. Missing persisted curb-version identity blocks migration creation; no associations or runtime changes are implemented.
 
 **Latest follow-up:** [Spatial association validation V2](#16-spatial-association-validation-v2--2026-09-18) completed full-source competition profiling. Of 7,778 usable regulations, 165 pass an experimental geometry-only screen; **zero are independently verified**. The user confirmed that production PostGIS is **not enabled**. No associations or production changes were made.
