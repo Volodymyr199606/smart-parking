@@ -1,33 +1,18 @@
-# City Curb Publication + Immutability Guards V1
+-- =============================================================================
+-- Smart Parking: Immutable city curb storage and guarded publication (V1)
+-- =============================================================================
+--
+-- NOT APPLIED. Static verification only; isolated PostgreSQL execution pending.
+-- Production rollout is blocked. See docs/CITY_CURB_PUBLICATION_CONTRACT.md.
+-- Requires existing Supabase roles and 00005_city_parking_data.sql.
+-- Requires an administrator authorized to create the reviewed dedicated roles
+-- and transfer object ownership. Fresh curb role/schema names are required.
+-- Adds empty snapshot/version/membership/publication tables and their guards.
+-- Adds scoped owner policies and an identity guard to city_parking_sources.
+-- No source registration, backfill, extension, association, or runtime changes.
+-- No updated_at helper: evidence is immutable; lifecycle RPCs set timestamps.
+-- =============================================================================
 
-**DESIGN COMPLETE; MIGRATION IMPLEMENTED; POSTGRES EXECUTION TEST PENDING; PRODUCTION ROLLOUT BLOCKED.** The reviewed SQL is implemented in [00012_city_parking_curb_storage.sql](../supabase/migrations/00012_city_parking_curb_storage.sql), but has not been applied or PostgreSQL-executed. This refines the [storage](./CITY_CURB_STORAGE.md), [snapshot](./CITY_CURB_SNAPSHOT_CONTRACT.md), [interval](./CITY_CURB_INTERVAL_CONTRACT.md), and [association](./CITY_REGULATION_ASSOCIATION_STORAGE.md) contracts. It does not create an ingestion service or accepted associations. CITY remains **INCOMPLETE**.
-
-## 1. Design decisions
-
-Existing migrations use generated UUIDs, named CHECK/UNIQUE constraints, source FKs, `set_updated_at()`, RLS and restricted functions. Reuse those identity conventions, but do not attach mutable `updated_at` triggers to evidence. The registry provider is uppercase `DATASF`; canonical artifacts use lowercase `datasf`. Map those explicitly, never alter the existing registry enum/check or repurpose a source UUID.
-
-**Lifecycle: STAGING -> VALIDATED -> PUBLISHED; STAGING/VALIDATED -> FAILED.** PUBLISHED and FAILED are terminal. There is no transition back to staging and no retry of FAILED in place. STAGING means materializing an already-retained capture into DB membership; network capture happens before creating this row. Snapshot input fields are frozen even in STAGING. Incorrect membership/envelope requires a new capture key; append-only retries cannot silently correct evidence. VALIDATED freezes membership before publication. Failure is a separate RPC transaction, never an exception handler that commits part of a failed publication.
-
-**Current pointer:** a fourth, small `city_parking_curb_publications` table, one row per source. Its PK ensures zero or one current snapshot. Historical snapshots remain PUBLISHED; superseded means PUBLISHED but not pointed to and is derived. No `is_current`, registry current pointer, retired payload updates, or one-PUBLISHED-per-source partial index. This avoids an FK cycle in the registry and keeps publication concerns out of legacy ingestion. Generation starts at 1 and increases on each new publication.
-
-All staging inserts, validation, failure and publication serialize on the existing **source row first**, then snapshot row. Use READ COMMITTED with VOLATILE guard functions; reject other isolation levels in this V1 interface rather than depending on stale transaction snapshots. PostgreSQL [row locks persist to transaction end](https://www.postgresql.org/docs/current/explicit-locking.html), and [VOLATILE functions obtain fresh query snapshots](https://www.postgresql.org/docs/current/xfunc-volatility.html). Source locking also coordinates source identity changes. No advisory-lock key hashing or client multi-statement transaction orchestration is needed.
-
-Publication requires `expected_current_snapshot_id` (NULL for first publication). Different publishers starting from the same predecessor serialize; one commits, the other gets a stale-predecessor error. They do not silently replace each other in succession. Publication of an older/equal-time capture is also rejected. Retrying the same published snapshot returns ALREADY_CURRENT or ALREADY_PUBLISHED_NOT_CURRENT without moving a pointer backwards or changing timestamps.
-
-## 2. Ownership and trust boundary
-
-The migration declares the reviewed non-login owner `curb_guard_owner` for new tables/functions. It is never granted to application/service roles. `service_role` can SELECT and INSERT staging snapshots, versions and membership, but cannot UPDATE/DELETE/TRUNCATE them or write the current pointer. It can invoke publication/failure RPCs. The migration also declares the separate non-login `curb_artifact_verifier` role for validation; it grants no role membership to service_role, anon or authenticated. Both role names come from this reviewed design, not assumed existing Supabase roles. Provisioning an independently authenticated verifier remains deployment work; no login or credential is created here.
-
-The independent verifier must restore the immutable artifact, verify its manifest/bytes and `curb-jcs-v1` hashes, compare every staged version's complete payload with source rows, confirm exact identity sets/counts/schema and produce a DB membership seal. It attests URI availability/retention, manifest authenticity, content/hash agreement and capture consistency. PostgreSQL cannot inspect arbitrary object-store bytes. The DB validates required attestation fields, shape and completeness, and binds the verified set immutably; it does not claim that a hex hash or a service-role assertion proves correct source bytes.
-
-RLS has no client policies on the four tables. No anon/authenticated privileges are added. New SECURITY DEFINER functions use a fixed `pg_catalog, pg_temp` search path, qualified application objects, explicit owner assignment and revoked PUBLIC execution; see [PostgreSQL SECURITY DEFINER guidance](https://www.postgresql.org/docs/current/sql-createfunction.html). No custom session variable is accepted as an authorization bypass. Service-role RLS bypass does not bypass ordinary revoked table privileges or ordinary triggers. Owners/superusers can change/disable schema security; administrative DDL and compromised verifier/owner credentials are outside the enforced trust boundary. Do not claim immutability against a superuser.
-
-## 3. Reviewed SQL implemented in migration 00012 — not applied
-
-The migration assumes existing Supabase roles and migration 00005, UTF-8 PostgreSQL with built-in `sha256(bytea)`, and fresh dedicated role/schema names. Creating ownership roles requires a suitably privileged migration administrator; compatibility with the eventual Supabase deployment must be tested in isolation first. Everything below is enclosed in one transaction to avoid transient default PUBLIC function access. It creates no source row, extension or association table. Built-in [binary SHA-256](https://www.postgresql.org/docs/current/functions-binarystring.html) avoids requiring pgcrypto/PostGIS. The offline verifier reads the actual migration and requires exact agreement with this reviewed block after the migration banner. No SQL behavior was redesigned during promotion to the migration file.
-
-<!-- CURB_GUARD_SQL_BEGIN -->
-```sql
 BEGIN;
 
 CREATE ROLE curb_guard_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -457,60 +442,3 @@ GRANT EXECUTE ON FUNCTION public.publish_city_parking_curb_snapshot(uuid, uuid, 
 REVOKE CREATE ON SCHEMA public FROM curb_guard_owner;
 
 COMMIT;
-```
-<!-- CURB_GUARD_SQL_END -->
-
-## 4. Gate allocation and membership seal
-
-Declarative rules: source/UUID namespaces, non-null version IDs, member PK/uniqueness, composite FK source/external-ID agreement, digest syntax, exact canonicalization version, artifact locator presence, and pointer-to-PUBLISHED FK. All new FKs use RESTRICT. No child mutation or truncation is permitted, even for FAILED captures. This deliberately avoids a cleanup loophole; future administrative retention cleanup requires a separate design. Snapshot deletion is always denied. Source identity fields freeze once a snapshot/version exists; unrelated legacy catalog counters/descriptions can still change, with historical metadata retained in immutable manifests.
-
-Function gates: source/ownership scope, lock order, lifecycle, expected predecessor, newer observation, manifest scalar agreement, exact membership counts, distinct identities, structural usable 2D nonzero WGS84 LineStrings, attestation fields and membership seal equality. Geometry publishing is source-storage eligibility, not the more restrictive SF interval measurement/association eligibility. There is no consistency override: POSSIBLY_CHANGED_DURING_CAPTURE and INVALID cannot validate or publish. Zero rows are ineligible in V1, requiring a separately designed review path if an empty source is ever legitimate.
-
-Offline verifier responsibilities: original byte checksums/retention, strict JSON/precision/Unicode and schema verification, canonical hashes, exact source-vs-DB identities/full payload equality, manifest authenticity, capture policy, and deployment attestor identity. SQL does not reimplement JCS with `jsonb::text`. A hash collision/conflicting payload under an existing version identity is rejected by tooling, not overwritten.
-
-`membership_sha256` is a separate **DB-set seal**, not the canonical dataset digest. It includes the DB version UUID mapping. Encode each external ID's UTF-8 bytes as lowercase hex (avoids delimiter ambiguity); append `:uuid:geometry_hash:attributes_hash:content_hash`. Sort by the hex string under C collation; join rows with LF, no terminal LF, prefix `city-curb/db-membership/v1` plus LF, then SHA-256. Canonicalization is fixed by constraints; the seal is bound to the snapshot/source/manifest by the verifier RPC. This protocol can be computed without PostgreSQL from verifier-read rows and does not replace source-content hashes.
-
-## 5. Publication transaction and races
-
-Call one publication RPC inside a READ COMMITTED transaction. It locks the source, locks the candidate snapshot, reads/locks the current pointer, handles an already-published no-op, checks the expected predecessor and capture chronology, rechecks attestation/completeness/seal, transitions the candidate to PUBLISHED, advances the pointer/generation and returns. Caller COMMIT makes both visible; no catch-and-continue commits partial work. Any exception, FK failure, disconnect before commit, or transaction rollback preserves the previous current pointer and candidate's pre-call state. If commit succeeded but the response was lost, retry observes the published snapshot and no-ops.
-
-Membership inserts use the same source-then-snapshot locks and reject non-STAGING parents. If insertion acquires the lock first, validation waits and sees the committed row. If validation freezes first, a late insertion is rejected. Concurrent inserts serialize by source; use bounded batches and one source per transaction. No per-row source lock can permit a partial set to pass while another writer commits behind the gate. Postgres execution tests remain necessary to validate this intended MVCC/trigger behavior.
-
-All fields of a version are immutable from insertion. All snapshot input fields are immutable from insertion; only the narrowly allowed lifecycle/attestation timestamps change, and PUBLISHED/FAILED rows never update. Validation freezes membership and its seal. Published history has no editable operational notes; keep future operational logs outside these tables. Pointer metadata alone changes on successful publication, preserving each snapshot's original publication timestamp.
-
-## 6. Retry and failure outcomes
-
-| Event | Required outcome |
-|---|---|
-| Network failure before DB staging | Retain local failure evidence; no DB snapshot/current change |
-| Snapshot exists, membership empty | Resume same capture key only after immutable envelope equality check |
-| Partial membership | Append missing rows; verify conflicts reference exactly the expected version; no overwrite |
-| Version conflict on source/external/canonical/content key | Reuse only after canonical full payload agreement; conflicting bytes/hash claims fail |
-| Duplicate external ID in source capture | Reject capture, never hide it through SQL ON CONFLICT |
-| Membership duplicate retry | An identical already-staged member may no-op; changed mapping rejects; frozen-stage writes reject, so retry first reads lifecycle |
-| Complete VALIDATED snapshot | Revalidate with identical attestation is a no-op; publish once |
-| Process dies during publication | Transaction rolls back unless commit already succeeded; retry detects either state |
-| Two publishers race from same current | One advances; other fails stale-predecessor check; explicit re-evaluation required |
-| Already published/current identical snapshot | Return ALREADY_CURRENT, no timestamp or generation change |
-| Already published historical snapshot | Return ALREADY_PUBLISHED_NOT_CURRENT; never rewind pointer |
-| FAILED capture retry | Terminal; retain history and use a new capture key for new work |
-| Update published snapshot or any version | Trigger/privilege rejection |
-| Delete history, member, version or pointer; TRUNCATE | Rejected; RESTRICT FKs also preserve references |
-| Missing artifact attestation | Publication rejects; current unchanged |
-| Count/set/manifest disagreement or invalid geometry | Validation/publication rejects; current unchanged |
-| Non-CONSISTENT capture | Reject without override |
-| Same geometry/digest under another external ID | Separate source identity/version, never merged |
-
-## 7. Migration structure and verification boundary
-
-Order: dedicated roles/private helpers namespace; digest domain; snapshot/version/member/pointer tables; indexes; focused insert/transition/append-only/source/pointer guards; geometry/seal/completeness helpers; validation/publication/failure RPCs; ownership, RLS and explicit grants/revocations; one enclosing transaction. FKs form a directed acyclic graph: members -> versions/snapshots -> source; pointer -> snapshots/source. No source->pointer reverse FK. Future associations reference versions with RESTRICT and validate snapshot membership, without cascading deletions or creating association tables here.
-
-Rechecked for migration implementation: no `psql`, `postgres`, `initdb`, `pg_ctl` or Docker was found on PATH; standard PostgreSQL/Docker installation locations were absent. Nothing was installed and no database was started or contacted. Static checks verify the actual migration's structure, constraints, declared dependencies, grants, guards and seal protocol; they **do not execute SQL, compile PL/pgSQL, validate actual privileges or prove concurrent transaction behavior**.
-
-Verification command: `pnpm.cmd exec tsx scripts/verify-curb-publication-contract.ts`. The expanded verifier checks the migration against the reviewed SQL, sequential numbering, additive/no-top-level-write scope, table/function/trigger/policy/index ordering, FK dependency/unique-key shape, fixed search paths/owners, staging/terminal transition guards, current-pointer constraints, artifact and manifest requirements, service/verifier privilege separation, source-lock ordering, failure/first-publication/retry structure and the independent membership-seal byte protocol. The checks only read local files; they never execute SQL or contact a database. No PostgreSQL behavior is represented as tested by these assertions.
-
-Implementation verification: **41 static/protocol checks passed**; `pnpm.cmd typecheck` and `git diff --check` passed. The verifier's initial sandbox attempt was blocked by esbuild `spawn EPERM`; the approved rerun passed. No PostgreSQL or Docker installation, database connection, migration application or ingestion occurred.
-
-Database guard, immutability and concurrency designs are implemented in migration 00012. Static review found no SQL contract contradiction: dependencies are ordered without FK cycles, guard triggers do not write their own triggering tables recursively, and publication uses source-first locking, NULL-safe predecessor comparison, generation-one insertion and an early no-op for historical retries. These are static findings only. Before any rollout, isolated PostgreSQL tests must exercise DDL/function compilation, dedicated-role creation/ownership transfer, grants and RLS under real roles, actual triggers, cascade/truncate rejection, two-session insertion/validation/publication races, rollback after the snapshot transition, and stale published retries. This engine validation is a technical schema-readiness gate, not a reason to connect to production.
-
-Live double-capture validation and operational immutable object retention remain external/operational concerns. They do not intrinsically prevent installing an empty, fully tested schema, but they must block first production ingestion/validation/publication. **Migration file implemented, statically verified, not PostgreSQL-executed, not applied, and not production-ready.** The migration contains no source registration or backfill. Distinct-ID/usable counts stay in the validated manifest; immutable evidence has no `updated_at`, and pointer changes use `changed_at`. Version UUIDs are stable future interval FK targets, but association tables and membership-aware association publication remain separate work. The existing interval/canonicalization contracts, runtime and CITY coverage are unchanged.

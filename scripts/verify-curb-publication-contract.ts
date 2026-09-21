@@ -1,14 +1,18 @@
-/** Offline static review of design SQL. NEVER executes SQL or connects to a database.
+/** Offline static review of the actual curb migration and its reviewed contract.
+ * NEVER executes SQL or connects to a database.
  * These assertions are not a PostgreSQL parser or proof of runtime/concurrency behavior.
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { sha256 } from "./canonicalize-curb-snapshot";
 
 const document = readFileSync(resolve(__dirname, "../docs/CITY_CURB_PUBLICATION_CONTRACT.md"), "utf8");
-const sql = document.match(/<!-- CURB_GUARD_SQL_BEGIN -->\s*```sql\s*([\s\S]*?)```\s*<!-- CURB_GUARD_SQL_END -->/)?.[1];
-assert(sql, "Missing bounded SQL design block");
+const reviewedSql = document.match(/<!-- CURB_GUARD_SQL_BEGIN -->\s*```sql\s*([\s\S]*?)```\s*<!-- CURB_GUARD_SQL_END -->/)?.[1];
+assert(reviewedSql, "Missing bounded reviewed SQL block");
+const migrationName = "00012_city_parking_curb_storage.sql";
+const migrationDirectory = resolve(__dirname, "../supabase/migrations");
+const sql = readFileSync(resolve(migrationDirectory, migrationName), "utf8").replace(/\r\n/g, "\n");
 const compact = (s: string) => s.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim();
 const ddl = compact(sql);
 const tables = new Map([...sql.matchAll(/CREATE TABLE public\.(\w+) \(([\s\S]*?)\n\);/g)].map(m => [m[1], compact(m[2])]));
@@ -20,6 +24,102 @@ let checks = 0;
 function check(name: string, run: () => void) { run(); checks++; console.log(`PASS ${name}`); }
 const snapshots = "city_parking_source_snapshots", versions = "city_parking_curb_versions";
 const members = "city_parking_curb_snapshot_features", pointers = "city_parking_curb_publications";
+
+check("actual migration preserves reviewed SQL exactly after its banner", () => {
+  assert.equal(sql.slice(sql.indexOf("BEGIN;")), reviewedSql.trim().replace(/\r\n/g, "\n") + "\n");
+  const migrations = readdirSync(migrationDirectory).filter(name => /^\d+_.*\.sql$/.test(name));
+  assert.equal(migrations.filter(name => name.startsWith("00012_")).length, 1);
+  const predecessors = migrations.filter(name => Number(name.split("_")[0]) < 12).sort();
+  assert.equal(predecessors.at(-1), "00011_city_parking_regulations.sql");
+});
+check("DDL is additive and contains no top-level data writes", () => {
+  const outsideFunctions = compact(sql.replace(/\$guard\$[\s\S]*?\$guard\$/g, "''"));
+  assert(!/\b(?:INSERT INTO|UPDATE public\.|DELETE FROM|TRUNCATE|COPY|DROP|CREATE EXTENSION|ALTER DEFAULT PRIVILEGES|ALTER PUBLICATION)\b/i.test(
+    outsideFunctions.replace(/CREATE TRIGGER [^;]+;/g, "").replace(/CREATE POLICY [^;]+;/g, "")
+  ));
+  assert.deepEqual([...tables.keys()], [snapshots, versions, members, pointers]);
+  for (const m of outsideFunctions.matchAll(/ALTER TABLE public\.(\w+)/g)) assert(tables.has(m[1]));
+});
+check("tables, functions, triggers, policies and indexes follow dependency order", () => {
+  for (const [name, body] of tables) {
+    const position = ddl.indexOf(`CREATE TABLE public.${name} (`);
+    for (const m of body.matchAll(/REFERENCES public\.(\w+)/g)) {
+      if (m[1] !== "city_parking_sources") assert(ddl.indexOf(`CREATE TABLE public.${m[1]} (`) < position);
+    }
+  }
+  for (const [name, f] of functions) {
+    const position = ddl.indexOf(`CREATE FUNCTION ${name}(`);
+    for (const m of f.body.matchAll(/curb_private\.(\w+)\(/g)) {
+      const dependency = ddl.indexOf(`CREATE FUNCTION curb_private.${m[1]}(`);
+      assert(dependency >= 0 && dependency < position, `${name} -> ${m[1]}`);
+    }
+  }
+  for (const m of ddl.matchAll(/CREATE (?:TRIGGER|POLICY|INDEX) [^;]+;/g)) {
+    for (const ref of m[0].matchAll(/(?:ON public\.|EXECUTE FUNCTION )([\w.]+)/g)) {
+      const dependency = ref[0].startsWith("ON ")
+        ? ddl.indexOf(`CREATE TABLE public.${ref[1]} (`)
+        : ddl.indexOf(`CREATE FUNCTION ${ref[1]}(`);
+      assert(ref[1] === "city_parking_sources" || (dependency >= 0 && dependency < m.index!));
+    }
+  }
+});
+check("only reviewed non-login roles are created without application membership", () => {
+  const roles = [...ddl.matchAll(/CREATE ROLE (\w+) ([^;]+);/g)];
+  assert.deepEqual(roles.map(m => m[1]), ["curb_guard_owner", "curb_artifact_verifier"]);
+  for (const m of roles) assert.equal(m[2], "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS");
+  assert(!/GRANT (?:curb_guard_owner|curb_artifact_verifier)\b/.test(ddl));
+});
+check("snapshot envelope has required capture, digest and attestation fields", () => {
+  const t = table(snapshots);
+  for (const field of ["schema_sha256", "source_content_sha256", "identity_geometry_sha256", "artifact_sha256", "manifest_sha256"]) {
+    assert(t.includes(`${field} curb_private.sha256_hex NOT NULL`));
+  }
+  for (const field of ["artifact_uri", "manifest_uri", "canonicalization_version", "fetch_tool_version"]) assert(t.includes(`${field} text NOT NULL`));
+  assert(t.includes("('CONSISTENT', 'POSSIBLY_CHANGED_DURING_CAPTURE', 'INVALID')"));
+  assert(t.includes("manifest jsonb NOT NULL")); assert(t.includes("row_count BETWEEN 0 AND 100000"));
+  assert(t.includes("retrieval_completed_at >= retrieval_started_at"));
+  for (const field of ["artifact_verified_at", "artifact_verification_version", "artifact_verified_by", "validated_at", "published_at", "failed_at", "failure_reason"]) assert(t.includes(field));
+  assert(fn("curb_private.assert_complete").body.includes("{summary,distinct_external_id_count}"));
+});
+check("version UUID and geometry payload are suitable for future interval FKs", () => {
+  const t = table(versions);
+  for (const text of ["id uuid PRIMARY KEY DEFAULT gen_random_uuid()", "geometry_geojson jsonb", "geometry_presence IN ('ABSENT','NULL','VALUE')", "raw_source jsonb NOT NULL", "NOT (raw_source ? 'shape')", "(raw_source ->> 'globalid') IS NOT DISTINCT FROM external_id"]) assert(t.includes(text));
+  assert(!t.includes("updated_at")); assert(!ddl.includes("set_updated_at()"));
+  assert(fn("curb_private.stage_insert_guard").body.includes("NEW.created_at := clock_timestamp()"));
+});
+check("required live-write guards are attached, not merely declared", () => {
+  for (const t of [snapshots, versions, members]) assert(ddl.includes(`BEFORE INSERT ON public.${t} FOR EACH ROW EXECUTE FUNCTION curb_private.stage_insert_guard()`));
+  assert(ddl.includes(`BEFORE UPDATE ON public.${snapshots} FOR EACH ROW EXECUTE FUNCTION curb_private.snapshot_transition_guard()`));
+  assert(ddl.includes(`BEFORE INSERT OR UPDATE ON public.${pointers} FOR EACH ROW EXECUTE FUNCTION curb_private.pointer_guard()`));
+  assert(ddl.includes("BEFORE UPDATE ON public.city_parking_sources FOR EACH ROW EXECUTE FUNCTION curb_private.source_identity_guard()"));
+});
+check("failure RPC requires a reason, permits only staging/validated, and retries without writes", () => {
+  const b = fn("public.fail_city_parking_curb_snapshot").body;
+  assert(b.includes("p_reason IS NULL OR length(btrim(p_reason)) = 0"));
+  assert(b.includes("IF s.lifecycle = 'FAILED' THEN RETURN 'ALREADY_FAILED'"));
+  assert(b.includes("s.lifecycle NOT IN ('STAGING','VALIDATED')"));
+  assert(b.indexOf("ALREADY_FAILED") < b.indexOf("UPDATE public.city_parking_source_snapshots"));
+  assert(b.includes("failed_at = clock_timestamp(), failure_reason = p_reason"));
+});
+check("first publication inserts generation one; later advancement is guarded", () => {
+  const b = fn("public.publish_city_parking_curb_snapshot").body;
+  assert(b.includes("IF current_id IS NULL THEN INSERT INTO public.city_parking_curb_publications(source_id, snapshot_id, generation) VALUES (p_source, p_snapshot, 1)"));
+  assert(b.includes("generation = generation + 1"));
+  assert(fn("curb_private.pointer_guard").body.includes("NEW.generation <> OLD.generation + 1"));
+});
+check("RPC PUBLIC execution is revoked and definer/invoker boundaries are explicit", () => {
+  assert(ddl.includes("REVOKE ALL ON FUNCTION public.validate_city_parking_curb_snapshot(uuid, uuid, text, text, text), public.publish_city_parking_curb_snapshot(uuid, uuid, uuid), public.fail_city_parking_curb_snapshot(uuid, uuid, text) FROM PUBLIC, anon, authenticated, service_role, curb_artifact_verifier;"));
+  const definers = ["curb_private.lock_source", "curb_private.stage_insert_guard", "curb_private.source_identity_guard", ...["validate", "publish", "fail"].map(n => `public.${n}_city_parking_curb_snapshot`)];
+  for (const [name, f] of functions) assert(f.header.includes(`SECURITY ${definers.includes(name) ? "DEFINER" : "INVOKER"}`));
+  for (const t of tables.keys()) assert(ddl.includes(`ALTER TABLE public.${t} OWNER TO curb_guard_owner;`));
+});
+check("only documented secondary indexes supplement primary/unique lookup keys", () => {
+  const indexes = [...ddl.matchAll(/CREATE INDEX (\w+) ON public\.(\w+)\(([^;]+)\);/g)];
+  assert.deepEqual(indexes.map(m => [m[1], m[2], m[3]]), [
+    ["city_curb_snapshots_source_time", snapshots, "source_id, retrieval_completed_at DESC"],
+    ["city_curb_members_version", members, "curb_version_id"],
+  ]);
+});
 
 check("one transaction; no extension, data import, or association DDL", () => {
   assert(ddl.startsWith("BEGIN;") && ddl.endsWith("COMMIT;"));
@@ -203,4 +303,4 @@ check("membership seal exact single-row protocol", () => assert.equal(seal([fixt
 check("membership seal is independent of row enumeration", () => { const b = { ...fixture, external: "b" }; assert.equal(seal([fixture, b]), seal([b, fixture])); });
 check("different version/identity/content changes seal", () => { for (const change of [{ version: "00000000-0000-4000-8000-000000000002" }, { external: "b" }, { geometry: "4".repeat(64) }, { attributes: "4".repeat(64) }, { content: "4".repeat(64) }]) assert.notEqual(seal([fixture]), seal([{ ...fixture, ...change }])); });
 check("delimiters and Unicode are encoded; duplicate identities reject", () => { assert.notEqual(seal([{ ...fixture, external: "a\nb:c" }]), seal([{ ...fixture, external: "a" }, { ...fixture, external: "b:c" }])); assert.notEqual(seal([{ ...fixture, external: "é" }]), seal([{ ...fixture, external: "e\u0301" }])); assert.throws(() => seal([fixture, fixture]), /Duplicate source identity/); });
-console.log(`Curb publication contract: ${checks} static/protocol checks passed. SQL NOT executed; no database/network/writes. PostgreSQL role, trigger and concurrency tests remain required.`);
+console.log(`Curb migration ${migrationName}: ${checks} static/protocol checks passed. SQL NOT executed; no database/network/writes. PostgreSQL role, trigger and concurrency tests remain required.`);
