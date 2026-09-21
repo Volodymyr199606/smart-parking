@@ -1,5 +1,7 @@
 # City Curb Snapshot + Canonicalization Contract V1
 
+**Publication follow-up:** [Curb Publication + Immutability Guards V1](./CITY_CURB_PUBLICATION_CONTRACT.md) now specifies DB staging/validation/publication, independent artifact attestation and a frozen membership seal. The canonical source/artifact hash contracts here remain unchanged. Database staging begins after retained capture completion; STAGING/VALIDATED/PUBLISHED/FAILED are DB lifecycle states, separate from capture consistency. Guard SQL is statically reviewed but awaits isolated PostgreSQL execution tests. Live capture and operational retention remain production rollout gates.
+
 **Interval follow-up:** [Curb Interval Measurement V1](./CITY_CURB_INTERVAL_CONTRACT.md) now supplies the offline target measurement, projection/tie and fraction-serialization contract. References below to unresolved interval measurement describe this snapshot milestone's original boundary. Live capture validation, operational artifact retention and database publication/immutability guards still block migration; interval measurements do not verify associations.
 
 Status: offline contract and verification; public capture experiment blocked by HTTP 403. No production migration, ingest, database access, or runtime integration. This refines [curb storage V1](./CITY_CURB_STORAGE.md) for capture consistency, retained artifacts, and canonical digests only. Interval measurement and database publication/immutability guards remain separate blockers. CITY remains **INCOMPLETE**.

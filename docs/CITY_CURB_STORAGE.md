@@ -1,5 +1,7 @@
 # City Curb Feature Storage Design V1
 
+**Publication follow-up:** [Curb Publication + Immutability Guards V1](./CITY_CURB_PUBLICATION_CONTRACT.md) supplies the future SQL draft and static verification. It replaces mutable retirement/current flags with `STAGING -> VALIDATED -> PUBLISHED`, terminal FAILED captures, and a separate per-source current publication pointer. Versions are append-only; membership freezes at validation. Guard designs are explicit, but PostgreSQL role/trigger/concurrency execution tests remain a schema-readiness gate. Live capture and retained-object operations independently block production rollout.
+
 **Interval contract follow-up:** [Curb Interval Measurement V1](./CITY_CURB_INTERVAL_CONTRACT.md) now defines the SF planar micrometre model, nine-decimal target fractions, explicit projection ties and conditional interval construction. Pure offline helpers and conformance fixtures are implemented. This settles interval fields sufficiently for schema design; live snapshot validation, operational artifact retention and database publication/immutability guards still block migration. No verified association or runtime integration follows from these measurements.
 
 **Status: design and public read-only profiling; migration/types deferred.** No database access, curb ingestion, association population, PostGIS enablement or runtime change. This provides the target-storage design needed by [Association Storage V1](./CITY_REGULATION_ASSOCIATION_STORAGE.md), not verified regulation associations. CITY remains **INCOMPLETE**.
@@ -109,16 +111,18 @@ One capture of a registered source. Reuse `city_parking_sources` for dataset reg
 | `id uuid` | Generated PK |
 | `source_id uuid` | FK to `city_parking_sources(id)`, RESTRICT deletion |
 | `capture_key text` | Unique with `source_id`; stable key for resuming the same capture, not a content ID |
-| `retrieval_started_at`, `retrieval_completed_at` | Actual observation times; completion nullable while staging |
-| `upstream_rows_updated_at`, `upstream_view_modified_at` | Nullable catalog observations; never physical valid-time claims |
+| `retrieval_started_at`, `retrieval_completed_at` | Actual observation times; both required because DB staging follows retained capture completion |
+| Upstream update/view timestamps | Retained catalog observations in manifest artifacts; not physical valid-time claims or duplicated required columns |
 | `schema_sha256`, `source_content_sha256`, `identity_geometry_sha256` | Versioned manifest digests; non-null before publication |
-| `row_count`, `usable_geometry_count`, `excluded_geometry_count` | Validated manifest counts; usable + excluded = total; identity failures reject capture |
+| `row_count` and manifest usable/excluded counts | Typed total plus validated manifest counts; identity failures reject capture; V1 publication requires all members usable |
 | `fetch_tool_version`, `canonicalization_version` | Explicit, nonempty versions |
 | `manifest jsonb` | Captured provider/dataset/URL, metadata artifact, raw page/export artifacts and hashes, ordering, paging, capture consistency, field/schema descriptors and validation report |
-| `lifecycle` | `DRAFT / PUBLISHED / RETIRED / REJECTED`; rejection reasons required for failed capture |
-| `published_at`, `retired_at`, `created_at` | Server timestamps; not source validity dates |
+| `artifact_uri`, `artifact_sha256`, `manifest_uri`, `manifest_sha256` | Immutable artifact locators/checksums, externally verified before validation |
+| `membership_sha256`, artifact verification fields | Frozen validated DB-set seal and verifier provenance; separate from canonical source digest |
+| `lifecycle` | `STAGING / VALIDATED / PUBLISHED / FAILED`; failure reason required; published/failed states terminal |
+| `validated_at`, `published_at`, `failed_at`, `created_at` | Server timestamps; not source validity dates |
 
-Use `UNIQUE(source_id, capture_key)` and `UNIQUE(id, source_id)` for membership FKs; a partial unique index on `source_id WHERE lifecycle='PUBLISHED'` allows one current curb snapshot per source. Retired published captures remain historical evidence; rejected captures preserve failure artifacts but cannot be association targets. Additional index: `(source_id, retrieval_completed_at DESC)`.
+Use `UNIQUE(source_id, capture_key)` and `UNIQUE(id, source_id)` for membership FKs. The publication draft adds `UNIQUE(id, source_id, lifecycle)` for a pointer FK constrained to PUBLISHED. **Do not use a one-PUBLISHED-per-source partial index:** history remains PUBLISHED. `city_parking_curb_publications` has `source_id` as its PK, identifying zero or one current snapshot; superseded status is derived. Failed captures retain history and cannot publish. Additional index: `(source_id, retrieval_completed_at DESC)`.
 
 Source registry identity should not be repurposed for a different provider/dataset. Capture-time provider/dataset strings in the manifest are intentional audit copies, guarding history against later registry-label edits. Capturing identical content at a later time creates a new snapshot observation but can reuse every version; retrying one capture reuses its capture key. Completeness refers to the observed dataset, not complete city regulation coverage.
 
@@ -224,14 +228,14 @@ Fractional arclength now uses the offline [interval contract](./CITY_CURB_INTERV
 The future ingestion sequence, **not implemented or run**, is:
 
 1. Register/resolve the source using the existing catalog mechanism, verifying provider/dataset identity; do not overwrite another dataset's registry identity.
-2. Create/resume a DRAFT snapshot by capture key. Fetch a complete source capture and metadata; archive original responses and record ordering, page bounds, retries and capture consistency.
+2. Fetch/archive the complete source capture and metadata, recording ordering, page bounds, retries and consistency. Then create/resume a STAGING DB snapshot by capture key; retries must match its immutable envelope.
 3. Validate row identities/schema and geometry without lossy repair. Preserve missing/malformed/unsupported geometry as quarantined content with reasons; identity conflicts prevent publishing the capture. Do not hide exclusions by reducing the source count.
 4. Compute tested canonical geometry/attribute/content digests. Reuse a version only for equal content under the same source/external key/canonicalization contract; otherwise create a generated internal UUID version. Do not overwrite old rows.
 5. Create snapshot membership idempotently. Compare exact identity sets, counts, artifacts and digests; a repeated membership insert must agree with the existing version, not change it in place.
-6. Under a source-level lock, validate the complete manifest and membership set, retire the previous current snapshot and publish the new one atomically. Failed or partial captures never replace current state. Concurrent publishers must not mix capture membership.
+6. Under source-then-snapshot locks, the independent verifier validates and freezes the complete set. A separate publication RPC rechecks gates, transitions VALIDATED to PUBLISHED and atomically advances the per-source pointer using an expected predecessor. Old snapshots remain immutable PUBLISHED history. Failed/partial or stale concurrent publications cannot replace current state.
 7. Trigger an explicit association revalidation/release workflow for changed/current snapshot context. Historical version references and old evidence stay queryable. Reusing identical content is not automatic approval or freshness renewal.
 
-Freeze version identity/content/geometry/digests and published snapshot manifests/membership. Permit only guarded lifecycle transitions on snapshots; no payload mutation on published or retired captures. Use RESTRICT FKs and no routine DELETE privileges. If storage cleanup is later needed, it must respect every historical association and retention requirement. Missing features in a new complete snapshot disappear only from its membership, not from old versions/history.
+Freeze version payloads and snapshot input envelopes from insertion, and membership at validation. Only guarded lifecycle transitions are permitted; published/failed rows never update. Use RESTRICT FKs and no routine DELETE/TRUNCATE privileges, including for failed captures. Any later cleanup needs a separate retention design. Missing features in a new complete snapshot disappear only from its membership, not from old versions/history.
 
 The earlier profiler's `$limit`/`$offset` plus unchanged metadata is not proof of an atomic upstream snapshot. The [snapshot contract](./CITY_CURB_SNAPSHOT_CONTRACT.md#3-consistency-and-change-detection) now requires explicit ID ordering, counts, schema/metadata checks, strict identities and retained bodies, while explicitly limiting `CONSISTENT` to observed agreement. Its live validation is still blocked. Reproducibility of captured bytes and authority/completeness of the upstream set remain distinct.
 
@@ -241,14 +245,14 @@ Proposed new tables: RLS enabled; no anon/authenticated INSERT/UPDATE/DELETE pol
 
 Default the new base snapshot/version/membership tables to **server-only reads**, including raw source/artifact manifests. If a real client feature later needs curb geometry, expose a narrowly scoped read projection of usable members of the current published snapshot, excluding private artifact/reviewer details. This projection is not built now; existing source-registry and city-table policies remain unchanged. Publishing curb data says nothing about verified regulation associations or coverage readiness.
 
-**Migration deferred; no SQL migration file or shared type export created.** Snapshot identity and FK direction do not depend on pretending lifetime physical identity is known. Capture, canonicalization and interval measurement now have offline contracts and verification. Live capture validation, operational artifact retention, and immutable version/publication concurrency guards remain outstanding. Metric calibration and unknown physical-curb continuity are separate blockers to automatic association promotion; neither a UUID nor PostGIS resolves them.
+**Migration deferred; no SQL migration file or shared type export created.** Capture, canonicalization, intervals and publication guards now have explicit contracts; the guard SQL remains a statically reviewed design draft pending isolated PostgreSQL execution/role/concurrency tests. That is a schema-readiness gate. Live capture validation and operational artifact retention block first production rollout, not inherently the installation of a fully tested empty schema. Metric calibration and unknown physical-curb continuity separately block automatic association promotion.
 
 Before migration implementation: settle and test these contracts in an isolated environment with duplicate IDs, coordinate reversal, metadata-only changes, repeated identical captures, disappearing/reappearing IDs, failed captures, concurrent publication and attempted historical mutation. This task runs only the source profiler and repository checks; it does not create these ingestion tests or schema.
 
 ## 11. Proposed TypeScript contracts (documentation only)
 
 ```typescript
-type SnapshotLifecycle = 'DRAFT' | 'PUBLISHED' | 'RETIRED' | 'REJECTED';
+type SnapshotLifecycle = 'STAGING' | 'VALIDATED' | 'PUBLISHED' | 'FAILED';
 type GeometryState = 'USABLE' | 'MISSING' | 'MALFORMED' | 'UNSUPPORTED';
 type Sha256 = string; // Validated lowercase 64-hex, not an arbitrary string.
 type FractionDecimal = string; // Validated interval decimal; not a JS float ID.
@@ -280,16 +284,17 @@ interface CurbSourceSnapshot {
   readonly sourceRegistryId: string;
   readonly captureKey: string;
   readonly retrievalStartedAt: string;
-  readonly retrievalCompletedAt: string | null;
+  readonly retrievalCompletedAt: string;
   readonly lifecycle: SnapshotLifecycle;
-  readonly schemaSha256: Sha256 | null;
-  readonly sourceContentSha256: Sha256 | null;
-  readonly identityGeometrySha256: Sha256 | null;
+  readonly schemaSha256: Sha256;
+  readonly sourceContentSha256: Sha256;
+  readonly identityGeometrySha256: Sha256;
+  readonly membershipSha256: Sha256 | null; // Filled once by validation.
   readonly fetchToolVersion: string;
   readonly canonicalizationVersion: string;
-  readonly rowCount: number | null;
-  readonly usableGeometryCount: number | null;
-  readonly excludedGeometryCount: number | null;
+  readonly rowCount: number;
+  readonly usableGeometryCount: number; // Resolved from validated manifest, not a second DB counter.
+  readonly excludedGeometryCount: number; // Derived from total minus usable.
   readonly manifest: Readonly<Record<string, unknown>>; // Versioned schema.
 }
 interface CurbIntervalReference {
