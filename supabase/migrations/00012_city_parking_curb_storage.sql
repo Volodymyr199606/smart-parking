@@ -2,33 +2,27 @@
 -- Smart Parking: Immutable city curb storage and guarded publication (V1)
 -- =============================================================================
 --
--- NOT APPLIED. Static verification only; isolated PostgreSQL execution pending.
+-- NOT APPLIED TO PRODUCTION. Compiled locally on Supabase PostgreSQL 17.6.
+-- Lifecycle, privilege and concurrency behavior tests remain pending.
 -- Production rollout is blocked. See docs/CITY_CURB_PUBLICATION_CONTRACT.md.
 -- Requires existing Supabase roles and 00005_city_parking_data.sql.
--- Requires an administrator authorized to create the reviewed dedicated roles
--- and transfer object ownership. Fresh curb role/schema names are required.
+-- Objects retain migration-executor ownership (normally Supabase postgres).
+-- Requires permission to create the verifier role; fresh role/schema names.
 -- Adds empty snapshot/version/membership/publication tables and their guards.
--- Adds scoped owner policies and an identity guard to city_parking_sources.
+-- Adds an identity guard to city_parking_sources; existing policies unchanged.
 -- No source registration, backfill, extension, association, or runtime changes.
 -- No updated_at helper: evidence is immutable; lifecycle RPCs set timestamps.
 -- =============================================================================
 
 BEGIN;
 
-CREATE ROLE curb_guard_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE curb_artifact_verifier NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE SCHEMA curb_private AUTHORIZATION curb_guard_owner;
+-- Use the existing migration executor for schema/table/domain/function ownership.
+-- Creating a NOLOGIN role does not grant SET ROLE, required for AUTHORIZATION
+-- and ownership transfers. The verifier is a permission group, never an owner.
+CREATE SCHEMA curb_private;
 REVOKE ALL ON SCHEMA curb_private FROM PUBLIC, anon, authenticated, service_role;
-GRANT USAGE, CREATE ON SCHEMA public TO curb_guard_owner;
 GRANT USAGE ON SCHEMA public TO curb_artifact_verifier;
-GRANT SELECT ON public.city_parking_sources TO curb_guard_owner;
-GRANT UPDATE (id) ON public.city_parking_sources TO curb_guard_owner;
--- The owner does not own the existing registry and has no BYPASSRLS.
-CREATE POLICY curb_owner_source_read ON public.city_parking_sources FOR SELECT TO curb_guard_owner
-  USING (provider = 'DATASF' AND dataset_id = 'pep9-66vw' AND source_key = 'datasf_citywide_curbs');
-CREATE POLICY curb_owner_source_lock ON public.city_parking_sources FOR UPDATE TO curb_guard_owner
-  USING (provider = 'DATASF' AND dataset_id = 'pep9-66vw' AND source_key = 'datasf_citywide_curbs')
-  WITH CHECK (provider = 'DATASF' AND dataset_id = 'pep9-66vw' AND source_key = 'datasf_citywide_curbs');
 
 CREATE DOMAIN curb_private.sha256_hex AS text
   CHECK (VALUE COLLATE "C" ~ '^[0-9a-f]{64}$');
@@ -177,7 +171,10 @@ CREATE FUNCTION curb_private.snapshot_transition_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $guard$
 DECLARE allowed text[];
 BEGIN
-  IF current_user <> 'curb_guard_owner' THEN RAISE EXCEPTION 'Use guarded lifecycle RPC'; END IF;
+  IF current_user IS DISTINCT FROM (SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      FROM pg_catalog.pg_class c WHERE c.oid = TG_RELID) THEN
+    RAISE EXCEPTION 'Use guarded lifecycle RPC';
+  END IF;
   IF OLD.lifecycle = 'STAGING' AND NEW.lifecycle = 'VALIDATED' THEN
     allowed := ARRAY['lifecycle','membership_sha256','artifact_verified_at','artifact_verification_version','artifact_verified_by','validated_at'];
   ELSIF OLD.lifecycle = 'VALIDATED' AND NEW.lifecycle = 'PUBLISHED' THEN
@@ -196,7 +193,10 @@ $guard$;
 CREATE FUNCTION curb_private.pointer_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $guard$
 BEGIN
-  IF current_user <> 'curb_guard_owner' THEN RAISE EXCEPTION 'Use publication RPC'; END IF;
+  IF current_user IS DISTINCT FROM (SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      FROM pg_catalog.pg_class c WHERE c.oid = TG_RELID) THEN
+    RAISE EXCEPTION 'Use publication RPC';
+  END IF;
   IF TG_OP = 'INSERT' THEN
     IF NEW.generation <> 1 THEN RAISE EXCEPTION 'Invalid first generation'; END IF;
   ELSE
@@ -397,24 +397,6 @@ BEGIN
 END;
 $guard$;
 
-ALTER TABLE public.city_parking_source_snapshots OWNER TO curb_guard_owner;
-ALTER TABLE public.city_parking_curb_versions OWNER TO curb_guard_owner;
-ALTER TABLE public.city_parking_curb_snapshot_features OWNER TO curb_guard_owner;
-ALTER TABLE public.city_parking_curb_publications OWNER TO curb_guard_owner;
-ALTER DOMAIN curb_private.sha256_hex OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.lock_source(uuid) OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.deny_mutation() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.stage_insert_guard() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.snapshot_transition_guard() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.pointer_guard() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.source_identity_guard() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.usable_line(jsonb) OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.membership_seal(uuid) OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.assert_complete(uuid) OWNER TO curb_guard_owner;
-ALTER FUNCTION public.validate_city_parking_curb_snapshot(uuid, uuid, text, text, text) OWNER TO curb_guard_owner;
-ALTER FUNCTION public.publish_city_parking_curb_snapshot(uuid, uuid, uuid) OWNER TO curb_guard_owner;
-ALTER FUNCTION public.fail_city_parking_curb_snapshot(uuid, uuid, text) OWNER TO curb_guard_owner;
-
 ALTER TABLE public.city_parking_source_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.city_parking_curb_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.city_parking_curb_snapshot_features ENABLE ROW LEVEL SECURITY;
@@ -439,6 +421,5 @@ REVOKE ALL ON FUNCTION public.validate_city_parking_curb_snapshot(uuid, uuid, te
 GRANT EXECUTE ON FUNCTION public.validate_city_parking_curb_snapshot(uuid, uuid, text, text, text) TO curb_artifact_verifier;
 GRANT EXECUTE ON FUNCTION public.publish_city_parking_curb_snapshot(uuid, uuid, uuid),
   public.fail_city_parking_curb_snapshot(uuid, uuid, text) TO service_role;
-REVOKE CREATE ON SCHEMA public FROM curb_guard_owner;
 
 COMMIT;

@@ -63,9 +63,9 @@ check("tables, functions, triggers, policies and indexes follow dependency order
     }
   }
 });
-check("only reviewed non-login roles are created without application membership", () => {
+check("verifier is a non-login permission group with no application membership", () => {
   const roles = [...ddl.matchAll(/CREATE ROLE (\w+) ([^;]+);/g)];
-  assert.deepEqual(roles.map(m => m[1]), ["curb_guard_owner", "curb_artifact_verifier"]);
+  assert.deepEqual(roles.map(m => m[1]), ["curb_artifact_verifier"]);
   for (const m of roles) assert.equal(m[2], "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS");
   assert(!/GRANT (?:curb_guard_owner|curb_artifact_verifier)\b/.test(ddl));
 });
@@ -111,7 +111,7 @@ check("RPC PUBLIC execution is revoked and definer/invoker boundaries are explic
   assert(ddl.includes("REVOKE ALL ON FUNCTION public.validate_city_parking_curb_snapshot(uuid, uuid, text, text, text), public.publish_city_parking_curb_snapshot(uuid, uuid, uuid), public.fail_city_parking_curb_snapshot(uuid, uuid, text) FROM PUBLIC, anon, authenticated, service_role, curb_artifact_verifier;"));
   const definers = ["curb_private.lock_source", "curb_private.stage_insert_guard", "curb_private.source_identity_guard", ...["validate", "publish", "fail"].map(n => `public.${n}_city_parking_curb_snapshot`)];
   for (const [name, f] of functions) assert(f.header.includes(`SECURITY ${definers.includes(name) ? "DEFINER" : "INVOKER"}`));
-  for (const t of tables.keys()) assert(ddl.includes(`ALTER TABLE public.${t} OWNER TO curb_guard_owner;`));
+  assert(!/\b(?:SET ROLE|SET SESSION AUTHORIZATION|OWNER TO|AUTHORIZATION)\b/.test(ddl));
 });
 check("only documented secondary indexes supplement primary/unique lookup keys", () => {
   const indexes = [...ddl.matchAll(/CREATE INDEX (\w+) ON public\.(\w+)\(([^;]+)\);/g)];
@@ -172,7 +172,7 @@ check("snapshot identity and terminal lifecycle contract", () => {
 });
 check("snapshot payload changes limited to transition fields", () => {
   const guard = fn("curb_private.snapshot_transition_guard").body;
-  assert(guard.includes("current_user <> 'curb_guard_owner'"));
+  assert(guard.includes("current_user IS DISTINCT FROM (SELECT pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class c WHERE c.oid = TG_RELID)"));
   assert(guard.includes("(to_jsonb(NEW) - allowed) IS DISTINCT FROM (to_jsonb(OLD) - allowed)"));
   assert(guard.includes("ARRAY['lifecycle','published_at']"));
 });
@@ -200,11 +200,11 @@ check("source-first READ COMMITTED scope lock", () => {
   assert(lock.header.includes("VOLATILE SECURITY DEFINER"));
   for (const text of ["transaction_isolation", "read committed", "FROM public.city_parking_sources WHERE id = p_source FOR UPDATE", "DATASF", "pep9-66vw", "datasf_citywide_curbs"]) assert(lock.body.includes(text));
 });
-check("existing registry RLS permits only scoped owner locking", () => {
-  assert(ddl.includes("GRANT SELECT ON public.city_parking_sources TO curb_guard_owner"));
-  assert(ddl.includes("GRANT UPDATE (id) ON public.city_parking_sources TO curb_guard_owner"));
-  assert(ddl.includes("CREATE POLICY curb_owner_source_read ON public.city_parking_sources FOR SELECT TO curb_guard_owner"));
-  assert(ddl.includes("CREATE POLICY curb_owner_source_lock ON public.city_parking_sources FOR UPDATE TO curb_guard_owner"));
+check("registry locking retains source scope without new registry grants or policies", () => {
+  assert(!/CREATE POLICY [^;]+ ON public\.city_parking_sources\b/.test(ddl));
+  assert(!/GRANT [^;]+ ON public\.city_parking_sources\b/.test(ddl));
+  const b = fn("curb_private.lock_source").body;
+  for (const text of ["s.provider <> 'DATASF'", "s.dataset_id <> 'pep9-66vw'", "s.source_key <> 'datasf_citywide_curbs'", "s.api_base_url <> 'https://data.sfgov.org/resource'"]) assert(b.includes(text));
 });
 check("all lifecycle RPCs lock source before snapshot", () => {
   for (const name of ["validate", "publish", "fail"]) {
@@ -273,13 +273,20 @@ check("only verifier may validate; only service may publish/fail", () => {
   assert(ddl.includes("GRANT EXECUTE ON FUNCTION public.validate_city_parking_curb_snapshot(uuid, uuid, text, text, text) TO curb_artifact_verifier"));
   assert(ddl.includes("GRANT EXECUTE ON FUNCTION public.publish_city_parking_curb_snapshot(uuid, uuid, uuid), public.fail_city_parking_curb_snapshot(uuid, uuid, text) TO service_role"));
 });
-check("every function has explicit safe search path and owner", () => {
+check("functions retain executor ownership, safe search paths and restricted private access", () => {
   for (const [name, f] of functions) {
     assert(f.header.includes("SET search_path = pg_catalog, pg_temp"), name);
-    assert(new RegExp(`ALTER FUNCTION ${name.replaceAll(".", "\\.")}\\([^;]*\\) OWNER TO curb_guard_owner;`).test(ddl), name);
+    assert(!/\bEXECUTE\s/.test(f.body), `Unexpected dynamic SQL in ${name}`);
   }
   assert(ddl.includes("REVOKE ALL ON ALL FUNCTIONS IN SCHEMA curb_private"));
-  assert(ddl.includes("REVOKE CREATE ON SCHEMA public FROM curb_guard_owner"));
+  assert(ddl.includes("CREATE SCHEMA curb_private;"));
+  assert(ddl.includes("REVOKE ALL ON SCHEMA curb_private FROM PUBLIC, anon, authenticated, service_role;"));
+  assert(!/\b(?:AUTHORIZATION|OWNER TO|SET ROLE|SET SESSION AUTHORIZATION)\b/.test(ddl));
+  for (const name of ["snapshot_transition_guard", "pointer_guard"]) {
+    const guard = fn(`curb_private.${name}`);
+    assert(guard.header.includes("SECURITY INVOKER"));
+    assert(guard.body.includes("current_user IS DISTINCT FROM (SELECT pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class c WHERE c.oid = TG_RELID)"));
+  }
 });
 check("every trigger/private call references a defined function", () => {
   for (const m of ddl.matchAll(/EXECUTE FUNCTION ([\w.]+)\(/g)) assert(functions.has(m[1]), m[1]);

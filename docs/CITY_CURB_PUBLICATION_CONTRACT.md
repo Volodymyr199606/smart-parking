@@ -1,6 +1,6 @@
 # City Curb Publication + Immutability Guards V1
 
-**DESIGN COMPLETE; MIGRATION IMPLEMENTED; POSTGRES EXECUTION TEST PENDING; PRODUCTION ROLLOUT BLOCKED.** The reviewed SQL is implemented in [00012_city_parking_curb_storage.sql](../supabase/migrations/00012_city_parking_curb_storage.sql), but has not been applied or PostgreSQL-executed. This refines the [storage](./CITY_CURB_STORAGE.md), [snapshot](./CITY_CURB_SNAPSHOT_CONTRACT.md), [interval](./CITY_CURB_INTERVAL_CONTRACT.md), and [association](./CITY_REGULATION_ASSOCIATION_STORAGE.md) contracts. It does not create an ingestion service or accepted associations. CITY remains **INCOMPLETE**.
+**STATIC VERIFIED; POSTGRES COMPILED; LIFECYCLE TESTED; IMMUTABILITY TESTED; ROLLBACK TESTED; CONCURRENCY TESTED; RLS/PRIVILEGES TESTED — LOCALLY. PRODUCTION NOT APPLIED; PRODUCTION ROLLOUT BLOCKED.** [Migration 00012](../supabase/migrations/00012_city_parking_curb_storage.sql) applied successfully in fresh disposable Supabase PostgreSQL 17.6 after the ownership correction below. The local behavior harness subsequently passed 132 checks using synthetic fixtures. This refines the [storage](./CITY_CURB_STORAGE.md), [snapshot](./CITY_CURB_SNAPSHOT_CONTRACT.md), [interval](./CITY_CURB_INTERVAL_CONTRACT.md), and [association](./CITY_REGULATION_ASSOCIATION_STORAGE.md) contracts. No ingestion service or accepted associations were added. CITY remains **INCOMPLETE**.
 
 ## 1. Design decisions
 
@@ -16,34 +16,31 @@ Publication requires `expected_current_snapshot_id` (NULL for first publication)
 
 ## 2. Ownership and trust boundary
 
-The migration declares the reviewed non-login owner `curb_guard_owner` for new tables/functions. It is never granted to application/service roles. `service_role` can SELECT and INSERT staging snapshots, versions and membership, but cannot UPDATE/DELETE/TRUNCATE them or write the current pointer. It can invoke publication/failure RPCs. The migration also declares the separate non-login `curb_artifact_verifier` role for validation; it grants no role membership to service_role, anon or authenticated. Both role names come from this reviewed design, not assumed existing Supabase roles. Provisioning an independently authenticated verifier remains deployment work; no login or credential is created here.
+Schema, tables, domain and functions retain the migration executor's ownership, normally Supabase `postgres`, matching the existing project migrations. The separate non-login `curb_artifact_verifier` is a permission group only; no ownership or role membership is granted to it or to application roles. `service_role` can SELECT and INSERT staging snapshots, versions and membership, but cannot UPDATE/DELETE/TRUNCATE them or write the current pointer. It can invoke publication/failure RPCs; only the verifier receives validation EXECUTE. Provisioning an independently authenticated verifier remains deployment work; no login or credential is created here.
+
+**Ownership compatibility correction:** the first local application failed with SQLSTATE 42501, `must be able to SET ROLE "curb_guard_owner"`, at `CREATE SCHEMA curb_private AUTHORIZATION curb_guard_owner`. Creating a NOLOGIN role does not imply permission to assume it. PostgreSQL requires SET ROLE ability for another role's schema ownership and subsequent object ownership transfers. The cached Supabase image explicitly demotes `postgres` to NOSUPERUSER; CREATEROLE alone does not satisfy this requirement. The correction removes the custom owner role, AUTHORIZATION and all ownership transfers, along with its unnecessary source policies/grants. The two invoker guards compare `current_user` against the protected relation's catalog owner, not a hardcoded role name. No SET ROLE or membership/superuser grants were added.
+
+This chooses executor ownership over retaining a second owner through extra membership grants. It preserves the client/service/verifier access boundary and all lifecycle/immutability checks. SECURITY DEFINER functions now run with the existing administrative executor's broader privileges; fixed qualified SQL, no dynamic SQL, fixed search paths and narrow EXECUTE grants remain essential. The administrative owner was already outside the immutability threat model. Actual role and behavior tests remain required before rollout.
 
 The independent verifier must restore the immutable artifact, verify its manifest/bytes and `curb-jcs-v1` hashes, compare every staged version's complete payload with source rows, confirm exact identity sets/counts/schema and produce a DB membership seal. It attests URI availability/retention, manifest authenticity, content/hash agreement and capture consistency. PostgreSQL cannot inspect arbitrary object-store bytes. The DB validates required attestation fields, shape and completeness, and binds the verified set immutably; it does not claim that a hex hash or a service-role assertion proves correct source bytes.
 
-RLS has no client policies on the four tables. No anon/authenticated privileges are added. New SECURITY DEFINER functions use a fixed `pg_catalog, pg_temp` search path, qualified application objects, explicit owner assignment and revoked PUBLIC execution; see [PostgreSQL SECURITY DEFINER guidance](https://www.postgresql.org/docs/current/sql-createfunction.html). No custom session variable is accepted as an authorization bypass. Service-role RLS bypass does not bypass ordinary revoked table privileges or ordinary triggers. Owners/superusers can change/disable schema security; administrative DDL and compromised verifier/owner credentials are outside the enforced trust boundary. Do not claim immutability against a superuser.
+RLS has no client policies on the four tables. No anon/authenticated privileges are added. New SECURITY DEFINER functions use a fixed `pg_catalog, pg_temp` search path, qualified application objects, common migration-executor ownership and revoked PUBLIC execution; see [PostgreSQL SECURITY DEFINER guidance](https://www.postgresql.org/docs/current/sql-createfunction.html). No custom session variable is accepted as an authorization bypass. Service-role RLS bypass does not bypass ordinary revoked table privileges or ordinary triggers. Owners/superusers can change/disable schema security; administrative DDL and compromised verifier/owner credentials are outside the enforced trust boundary. Do not claim immutability against a superuser.
 
-## 3. Reviewed SQL implemented in migration 00012 — not applied
+## 3. Reviewed SQL implemented in migration 00012 — applied locally only
 
-The migration assumes existing Supabase roles and migration 00005, UTF-8 PostgreSQL with built-in `sha256(bytea)`, and fresh dedicated role/schema names. Creating ownership roles requires a suitably privileged migration administrator; compatibility with the eventual Supabase deployment must be tested in isolation first. Everything below is enclosed in one transaction to avoid transient default PUBLIC function access. It creates no source row, extension or association table. Built-in [binary SHA-256](https://www.postgresql.org/docs/current/functions-binarystring.html) avoids requiring pgcrypto/PostGIS. The offline verifier reads the actual migration and requires exact agreement with this reviewed block after the migration banner. No SQL behavior was redesigned during promotion to the migration file.
+The migration assumes existing Supabase roles and migration 00005, UTF-8 PostgreSQL with built-in `sha256(bytea)`, and fresh verifier-role/private-schema names. Execute as the normal migration administrator owning the existing project objects, with permission to create the verifier role. Everything below is enclosed in one transaction to avoid transient default PUBLIC function access. It creates no source row, extension or association table. Built-in [binary SHA-256](https://www.postgresql.org/docs/current/functions-binarystring.html) avoids requiring pgcrypto/PostGIS. The offline verifier requires exact agreement between this block and the actual migration after its banner. The ownership correction above is the only SQL behavior change from the initial reviewed implementation.
 
 <!-- CURB_GUARD_SQL_BEGIN -->
 ```sql
 BEGIN;
 
-CREATE ROLE curb_guard_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE curb_artifact_verifier NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE SCHEMA curb_private AUTHORIZATION curb_guard_owner;
+-- Use the existing migration executor for schema/table/domain/function ownership.
+-- Creating a NOLOGIN role does not grant SET ROLE, required for AUTHORIZATION
+-- and ownership transfers. The verifier is a permission group, never an owner.
+CREATE SCHEMA curb_private;
 REVOKE ALL ON SCHEMA curb_private FROM PUBLIC, anon, authenticated, service_role;
-GRANT USAGE, CREATE ON SCHEMA public TO curb_guard_owner;
 GRANT USAGE ON SCHEMA public TO curb_artifact_verifier;
-GRANT SELECT ON public.city_parking_sources TO curb_guard_owner;
-GRANT UPDATE (id) ON public.city_parking_sources TO curb_guard_owner;
--- The owner does not own the existing registry and has no BYPASSRLS.
-CREATE POLICY curb_owner_source_read ON public.city_parking_sources FOR SELECT TO curb_guard_owner
-  USING (provider = 'DATASF' AND dataset_id = 'pep9-66vw' AND source_key = 'datasf_citywide_curbs');
-CREATE POLICY curb_owner_source_lock ON public.city_parking_sources FOR UPDATE TO curb_guard_owner
-  USING (provider = 'DATASF' AND dataset_id = 'pep9-66vw' AND source_key = 'datasf_citywide_curbs')
-  WITH CHECK (provider = 'DATASF' AND dataset_id = 'pep9-66vw' AND source_key = 'datasf_citywide_curbs');
 
 CREATE DOMAIN curb_private.sha256_hex AS text
   CHECK (VALUE COLLATE "C" ~ '^[0-9a-f]{64}$');
@@ -192,7 +189,10 @@ CREATE FUNCTION curb_private.snapshot_transition_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $guard$
 DECLARE allowed text[];
 BEGIN
-  IF current_user <> 'curb_guard_owner' THEN RAISE EXCEPTION 'Use guarded lifecycle RPC'; END IF;
+  IF current_user IS DISTINCT FROM (SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      FROM pg_catalog.pg_class c WHERE c.oid = TG_RELID) THEN
+    RAISE EXCEPTION 'Use guarded lifecycle RPC';
+  END IF;
   IF OLD.lifecycle = 'STAGING' AND NEW.lifecycle = 'VALIDATED' THEN
     allowed := ARRAY['lifecycle','membership_sha256','artifact_verified_at','artifact_verification_version','artifact_verified_by','validated_at'];
   ELSIF OLD.lifecycle = 'VALIDATED' AND NEW.lifecycle = 'PUBLISHED' THEN
@@ -211,7 +211,10 @@ $guard$;
 CREATE FUNCTION curb_private.pointer_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $guard$
 BEGIN
-  IF current_user <> 'curb_guard_owner' THEN RAISE EXCEPTION 'Use publication RPC'; END IF;
+  IF current_user IS DISTINCT FROM (SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      FROM pg_catalog.pg_class c WHERE c.oid = TG_RELID) THEN
+    RAISE EXCEPTION 'Use publication RPC';
+  END IF;
   IF TG_OP = 'INSERT' THEN
     IF NEW.generation <> 1 THEN RAISE EXCEPTION 'Invalid first generation'; END IF;
   ELSE
@@ -412,24 +415,6 @@ BEGIN
 END;
 $guard$;
 
-ALTER TABLE public.city_parking_source_snapshots OWNER TO curb_guard_owner;
-ALTER TABLE public.city_parking_curb_versions OWNER TO curb_guard_owner;
-ALTER TABLE public.city_parking_curb_snapshot_features OWNER TO curb_guard_owner;
-ALTER TABLE public.city_parking_curb_publications OWNER TO curb_guard_owner;
-ALTER DOMAIN curb_private.sha256_hex OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.lock_source(uuid) OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.deny_mutation() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.stage_insert_guard() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.snapshot_transition_guard() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.pointer_guard() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.source_identity_guard() OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.usable_line(jsonb) OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.membership_seal(uuid) OWNER TO curb_guard_owner;
-ALTER FUNCTION curb_private.assert_complete(uuid) OWNER TO curb_guard_owner;
-ALTER FUNCTION public.validate_city_parking_curb_snapshot(uuid, uuid, text, text, text) OWNER TO curb_guard_owner;
-ALTER FUNCTION public.publish_city_parking_curb_snapshot(uuid, uuid, uuid) OWNER TO curb_guard_owner;
-ALTER FUNCTION public.fail_city_parking_curb_snapshot(uuid, uuid, text) OWNER TO curb_guard_owner;
-
 ALTER TABLE public.city_parking_source_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.city_parking_curb_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.city_parking_curb_snapshot_features ENABLE ROW LEVEL SECURITY;
@@ -454,7 +439,6 @@ REVOKE ALL ON FUNCTION public.validate_city_parking_curb_snapshot(uuid, uuid, te
 GRANT EXECUTE ON FUNCTION public.validate_city_parking_curb_snapshot(uuid, uuid, text, text, text) TO curb_artifact_verifier;
 GRANT EXECUTE ON FUNCTION public.publish_city_parking_curb_snapshot(uuid, uuid, uuid),
   public.fail_city_parking_curb_snapshot(uuid, uuid, text) TO service_role;
-REVOKE CREATE ON SCHEMA public FROM curb_guard_owner;
 
 COMMIT;
 ```
@@ -503,14 +487,47 @@ All fields of a version are immutable from insertion. All snapshot input fields 
 
 ## 7. Migration structure and verification boundary
 
-Order: dedicated roles/private helpers namespace; digest domain; snapshot/version/member/pointer tables; indexes; focused insert/transition/append-only/source/pointer guards; geometry/seal/completeness helpers; validation/publication/failure RPCs; ownership, RLS and explicit grants/revocations; one enclosing transaction. FKs form a directed acyclic graph: members -> versions/snapshots -> source; pointer -> snapshots/source. No source->pointer reverse FK. Future associations reference versions with RESTRICT and validate snapshot membership, without cascading deletions or creating association tables here.
+Order: verifier permission role/private helpers namespace; digest domain; snapshot/version/member/pointer tables; indexes; focused insert/transition/append-only/source/pointer guards; geometry/seal/completeness helpers; validation/publication/failure RPCs; RLS and explicit grants/revocations; one enclosing transaction with unchanged executor ownership. FKs form a directed acyclic graph: members -> versions/snapshots -> source; pointer -> snapshots/source. No source->pointer reverse FK. Future associations reference versions with RESTRICT and validate snapshot membership, without cascading deletions or creating association tables here.
 
-Rechecked for migration implementation: no `psql`, `postgres`, `initdb`, `pg_ctl` or Docker was found on PATH; standard PostgreSQL/Docker installation locations were absent. Nothing was installed and no database was started or contacted. Static checks verify the actual migration's structure, constraints, declared dependencies, grants, guards and seal protocol; they **do not execute SQL, compile PL/pgSQL, validate actual privileges or prove concurrent transaction behavior**.
+The original implementation environment lacked PostgreSQL/Docker. The user subsequently provisioned a local Supabase stack. The fresh retry used the cached `public.ecr.aws/supabase/postgres:17.6.1.167` image; PostgreSQL reports version **17.6**. Migration 00012 now compiles locally. Static checks remain separate: they do not validate runtime privileges or prove concurrent transaction behavior.
 
 Verification command: `pnpm.cmd exec tsx scripts/verify-curb-publication-contract.ts`. The expanded verifier checks the migration against the reviewed SQL, sequential numbering, additive/no-top-level-write scope, table/function/trigger/policy/index ordering, FK dependency/unique-key shape, fixed search paths/owners, staging/terminal transition guards, current-pointer constraints, artifact and manifest requirements, service/verifier privilege separation, source-lock ordering, failure/first-publication/retry structure and the independent membership-seal byte protocol. The checks only read local files; they never execute SQL or contact a database. No PostgreSQL behavior is represented as tested by these assertions.
 
-Implementation verification: **41 static/protocol checks passed**; `pnpm.cmd typecheck` and `git diff --check` passed. The verifier's initial sandbox attempt was blocked by esbuild `spawn EPERM`; the approved rerun passed. No PostgreSQL or Docker installation, database connection, migration application or ingestion occurred.
+Ownership-fix verification: **41 static/protocol checks passed**; `pnpm.cmd typecheck` and `git diff --check` passed before local application. Fresh local commands:
 
-Database guard, immutability and concurrency designs are implemented in migration 00012. Static review found no SQL contract contradiction: dependencies are ordered without FK cycles, guard triggers do not write their own triggering tables recursively, and publication uses source-first locking, NULL-safe predecessor comparison, generation-one insertion and an early no-op for historical retries. These are static findings only. Before any rollout, isolated PostgreSQL tests must exercise DDL/function compilation, dedicated-role creation/ownership transfer, grants and RLS under real roles, actual triggers, cascade/truncate rejection, two-session insertion/validation/publication races, rollback after the snapshot transition, and stale published retries. This engine validation is a technical schema-readiness gate, not a reason to connect to production.
+```text
+pnpm.cmd exec supabase stop --project-id smart-parking --no-backup
+pnpm.cmd exec supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+```
 
-Live double-capture validation and operational immutable object retention remain external/operational concerns. They do not intrinsically prevent installing an empty, fully tested schema, but they must block first production ingestion/validation/publication. **Migration file implemented, statically verified, not PostgreSQL-executed, not applied, and not production-ready.** The migration contains no source registration or backfill. Distinct-ID/usable counts stay in the validated manifest; immutable evidence has no `updated_at`, and pointer changes use `changed_at`. Version UUIDs are stable future interval FK targets, but association tables and membership-aware association publication remain separate work. The existing interval/canonicalization contracts, runtime and CITY coverage are unchanged.
+The local database volume was confirmed absent before start. Migrations **00001 through 00012** applied in order; start exited **0**, with no next SQL error. The only seed warning was that `supabase/seed.sql` does not exist; no application seed ran. Other local services were excluded. Read-only catalogs confirmed all twelve migration versions, `postgres` ownership of the source table, four curb tables, private schema and twelve curb functions, RLS enabled on all four curb tables, and the declared SECURITY DEFINER/search_path settings. The `public` schema is owned by `pg_database_owner`. Local `postgres` is NOSUPERUSER with CREATEROLE/BYPASSRLS; the verifier has no login, superuser, CREATEROLE or BYPASSRLS, and `curb_guard_owner` does not exist. No credentials were printed. No production connection or write occurred.
+
+The compilation-only stage above ended before behavior testing. The subsequent behavior stage preserved that healthy local stack, found no migration defect, and made no migration edit or reset/reapply. The repeatable [local DB harness](../scripts/verify-curb-publication-db.ts) passed **132 checks**, separately from the **41 static/protocol checks**; workspace/script typecheck also passed.
+
+```text
+pnpm.cmd verify:curb-publication-db --database-url=postgresql://postgres@127.0.0.1:54322/postgres
+```
+
+The URL is a password-free endpoint assertion. The harness rejects the production project ref, remote hosts, other ports and URL overrides before Docker access. It uses only the local Docker Desktop named pipe and `supabase_db_smart-parking`, verifies host port 54322 maps to container port 5432, and checks migration 00012 and synthetic-only source scope. It never loads `.env`, calls hosted APIs, resets the stack or runs ingest.
+
+Fixtures use the source key `datasf_citywide_curbs` because the migration pins that identity; an arbitrary `test_curb_publication_v1` key correctly fails the source guard. The local row is explicitly labeled `LOCAL SYNTHETIC curb publication verification V1`; captures/external IDs have `test:`/`test-curb-` prefixes and per-run UUIDs. Three canonical LineString versions and one intentionally invalid Point fixture exercise membership and geometry checks. Artifact/manifest locations are `test://` placeholders. This proves SQL attestation enforcement, **not** retained-object existence or real independent artifact verification.
+
+| Executed local behavior | Result |
+|---|---|
+| STAGING to VALIDATED | Attestation, timestamps and independently computed membership seal recorded; members unchanged; identical validation retry is a no-op |
+| Validation failures | Both non-CONSISTENT states, missing attestation/seal, wrong seal, row/member/distinct counts and invalid geometry rejected; missing artifact/manifest fields reject at INSERT, missing version/mismatched identity reject by FK, wrong-source version rejects at staging |
+| Publication and retries | First run creates generation 1; newer second snapshot advances to 2 once; current and historical retries do not mutate history/timestamps/generation |
+| Stale predecessor / older capture | Both reject with the current pointer unchanged |
+| Immutability | Published snapshot fields/DELETE, version payload/hash/DELETE, validated/published membership INSERT/UPDATE/DELETE, all four table TRUNCATEs and source repurposing rejected |
+| FAILED | STAGING and VALIDATED can fail with a reason; retry is a no-op; validation/publication/return to STAGING rejected |
+| Rollback | A transaction-local pointer CHECK constraint rejects publication after its snapshot transition; snapshot, pointer and generation remain unchanged; the test constraint also rolls back |
+| Concurrent publication | Two independent psql sessions share the expected predecessor; observed loser waiting on `Lock/transactionid`, blocked by the winner while it holds a source-table lock; winner commits, loser rejects stale; exactly one advancement, no deadlock |
+| Role execution | Actual anon/authenticated reads, writes and trusted RPC calls rejected; service stages/reads/publishes/fails but cannot validate or directly update the pointer; verifier reads/validates but cannot stage/mutate/publish/fail; private helpers denied to all four roles |
+| SECURITY DEFINER | All six owned by local migration executor `postgres`; fixed `pg_catalog, pg_temp` paths; PUBLIC EXECUTE revoked; validation/publication, staging/failure and source-identity guards resist temporary relation/function shadows |
+| Catalog | Four RLS-enabled tables owned by `postgres`; twelve functions; fourteen custom triggers; six RESTRICT FKs, four PKs, six UNIQUE constraints; twelve valid/ready indexes; four verifier-only SELECT policies |
+
+The final full run (`eb6add46-b4f5-4493-934e-d2f3218a70cb`) exited 0. Its lock wait was observed **182 ms after launching the losing session**; this includes process startup/observation overhead, not an exact lock-duration measurement. A previous complete run passed 125 checks before target-rejection and additional shadow/private-helper checks were added. Reruns successfully advance from existing synthetic history with fresh capture keys and timestamps. Positive fixtures remain local because deleting them would violate the append-only contract; negative mutation tests and temporary shadow/rollback objects roll back. No automatic cleanup disables guards.
+
+Test connections use the local `supabase_admin` role solely to switch transaction roles; no role memberships or production permissions are added. Operations run under `SET LOCAL ROLE postgres`, `service_role`, `curb_artifact_verifier`, `anon` or `authenticated` as appropriate. Thus attestation records local session identity `supabase_admin`; separate operational verifier authentication remains untested. The executed concurrency scenario is publisher versus publisher; additional staging-versus-validation race tests and hosted-role verification are not claimed.
+
+Live double-capture validation, operational immutable object retention, real source registration and independent verifier authentication remain blockers for first production ingestion/validation/publication. **Migration statically verified, locally compiled and behavior-tested; production not applied or ready.** The migration contains no source registration or backfill. Distinct-ID/usable counts stay in the validated manifest; immutable evidence has no `updated_at`, and pointer changes use `changed_at`. Version UUIDs are stable future interval FK targets, but association tables and membership-aware association publication remain separate work. Production project `pffznlpmgtrpsejayicj` was never contacted during local testing. The existing interval/canonicalization contracts, runtime and CITY coverage are unchanged.

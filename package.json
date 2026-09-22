@@ -23,12 +23,15 @@
     "verify:legal-conclusion": "tsx scripts/verify-legal-conclusion.ts",
     "verify:regulation-storage": "tsx scripts/verify-regulation-storage.ts",
     "verify:datasf-retry": "tsx scripts/verify-datasf-retry.ts",
+    "verify:curb-publication": "tsx scripts/verify-curb-publication-contract.ts",
+    "verify:curb-publication-db": "tsx scripts/verify-curb-publication-db.ts",
     "profile:regulation-data": "tsx scripts/profile-regulation-data.ts",
     "profile:regulation-join": "tsx scripts/profile-regulation-join.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.105.4",
     "@types/node": "^22.10.0",
+    "supabase": "^2.117.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0"
   },
