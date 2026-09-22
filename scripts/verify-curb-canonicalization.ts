@@ -86,6 +86,14 @@ async function archiveChecks() {
   await saveManifest({ ...manifest, summary: { ...manifest.summary, dataset_sha256: "0".repeat(64) } });
   await assert.rejects(() => verifyArchive(directory)); checks++; console.log("PASS manifest content disagreement rejected");
   await saveManifest(manifest); // Leave a valid, synthetic fixture for independent offline replay.
+  const currentHostManifest = { ...manifest, api_endpoint: endpoint.replace("data.sfgov.org", "data.sf.gov"),
+    artifacts: artifacts.map(a => ({ ...a, url: a.url.replace("data.sfgov.org", "data.sf.gov") })) };
+  await saveManifest(currentHostManifest);
+  assert.equal((await verifyArchive(directory)).summary.dataset_sha256, manifest.summary.dataset_sha256);
+  checks++; console.log("PASS current DataSF host reconstructs identically to legacy archives");
+  await saveManifest({ ...currentHostManifest, artifacts });
+  await assert.rejects(() => verifyArchive(directory)); checks++; console.log("PASS mixed legacy/current artifact endpoints rejected");
+  await saveManifest(currentHostManifest);
   console.log(`Curb canonicalization: ${checks} checks passed; zero network or database access. Synthetic fixture: ${directory}`);
 }
 archiveChecks().catch(error => { console.error(error); process.exitCode = 1; });

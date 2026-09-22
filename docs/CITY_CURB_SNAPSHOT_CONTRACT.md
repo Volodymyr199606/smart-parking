@@ -1,10 +1,10 @@
 # City Curb Snapshot + Canonicalization Contract V1
 
-**Publication follow-up:** [Curb Publication + Immutability Guards V1](./CITY_CURB_PUBLICATION_CONTRACT.md) now specifies DB staging/validation/publication, independent artifact attestation and a frozen membership seal. The canonical source/artifact hash contracts here remain unchanged. Database staging begins after retained capture completion; STAGING/VALIDATED/PUBLISHED/FAILED are DB lifecycle states, separate from capture consistency. Guard SQL is statically reviewed but awaits isolated PostgreSQL execution tests. Live capture and operational retention remain production rollout gates.
+**Publication follow-up:** [Curb Publication + Immutability Guards V1](./CITY_CURB_PUBLICATION_CONTRACT.md) specifies DB staging/validation/publication, independent artifact attestation and a frozen membership seal. Migration 00012 passed 132 local database behavior checks in the preceding milestone; production was not applied. Database lifecycle states are separate from capture consistency. The live attempt below found a source precision incompatibility and a changed public hostname. The unchanged database manifest/source guards still pin the legacy hostname, so a future compatibility review is also required before publication.
 
-**Interval follow-up:** [Curb Interval Measurement V1](./CITY_CURB_INTERVAL_CONTRACT.md) now supplies the offline target measurement, projection/tie and fraction-serialization contract. References below to unresolved interval measurement describe this snapshot milestone's original boundary. Live capture validation, operational artifact retention and database publication/immutability guards still block migration; interval measurements do not verify associations.
+**Interval follow-up:** [Curb Interval Measurement V1](./CITY_CURB_INTERVAL_CONTRACT.md) supplies the offline target measurement, projection/tie and fraction-serialization contract. References below to unresolved interval measurement describe this snapshot milestone's original boundary. Live capture validation and operational artifact retention still block production rollout; interval measurements do not verify associations.
 
-Status: offline contract and verification; public capture experiment blocked by HTTP 403. No production migration, ingest, database access, or runtime integration. This refines [curb storage V1](./CITY_CURB_STORAGE.md) for capture consistency, retained artifacts, and canonical digests only. Interval measurement and database publication/immutability guards remain separate blockers. CITY remains **INCOMPLETE**.
+**LIVE QUERY VERIFIED on `data.sf.gov`; DOUBLE CAPTURE NOT VERIFIED; METADATA AVAILABLE on the current host; PRODUCTION PUBLICATION STILL BLOCKED.** On 2026-09-22, two independent attempts each fetched metadata, count and the first 1,000-row page, then correctly became INVALID because source coordinate decimals fail the existing strict binary64 round-trip contract. No precision rule was weakened. This milestone used public DataSF and local files only: no database connection/write, migration, ingest or runtime integration. CITY remains **INCOMPLETE**.
 
 ## 1. Existing conventions and scope
 
@@ -17,21 +17,23 @@ The profiler already uses Node SHA-256 and a shared GET retry helper. Its revers
 Provider `datasf`; dataset `pep9-66vw`; proposed registry key `datasf_citywide_curbs` (not registered here).
 
 ```text
-GET https://data.sfgov.org/api/views/pep9-66vw.json
-GET https://data.sfgov.org/resource/pep9-66vw.json?$select=count(*)%20as%20n
-GET https://data.sfgov.org/resource/pep9-66vw.json?$select=*&$order=globalid%20ASC&$limit=1000&$offset=0
+GET https://data.sf.gov/api/views/pep9-66vw.json
+GET https://data.sf.gov/resource/pep9-66vw.json?$select=count(*)%20as%20n
+GET https://data.sf.gov/resource/pep9-66vw.json?$select=*&$order=globalid%20ASC&$limit=1000&$offset=0
 GET ...same query...&$offset=1000
 ...
 GET ...same query...&$offset=N  (first page with fewer than 1000 rows)
-GET https://data.sfgov.org/resource/pep9-66vw.json?$select=count(*)%20as%20n
-GET https://data.sfgov.org/api/views/pep9-66vw.json
+GET https://data.sf.gov/resource/pep9-66vw.json?$select=count(*)%20as%20n
+GET https://data.sf.gov/api/views/pep9-66vw.json
 ```
 
 The script uses URLSearchParams; its encoded URLs in the manifest are authoritative (`+` and `%20` both encode spaces). Offset advances by 1000, never by an assumed natural row order. Fetch the terminal short page, including an empty page when the count is an exact multiple of 1000. Maximum 100,000 rows; require explicit terminal completion. No filter, field renaming, geometry transformation or lossy column whitelist. `$select=*` captures all public fields including unknown future attributes; it does not request hidden system fields. Schema changes require review, not silently reverting to an old whitelist.
 
-Socrata documents [ordering by a column with ASC/DESC](https://dev.socrata.com/docs/queries/order.html) and warns that results have no implicit ordering. `globalid` is the observed text identity column, making `$order=globalid ASC` the proposed unique ordering. This experiment could not validate that query against the live endpoint because metadata GETs received 403. Do not claim live order support was demonstrated. Capture verification requires strict increasing verbatim IDs under UTF-16 ordering; the observed UUID-like ASCII labels have compatible ordering. If future source collation/labels disagree, flag the capture for review rather than normalizing labels or continuing silently.
+Socrata documents [ordering by a column with ASC/DESC](https://dev.socrata.com/docs/queries/order.html) and warns that results have no implicit ordering. `globalid` is the observed text identity column. The five-row `$select=*&$order=globalid ASC&$limit=5` probe succeeded on `data.sf.gov`; both subsequent first pages also had strictly increasing verbatim IDs under UTF-16 ordering. Full pagination remains unverified because precision validation rejected the first page. If future source collation/labels disagree, flag the capture for review rather than normalizing labels or continuing silently.
 
-Public unauthenticated GETs only. Reuse five attempts maximum per request for HTTP 425/429/500/502/503/504 and the helper's recognized transient network errors. Backoff is 1/2/4/8 seconds; Retry-After is a minimum, with values above 60 seconds causing failure. Non-retryable responses, malformed JSON and precision failures stop. A 45-second per-attempt abort is an additional bound and is terminal under the current helper. Pause 300 ms between successful requests. No automatic restart of a whole capture and no polling loop. Compare at most two complete captures per invocation.
+The legacy `data.sfgov.org` hostname returned 403 for the ordered/count queries, while metadata and a limit-only query returned 301 to `data.sf.gov`. The current host accepted all three endpoint types. Live capture now pins `https://data.sf.gov`, prints the dataset/host before fetching, permits only the Accept header and refuses redirects. Offline reconstruction accepts either complete legacy-host archives or complete current-host archives; mixed endpoint descriptors reject. Source namespace, field selection, ordering, page size, parser and digest algorithms are unchanged. This is an observed transport compatibility correction, not proof of the exact upstream cause of the legacy nginx 403.
+
+Public unauthenticated GETs only. Reuse five attempts maximum per request for HTTP 425/429/500/502/503/504 and the helper's recognized transient network errors. Backoff is 1/2/4/8 seconds; Retry-After is a minimum, with values above 60 seconds causing failure. Non-retryable responses, malformed JSON and precision failures stop. A 45-second per-attempt abort is an additional bound and is terminal under the current helper. Pause 300 ms between successful requests and 15 seconds between successful Capture A and independent Capture B in `--compare` mode. No automatic restart or polling loop. `--compare` stops if either attempt fails; `--capture` attempts exactly one capture when independent failure evidence is needed.
 
 ## 3. Consistency and change detection
 
@@ -175,14 +177,45 @@ Commands:
 ```text
 pnpm.cmd exec tsx scripts/verify-curb-canonicalization.ts
 pnpm.cmd exec tsx scripts/capture-curb-snapshot.ts --compare --out=<NEW absolute directory outside Git>
+pnpm.cmd exec tsx scripts/capture-curb-snapshot.ts --capture --out=<NEW absolute directory outside Git>
 pnpm.cmd exec tsx scripts/capture-curb-snapshot.ts --verify=<capture directory>
 pnpm.cmd typecheck
 git diff --check
 git status --short
 ```
 
-Verification result: **32 offline checks passed**, including identity rejection, key order/whitespace, ordered geometry changes, attributes/unknown fields, missing/null, dataset row order, numeric/Unicode edge cases, schema change, geometry eligibility and capture state transitions. Synthetic raw-page archive reconstruction passed; corrupted bodies, changed queries and inconsistent manifest content digests were rejected. Fixtures are created in a new system temporary directory, outside Git, and left valid for optional replay. `pnpm.cmd typecheck` passed across all workspaces and scripts. No test framework or runtime exports were added.
+Verification result: **34 offline checks passed**, including identity rejection, key order/whitespace, ordered geometry changes, attributes/unknown fields, missing/null, dataset row order, numeric/Unicode edge cases, schema change, geometry eligibility and capture state transitions. Synthetic raw-page archive reconstruction passed; corrupted bodies, changed queries and inconsistent manifest content digests were rejected. Added checks preserve legacy archive reconstruction, verify identical logical digests with current-host descriptors and reject mixed hosts. Fixtures remain in system temporary directories outside Git. `pnpm.cmd typecheck` passed across all workspaces and scripts. No dependency, test framework or runtime export was added.
 
-Live result in this milestone: public metadata GET returned HTTP 403 both inside the sandbox and in one escalated attempt. Neither fetched source rows; no complete capture or double-capture equality is claimed. Stop after that bounded failure rather than repeatedly retrying a non-retryable response. The existing 18,355-row observation remains the prior milestone's evidence, not a new verification. Live ordered pagination, successful artifact reconstruction on current DataSF bytes and cross-capture equality remain unverified.
+### 2026-09-22 live execution evidence
 
-Resolved at contract level: deterministic query/pagination policy, conservative consistency states and explicit isolation limits, authoritative archive/manifest and retention requirements, exact canonicalization/hash rules, and offline conformance implementation. Not resolved operationally: successful live capture validation and deployed durable artifact retention. **Curb migration remains deferred and must not be created in this milestone.** Interval measurement conventions and database publication/immutability enforcement are still required; no association approval, physical-curb continuity, coverage readiness or runtime switch follows from canonicalization.
+The earlier environment's metadata 403 is historical. On the current machine/network, the legacy ordered query returned the same 146-byte nginx 403 both inside and outside the sandbox. Literal query parameters/`%20` spaces and a browser-style user-agent also returned that 403. No common proxy environment configuration was present; this does not exclude an OS/network intermediary. The exact upstream policy remains undetermined.
+
+| Endpoint | Legacy `data.sfgov.org` | Current `data.sf.gov` |
+|---|---|---|
+| `/resource/pep9-66vw.json?$select=*&$order=globalid ASC&$limit=5` | 403 | 200; five unique ascending IDs |
+| `/resource/pep9-66vw.json?$select=count(*) as n` | 403 | 200; 18,355 |
+| `/api/views/pep9-66vw.json` | 301 to current host | 200; expected dataset metadata |
+| `/resource/pep9-66vw.json?$limit=5` | 301 to current host | Not separately probed; ordered rows above succeeded |
+
+Exactly two capture attempts ran. A used `--compare`, which correctly stopped at its first failure; after diagnosing the retained page, B used `--capture` and fetched independently. The gap was diagnostic work, not a scheduled multi-minute pause. Neither attempt completed or produced a successful manifest.
+
+| Observation | A | B |
+|---|---|---|
+| Start UTC | 2026-09-22T20:59:49.721Z | 2026-09-22T21:02:00.233Z |
+| Finish UTC | 2026-09-22T20:59:51.574Z | 2026-09-22T21:02:02.179Z |
+| Exit / consistency | 1 / INVALID | 1 / INVALID |
+| Before-count endpoint | 18,355 | 18,355 |
+| Rows in retained first page | 1,000 | 1,000 |
+| Distinct IDs in that page | 1,000 | 1,000 |
+| Duplicate / missing / blank IDs in that page | 0 / 0 / 0 | 0 / 0 / 0 |
+| Page count / retries | 1 / 0 | 1 / 0 |
+| Strict first-page ID order | Pass | Pass |
+| Full row count / terminal page / after checks | Not reached | Not reached |
+
+Both before-schema digests equal `e7bc3b8f7e2eb806a95515f4eb61e8e00054ff5cdcef4bdc732ba0fe7c2701bc`. Both first-page byte checksums equal `91abbd31364d92a2194565aeddd460133dadede12e5f30d3e8905eaf708c6289`; the partial raw-page envelope digest is `4b07d350fab331b4ab3fb3c997e9f135e8fdf3bf6964f94f460deb14bd49fefb`. These are partial observations, not full successful snapshot digests. All six retained metadata/count/page byte lengths and checksums matched their failure descriptors on reconstruction. Both pages are byte-identical; partial IDs only in A/B are 0/0. No pagination-boundary or whole-source absence/completeness claim follows from one page.
+
+Strict reconstruction of each page reproduced `Source number loses decimal precision in binary64 serialization`. Diagnostic token inspection found ten incompatible coordinate tokens in the shared page, including `-122.37952207229336` (JavaScript serializes it as `-122.37952207229335`) and `37.732536608656226` (serializes as `37.732536608656225`). The diagnostic parser was used only to inspect tokens and count textual IDs; rounded coordinate payloads were not accepted or hashed as canonical data. No successful feature, dataset or identity/geometry digest was produced. Whole-source ID differences and same-ID content/geometry change counts are unverified, not zero. This demonstrates the strict input profile rejecting real source decimals, not nondeterministic source behavior or an observed dataset edit.
+
+Local review evidence is retained under `%TEMP%/curb-live-double-98011c373090428db5ef2a2cb6ce7dc2/`: A in `capture-1/`, B in `independent-b/capture-1/`, and `failure-comparison.json` with the detailed partial observations. `%TEMP%/curb-live-diagnostics-cn242d/` contains bounded endpoint, redirect and precision diagnostics. Raw response bodies total about 0.8 MB across both attempts. Nothing was uploaded or added to Git. No third capture ran.
+
+Resolved: live ordered-query acceptance and metadata/count access on the current public hostname. **Double-capture validation remains unresolved.** The precision incompatibility requires an explicit lossless numeric/canonicalization decision and version/compatibility review; silently rounding coordinates or weakening `curb-jcs-v1` is not a fix. Future database compatibility must also address migration 00012's existing pins to `https://data.sfgov.org/resource` and the old manifest endpoint; this milestone did not edit or apply migration SQL. Durable immutable artifact retention, independent verifier authentication and real source registration remain production blockers. No transaction isolation, association approval, physical-curb continuity, coverage readiness or runtime switch follows from these partial captures.

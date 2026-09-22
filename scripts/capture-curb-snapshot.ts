@@ -1,5 +1,6 @@
 /** Bounded public DataSF capture / offline archive verification. Never database ingestion.
- * --compare --out=<NEW absolute directory> captures exactly twice.
+ * --compare --out=<NEW absolute directory> attempts up to two captures, stopping on failure.
+ * --capture --out=<NEW absolute directory> attempts one capture, including failure evidence.
  * --verify=<capture directory> reconstructs from retained bytes with zero network.
  */
 import assert from "node:assert/strict";
@@ -8,8 +9,10 @@ import { isAbsolute, join } from "node:path";
 import { fetchDataSfJson } from "./fetch-datasf-json";
 import { canonicalDataset, canonicalJson, CONTRACT, digest, jsonObject, parseSourceJson, schemaDigest, sha256, SOURCE, supportedLineString } from "./canonicalize-curb-snapshot";
 
-const ENDPOINT = "https://data.sfgov.org/resource/pep9-66vw.json";
-const METADATA = "https://data.sfgov.org/api/views/pep9-66vw.json";
+// DataSF's legacy host redirects metadata, but ordered/count requests can return 403.
+const ENDPOINT = "https://data.sf.gov/resource/pep9-66vw.json";
+const LEGACY_ENDPOINT = "https://data.sfgov.org/resource/pep9-66vw.json";
+const METADATA = "https://data.sf.gov/api/views/pep9-66vw.json";
 const PAGE_SIZE = 1000;
 const TOOL = "curb-capture-v1";
 interface Artifact { path: string; url: string; bytes: number; sha256: string; retrieved_at: string; status: number; headers: Record<string, string>; }
@@ -19,14 +22,14 @@ export function captureState(input: { valid: boolean; beforeCount: number; after
   if (input.beforeCount !== input.afterCount || input.rows !== input.beforeCount || !input.metadataEqual || !input.schemaEqual || !input.ordered) return "POSSIBLY_CHANGED_DURING_CAPTURE";
   return "CONSISTENT"; // Observed agreement only, never transactional isolation.
 }
-function pageUrl(offset: number): string {
-  const url = new URL(ENDPOINT);
+function pageUrl(offset: number, endpoint = ENDPOINT): string {
+  const url = new URL(endpoint);
   url.searchParams.set("$select", "*"); url.searchParams.set("$order", "globalid ASC");
   url.searchParams.set("$limit", String(PAGE_SIZE)); url.searchParams.set("$offset", String(offset));
   return url.toString();
 }
-function countUrl(): string {
-  const url = new URL(ENDPOINT); url.searchParams.set("$select", "count(*) as n"); return url.toString();
+function countUrl(endpoint = ENDPOINT): string {
+  const url = new URL(endpoint); url.searchParams.set("$select", "count(*) as n"); return url.toString();
 }
 function count(value: unknown): number {
   if (!Array.isArray(value) || value.length !== 1) throw new Error("Invalid count response");
@@ -52,10 +55,17 @@ async function capture(directory: string) {
   await mkdir(directory); await mkdir(join(directory, "pages"));
   const started = new Date().toISOString(), artifacts: Artifact[] = [], retries: string[] = [];
   async function get(url: string, path: string) {
+    const target = new URL(url);
+    assert.equal(target.origin, "https://data.sf.gov");
+    assert([new URL(ENDPOINT).pathname, new URL(METADATA).pathname].includes(target.pathname));
+    assert(!target.username && !target.password && !target.hash);
     let body: Uint8Array | undefined, selectedHeaders: Record<string, string> = {}, status = 0;
     const value = await fetchDataSfJson(url, message => { retries.push(message); console.log(message); }, {
       fetch: async (input, init) => {
-        const response = await fetch(input, { ...init, signal: AbortSignal.timeout(45_000) });
+        const headerNames: string[] = [];
+        new Headers(init?.headers).forEach((_value, name) => headerNames.push(name));
+        assert.deepEqual(headerNames, ["accept"]);
+        const response = await fetch(input, { ...init, redirect: "error", signal: AbortSignal.timeout(45_000) });
         if (response.ok) {
           body = new Uint8Array(await response.clone().arrayBuffer());
           status = response.status;
@@ -123,7 +133,9 @@ export async function verifyArchive(directory: string) {
   const m = jsonObject(parseSourceJson(bytes));
   assert.equal(m.format_version, "curb-snapshot-v1"); assert.equal(m.canonicalization_version, CONTRACT);
   assert.equal(m.dataset_id, SOURCE.dataset_id); assert.equal(m.provider, SOURCE.provider);
-  assert.equal(m.api_endpoint, ENDPOINT);
+  assert(m.api_endpoint === ENDPOINT || m.api_endpoint === LEGACY_ENDPOINT);
+  const endpoint = m.api_endpoint;
+  const metadata = new URL("/api/views/pep9-66vw.json", endpoint).toString();
   assert.equal(canonicalJson(m.query), canonicalJson({ select: "*", order: "globalid ASC", page_size: PAGE_SIZE, offset_step: PAGE_SIZE, filter: null }));
   if (!Array.isArray(m.artifacts)) throw new Error("Missing artifact descriptors");
   const values = new Map<string, unknown>(), pages: Artifact[] = [], rows: unknown[] = [];
@@ -136,11 +148,11 @@ export async function verifyArchive(directory: string) {
     const parsed = parseSourceJson(raw); values.set(a.path, parsed);
     if (a.path.startsWith("pages/")) {
       const offset = pages.length * PAGE_SIZE;
-      assert.equal(a.path, `pages/${String(offset).padStart(6, "0")}.json`); assert.equal(a.url, pageUrl(offset));
+      assert.equal(a.path, `pages/${String(offset).padStart(6, "0")}.json`); assert.equal(a.url, pageUrl(offset, endpoint));
       assert(!terminal && Array.isArray(parsed) && parsed.length <= PAGE_SIZE);
       rows.push(...parsed); terminal = parsed.length < PAGE_SIZE;
       pages.push(a as unknown as Artifact);
-    } else assert.equal(a.url, a.path.startsWith("metadata") ? METADATA : countUrl());
+    } else assert.equal(a.url, a.path.startsWith("metadata") ? metadata : countUrl(endpoint));
   }
   assert(terminal && rows.length <= 100_000); assert.equal(values.size, pages.length + 4);
   assert.equal(m.raw_pages_sha256, digest("raw-pages", pages.map(a => [a.path, a.bytes, a.sha256])));
@@ -154,15 +166,26 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0].startsWith("--verify=")) { await verifyArchive(args[0].slice(9)); return; }
   const out = args.find(a => a.startsWith("--out="))?.slice(6);
-  if (args.length !== 2 || !args.includes("--compare") || !out || !isAbsolute(out)) throw new Error("Use --compare --out=<NEW absolute directory> or --verify=<capture directory>");
+  if (args.length !== 2 || !(args.includes("--compare") || args.includes("--capture")) || !out || !isAbsolute(out)) throw new Error("Use --compare/--capture --out=<NEW absolute directory> or --verify=<capture directory>");
+  console.log("PUBLIC TARGET VERIFIED: dataset=pep9-66vw host=data.sf.gov; Accept header only; no credentials; redirects refused");
   await mkdir(out); // Must not exist: no overwrites, no destructive cleanup.
   const a = await capture(join(out, "capture-1"));
+  if (args.includes("--capture")) return;
+  console.log("Capture A complete; waiting 15 seconds before independent Capture B");
+  await new Promise(resolve => setTimeout(resolve, 15_000));
   const b = await capture(join(out, "capture-2"));
+  const aIds = new Map(a.features.map(f => [f.external_id, f]));
+  const bIds = new Map(b.features.map(f => [f.external_id, f]));
   const comparison = { captures: 2, row_counts: [a.summary.row_count, b.summary.row_count], states: [a.summary.state, b.summary.state],
     external_ids_equal: a.summary.external_ids_sha256 === b.summary.external_ids_sha256,
     schema_equal: a.summary.schema_after === b.summary.schema_after,
     dataset_equal: a.summary.dataset_sha256 === b.summary.dataset_sha256,
+    identity_geometry_equal: a.summary.identity_geometry_sha256 === b.summary.identity_geometry_sha256,
     feature_digests_equal: canonicalJson(a.features) === canonicalJson(b.features),
+    ids_only_in_a: a.features.filter(f => !bIds.has(f.external_id)).map(f => f.external_id),
+    ids_only_in_b: b.features.filter(f => !aIds.has(f.external_id)).map(f => f.external_id),
+    same_id_changed_content: a.features.filter(f => bIds.has(f.external_id) && bIds.get(f.external_id)!.content_sha256 !== f.content_sha256).length,
+    same_id_changed_geometry: a.features.filter(f => bIds.has(f.external_id) && bIds.get(f.external_id)!.geometry_sha256 !== f.geometry_sha256).length,
     metadata_equal_between_captures: a.summary.metadata_after === b.summary.metadata_before };
   await writeFile(join(out, "comparison.json"), canonicalJson(comparison) + "\n", { flag: "wx" });
   console.log(JSON.stringify(comparison));
