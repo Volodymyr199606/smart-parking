@@ -1,5 +1,7 @@
 # City curb lossless database ingestion boundary V1
 
+**Current publication follow-up:** [V2 validation/publication compatibility](./CITY_CURB_PUBLICATION_CONTRACT.md#current-v2-validation-and-publication-compatibility-v1) adds forward migration **00014** without editing 00012/00013. A separate verifier identity binds artifact/manifest/dataset/geometry/count/eligibility evidence and a snapshot-specific seal; attestation and VALIDATED commit atomically. Service-only publication checks that immutable evidence without parsing authoritative numeric payloads. V1 history remains supported, invalid version pairs reject, and an explicit one-way registry hostname upgrade preserves logical dataset identity and capture provenance. Earlier “V2 publication blocked by V1 gate” statements below describe the pre-00014 milestone. Production rollout and independently provisioned operational verification remain blocked; no production project was contacted.
+
 ## Current: V2 ingest eligibility and staging RPC V1
 
 **DB INGEST ELIGIBILITY RESOLVED for the defined domain and the complete retained source. V2 STAGING RPC LOCALLY VERIFIED. PRODUCTION NOT APPLIED; V2 PUBLICATION BLOCKED.** Migration [00013](../supabase/migrations/00013_city_parking_curb_staging_rpc.sql) is a forward migration; 00012 and the lossless capture codec are unchanged. Only synthetic fixtures were staged in fresh disposable PostgreSQL 17.6 clusters. The existing local Supabase database was untouched.

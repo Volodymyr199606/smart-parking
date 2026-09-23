@@ -1,5 +1,127 @@
 # City Curb Publication + Immutability Guards V1
 
+## Current: V2 validation and publication compatibility V1
+
+**V2 VALIDATION/PUBLICATION COMPATIBILITY IMPLEMENTED AND TESTED LOCALLY; PRODUCTION NOT APPLIED.** Forward migration [00014](../supabase/migrations/00014_city_parking_curb_v2_publication.sql) adds immutable verifier evidence and a snapshot-bound membership seal. It preserves 00012/00013 files and the original V1 validation/publication implementations. Only synthetic local fixtures are used; the real 18,355-row capture is not staged or published. CITY remains INCOMPLETE.
+
+The following V2 contract supersedes earlier statements that V2 is blocked by the V1 completeness gate. The original V1 SQL and evidence below remain historical contracts, not a claim that 00012 alone supports V2.
+
+### Audit and compatibility matrix
+
+| Existing feature | 00012/00013 finding | 00014 decision |
+|---|---|---|
+| Lifecycle, source locking, immutable versions/membership, pointer CAS | Already usable for V2 | Preserve source-first READ COMMITTED locking, freeze and predecessor rules. |
+| Canonicalization | Actual V1 is **`curb-jcs-v1`**; 00013 also permits `curb-decimal-v2` | Reject `curb-decimal-v1`; it is not an alias or historical contract in this repository. |
+| Manifest | 00012 completeness requires `curb-snapshot-v1`; 00013 permits V2 STAGING only | Add separate strict V2 completeness; never relabel V1 evidence. |
+| Endpoint | V1 completeness pins legacy host; 00013 staging pins current host; source-identity trigger previously froze the registry URL | Keep exact capture URLs; allow only the reviewed one-way registry endpoint upgrade without changing logical identity. |
+| Attestation | Snapshot stores verifier/time/version plus membership hash; V1 API binds manifest/seal only | Add immutable V2 evidence binding artifact/manifest/dataset/geometry/counts/eligibility/contracts. |
+| Eligibility | No persisted explicit DB-eligibility outcome/counts | Require versioned ELIGIBLE result, eligible count = row count and ineligible count = 0 in attestation. |
+| Membership seal | V1 hashes stable identity/hash tuples but not snapshot/source UUIDs in its header | Preserve V1; add V2 domain/header containing both UUIDs and contract versions. |
+| Publication | V1 calls a completeness helper that examines geometry JSONB | V2 publication reads control metadata and sealed textual identities/digests only; numeric payload verification stays outside publication. |
+
+| Canonicalization | Snapshot | New feature staging via 00013 | Validation | Publication | Required verifier / TEXT boundary |
+|---|---|---|---|---|---|
+| `curb-jcs-v1` | `curb-snapshot-v1` | No; historical V1 staged evidence remains supported | Original V1 path | Original V1 path | Independent `curb-artifact-verify-v1`; original V1 numeric contract preserved |
+| `curb-decimal-v2` | `curb-snapshot-v2` | Yes, subject to DB eligibility | Atomic V2 attestation/validation | Yes, after bound V2 attestation | Independent `curb-artifact-verify-v2`; authoritative feature writes/reads use TEXT |
+| `curb-jcs-v1` | `curb-snapshot-v2` | No | Reject | Reject | No cross-version reinterpretation |
+| `curb-decimal-v2` | `curb-snapshot-v1` | Reject | Reject | Reject | Rejected by existing V2 manifest CHECK |
+| `curb-decimal-v1` or unknown | Either/unknown | Reject | Reject | Reject | Unsupported identifier |
+
+“Staging” in this matrix means feature staging, not merely inserting snapshot metadata. A malformed V1 metadata envelope can exist in STAGING under the old schema, but cannot pass strict V1 validation. V1 database validation retains its legacy-host pin; offline reconstruction of other historical endpoint variants does not silently authorize publication under a different contract.
+
+### Dataset identity and endpoint provenance
+
+The same registry UUID/source key `datasf_citywide_curbs`, provider `DATASF` and dataset `pep9-66vw` identify the logical source. A host migration is not a new dataset. Every immutable snapshot manifest retains the exact endpoint used during capture.
+
+00014's replacement source-identity trigger still rejects changes to referenced source UUID/key/provider/dataset. It permits only `https://data.sfgov.org/resource` -> `https://data.sf.gov/resource` for this exact logical curb source. Reverse/unreviewed endpoint changes reject. The migration performs **no registry UPDATE** and grants no new registry write permissions. An authorized registry owner can make that explicit metadata upgrade later; synthetic local testing demonstrates it without changing V1 snapshots or creating a duplicate source. Production registration/upgrade remains a separately reviewed rollout step.
+
+### Six separate states
+
+1. **CAPTURE:** retained original bytes and manifests pass their versioned archive contract.
+2. **ELIGIBILITY:** pure lossless checks establish DB-ingest eligibility; capture validity alone is insufficient.
+3. **STAGING:** service-only TEXT RPC creates/reuses immutable versions and membership; supplied hashes are not proof.
+4. **ATTESTATION:** independently authenticated verifier replays artifact bytes, recomputes hashes/counts/eligibility, compares complete authoritative DB TEXT and derives the membership seal.
+5. **VALIDATION:** the verifier-only transaction checks that evidence against the locked complete snapshot, inserts the immutable attestation and switches to VALIDATED atomically.
+6. **PUBLICATION:** service-only transaction accepts only validated, attested, sealed evidence and advances the pointer using the expected predecessor.
+
+There is deliberately no persistent “attested but still mutable STAGING” state. Independent replay happens before the attestation call. Any intervening membership change produces a different seal or incomplete set and rejects the old evidence. Successful attestation and validation commit together and freeze membership. An identical retry by the same database verifier identity is a no-op; conflicting evidence/identity rejects. Failure after validation can leave immutable historical attestation attached to a FAILED snapshot; it does not authorize publication or resurrection.
+
+### Exact V2 attestation contract
+
+New table `public.city_parking_curb_attestations` has only:
+
+- `snapshot_id uuid PRIMARY KEY`, `source_id uuid`, composite FK to the same snapshot/source (RESTRICT).
+- `verifier_identity text NOT NULL`: database `session_user`, never a caller-supplied identity.
+- `verified_at timestamptz`: server timestamp, finite.
+- `evidence jsonb NOT NULL`: exact metadata object below. It contains no source numeric payload.
+
+The verifier-only RPC is:
+
+```sql
+public.attest_city_parking_curb_snapshot_v2(
+  p_source uuid, p_snapshot uuid, p_evidence jsonb
+) RETURNS text
+```
+
+Required evidence keys (missing, extra, mismatching or incorrectly typed values reject):
+
+| Key | Required value/binding |
+|---|---|
+| `artifact_sha256`, `manifest_sha256` | Digests independently checked against retained bytes and the immutable snapshot declarations |
+| `dataset_sha256`, `identity_geometry_sha256` | Recomputed V2 dataset/identity-geometry hashes matching the snapshot |
+| `row_count`, `distinct_external_id_count` | Complete staged/artifact identity counts, matching snapshot row count |
+| `membership_sha256` | Exact V2 seal recomputed from current locked membership |
+| `eligibility_version` | `curb-db-eligibility-v1` |
+| `eligibility_state` | `ELIGIBLE` |
+| `eligible_row_count`, `ineligible_row_count` | Snapshot row count / zero |
+| `canonicalization_version`, `snapshot_version` | `curb-decimal-v2` / `curb-snapshot-v2` |
+| `verifier_version` | `curb-artifact-verify-v2` |
+
+The function requires STAGING, CONSISTENT, nonzero complete membership, exact provider/dataset/source/current capture endpoint, manifest versions/query/tool/timestamps/counts/schema/digest agreement and compatible immutable version metadata. Artifact/manifest URIs, checksums and snapshot digests remain required by 00012's existing NOT NULL/domain/URI constraints. The full evidence object is compared against expected immutable metadata and the freshly computed seal. Attestation time/identity/version/seal are copied into the existing snapshot verification fields, binding both records. A metadata-only forged VALIDATED row without the new attestation cannot publish.
+
+UPDATE, DELETE and TRUNCATE of attestations are denied by existing-style immutable triggers. Application roles have no direct INSERT privilege. RLS exposes attestations only to the intended service/verifier readers; anon/authenticated/PUBLIC receive no access. One attestation row per snapshot prevents unversioned duplicate history. No source geometry or attributes are copied into the attestation table.
+
+### V2 membership seal bytes
+
+SHA-256 over UTF-8 of this exact concatenation:
+
+```text
+city-curb/db-membership/v2\n
+<source UUID>:<snapshot UUID>:curb-decimal-v2:curb-snapshot-v2\n
+<hex UTF-8 external_id>:<version UUID>:<geometry_sha256>:<attributes_sha256>:<content_sha256>
+```
+
+The displayed `\n` means one LF byte, not a literal backslash. Subsequent membership tuples are separated by one LF; there is no trailing LF after the last tuple. UUID text is lowercase normalized PostgreSQL UUID spelling. Sort by hex-encoded external ID under SQL `COLLATE "C"` / equivalent ASCII ordering in TypeScript. Hex encoding makes separators and Unicode unambiguous. The empty-set form contains only the two header lines but is never validation-eligible. [TypeScript implementation](../scripts/curb-v2-membership-seal.ts) agrees with SQL independent of enumeration. The V1 `city-curb/db-membership/v1` protocol is unchanged.
+
+SQL hashes only stable textual IDs and existing digest fields; it does not canonicalize/hash numeric geometry or attribute JSON. Same content in a different snapshot produces a different V2 seal. This prevents replaying an attestation from another capture or source.
+
+### Role separation and publication
+
+`service_role` can stage, read and invoke publication/failure, but cannot attest, directly insert attestations, validate V1 or mutate snapshot verification fields. `curb_artifact_verifier` can read authoritative TEXT and create the intended attestation/validation, but cannot stage, change membership, publish or mutate historical rows. PUBLIC/anon/authenticated execution is revoked transactionally. Private helpers and preserved V1 implementations are not directly executable by application roles. SECURITY DEFINER uses executor ownership, qualified objects and fixed `pg_catalog, pg_temp` search paths.
+
+The test uses distinct database login sessions (`curb_test_service` versus `curb_test_verifier`) and actual SET ROLE. `session_user` records the independently authenticated verifier login. A shared PostgREST authenticator would record that gateway login, not a human/verifier subject; production must provision and audit an independent verifier credential/identity path before rollout. No identity is accepted as a free-form RPC parameter. Owners/superusers remain outside the enforced application threat model.
+
+Public V1 validation/publication signatures are preserved. Their original implementations are relocated to private `validate_snapshot_v1` / `publish_snapshot_v1`; wrappers dispatch only supported combinations. V2 publication checks completeness control metadata, exact attestation bindings, the current V2 seal, source lock, expected predecessor and capture chronology. It never traverses authoritative numeric JSON. PUBLISHED retries return ALREADY_CURRENT or ALREADY_PUBLISHED_NOT_CURRENT without moving the pointer backwards or refreshing timestamps.
+
+### Local execution and limits
+
+```powershell
+pnpm.cmd exec tsx scripts/verify-curb-v2-publication.ts --local-disposable
+pnpm.cmd exec tsx scripts/verify-curb-staging-rpc.ts --local-disposable
+```
+
+The new harness applies **every actual migration 00001 through 00014** to a fresh cached Supabase PostgreSQL 17.6 image as NOSUPERUSER `postgres`, then tests V1 history and a three-row synthetic V2 happy path. PostgreSQL runs with Docker network `none`, no published ports and Unix-socket role logins. Minimal Auth users/uid and realtime-publication prerequisites are provided for compilation; this does not test Supabase Auth/Realtime services. No extensions or PostGIS are installed.
+
+It separately runs the existing 00012 behavior assertions against a second fresh 00001..00012 cluster. This is intentionally a historical checkpoint: 00013 revokes the direct service INSERT grants those old staging tests exercise. Running their old privilege expectations unchanged after 00013 would be incorrect. The existing harness gains only a tightly named/labeled disposable-container target; its behavior assertions remain unchanged. A local test-administrator statistics-read grant enables its cross-session lock observation; no migration/application role privileges are expanded for that test instrumentation. The 00013 verifier remains an independent fresh-cluster regression, and V1 validate/publish are additionally tested after 00014.
+
+Coverage includes the requested cross-version/digest/eligibility failures, role denials, missing attestation, frozen membership/content, stale seals, replay from another snapshot, corrupted retained bytes, a dishonest staging payload/hash, identical retries, old-publication retries, source endpoint provenance, and concurrent publishers (one winner, one stale predecessor). Rejected operations compare complete database-state digests before/after. Synthetic artifact files and all disposable clusters/volumes are removed. The existing local project and production project `pffznlpmgtrpsejayicj` are untouched.
+
+**Execution results:** all 00001..00014 files compiled successfully on fresh PostgreSQL 17.6; **71 V2 publication checks**, **132 original 00012 behavior checks**, and **71 original 00013 staging checks** passed. The first historical checkpoint run could not observe another session's lock wait because its minimal bootstrap lacked `pg_read_all_stats`; adding that test-administrator monitoring grant and rerunning from a fresh cluster resolved the instrumentation failure without changing migration SQL. Required checks also passed: typecheck, canonicalization **100 V2 + 34 V1**, publication static/protocol **41**, interval **38**, eligibility **33**, and `git diff --check`.
+
+The current 18,355-row V2/source endpoint/version/count/zero-ineligible contract is compatible. A synthetic 18,355-row metadata envelope passes the actual schema but is correctly rejected as incomplete without all members. The real capture is not staged or published by this test. Prior full offline eligibility results remain applicable to that retained capture, not future source states.
+
+Remaining production gates: reviewed migration/registration rollout (including explicit endpoint upgrade where needed), durable immutable artifact storage/retention, independently provisioned verifier authentication, and an operational full-archive verifier using the tested V2 contract. The synthetic replay tests are not a production ingestion/verification service. Runtime, legality, coverage, UI, AI, agent and MCP integrations remain unchanged. No commit is created.
+
 **STATIC VERIFIED; POSTGRES COMPILED; LIFECYCLE TESTED; IMMUTABILITY TESTED; ROLLBACK TESTED; CONCURRENCY TESTED; RLS/PRIVILEGES TESTED — LOCALLY. PRODUCTION NOT APPLIED; PRODUCTION ROLLOUT BLOCKED.** [Migration 00012](../supabase/migrations/00012_city_parking_curb_storage.sql) applied successfully in fresh disposable Supabase PostgreSQL 17.6 after the ownership correction below. The local behavior harness subsequently passed 132 checks using synthetic fixtures. This refines the [storage](./CITY_CURB_STORAGE.md), [snapshot](./CITY_CURB_SNAPSHOT_CONTRACT.md), [interval](./CITY_CURB_INTERVAL_CONTRACT.md), and [association](./CITY_REGULATION_ASSOCIATION_STORAGE.md) contracts. No ingestion service or accepted associations were added. CITY remains **INCOMPLETE**.
 
 ## 1. Design decisions

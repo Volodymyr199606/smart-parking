@@ -11,7 +11,8 @@ import { randomUUID } from "node:crypto";
 import { canonicalDataset, canonicalFeature, sha256 } from "./canonicalize-curb-snapshot-v1";
 
 const forbidden = "pffznlpmgtrpsejayicj";
-const container = "supabase_db_smart-parking";
+const disposableArg = process.argv.slice(2).find(a => a.startsWith("--disposable-container="));
+const container = disposableArg?.slice("--disposable-container=".length) ?? "supabase_db_smart-parking";
 const pipe = "npipe:////./pipe/dockerDesktopLinuxEngine";
 const source = "00000000-0000-4000-8000-000000000012";
 const marker = "LOCAL SYNTHETIC curb publication verification V1";
@@ -127,18 +128,18 @@ async function until(predicate: () => Promise<boolean>, message: string) {
 
 async function main() {
   const args = process.argv.slice(2);
-  assert(args.length === 1 && args[0].startsWith("--database-url="), "Supply exactly --database-url=postgresql://postgres@127.0.0.1:54322/postgres");
-  const raw = args[0].slice("--database-url=".length);
-  const url = localTarget(raw);
+  assert(args.length === 1 && (disposableArg || args[0].startsWith("--database-url=")), "Supply the local endpoint assertion or a labeled disposable test container");
+  const url = disposableArg ? null : localTarget(args[0].slice("--database-url=".length));
+  if (disposableArg) assert(/^curb-publication-db-[0-9a-f]{16}$/.test(container), "Non-local disposable target refused");
   await check("target guard rejects production, remote hosts and endpoint overrides before Docker", async () => {
     for (const target of [`postgresql://postgres@${forbidden}.supabase.co:54322/postgres`, "postgresql://postgres@example.invalid:54322/postgres", "postgresql://postgres@localhost.evil:54322/postgres", "postgresql://postgres@127.0.0.1:54323/postgres", "postgresql://postgres@127.0.0.1:54322/postgres?host=example.invalid"])
       assert.throws(() => localTarget(target));
   });
-  const info = await docker(["inspect", "--format", '{{json .NetworkSettings.Ports}}', container]).finished;
+  const info = await docker(["inspect", "--format", disposableArg ? '{{index .Config.Labels "smart-parking.curb-publication-test"}}' : '{{json .NetworkSettings.Ports}}', container]).finished;
   assert.equal(info.code, 0, "Local container unavailable");
-  const ports = JSON.parse(info.out);
-  assert(ports["5432/tcp"].some((p: { HostPort: string }) => p.HostPort === url.port), "Local DB port mismatch");
-  console.log("LOCAL TARGET VERIFIED: Docker Desktop pipe; supabase_db_smart-parking; 127.0.0.1:54322; production ref absent");
+  if (disposableArg) assert.equal(info.out, "local-only", "Disposable test label missing");
+  else assert(JSON.parse(info.out)["5432/tcp"].some((p: { HostPort: string }) => p.HostPort === url!.port), "Local DB port mismatch");
+  console.log(`LOCAL TARGET VERIFIED: Docker Desktop pipe; ${container}; production ref absent`);
   console.log("Synthetic history retained; negative/temporary tests roll back. No reset or migration application.");
   await check("PostgreSQL/migration baseline and synthetic-only scope", async () => {
     const baseline = await json(`SELECT jsonb_build_object('version',current_setting('server_version'),'migration',(SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version='00012'),'other_sources',(SELECT count(*) FROM public.city_parking_sources WHERE id<>${q(source)} OR display_name<>${q(marker)}),'other_captures',(SELECT count(*) FROM public.city_parking_source_snapshots WHERE capture_key NOT LIKE 'test:%'));`);
