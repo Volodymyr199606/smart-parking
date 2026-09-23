@@ -16,6 +16,8 @@ interface Dependencies {
   fetch: typeof globalThis.fetch;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
+  // Raw archive callers supply a byte reader; existing JSON callers keep their behavior.
+  readBody: (response: Response) => Promise<unknown>;
 }
 
 function transientNetworkCode(error: unknown): string | null {
@@ -59,7 +61,7 @@ export async function fetchDataSfJson(
     try {
       const response = await fetch(url, { headers: { Accept: "application/json" } });
       // Body transport failures can be transient; malformed JSON is not.
-      if (response.ok) return await response.json();
+      if (response.ok) return await (dependencies.readBody ? dependencies.readBody(response) : response.json());
       const body = await response.text().catch(() => "");
       failure = new Error(`${context} HTTP ${response.status}: ${body.slice(0, 200)}`);
       if (!RETRYABLE_HTTP.has(response.status) || attempt === MAX_ATTEMPTS) {

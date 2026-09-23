@@ -1,5 +1,5 @@
 /** Pure offline interval measurement. No fetch, database, matching or runtime integration. */
-import { canonicalJson, digest, jsonObject } from "./canonicalize-curb-snapshot";
+import { canonicalJson, digest, jsonObject } from "./canonicalize-curb-snapshot-v1";
 
 export const MEASUREMENT_MODEL = "sf-curb-planar-um-v1";
 export const FRAME = Object.freeze({ longitude: -122.44, latitude: 37.77,

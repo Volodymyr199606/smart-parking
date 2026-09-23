@@ -8,13 +8,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fetchDataSfJson } from "./fetch-datasf-json";
 import { canonicalDataset, canonicalJson, CONTRACT, digest, jsonObject, parseSourceJson, schemaDigest, sha256, SOURCE, supportedLineString } from "./canonicalize-curb-snapshot";
+import * as current from "./canonicalize-curb-snapshot";
+import * as legacy from "./canonicalize-curb-snapshot-v1";
 
 // DataSF's legacy host redirects metadata, but ordered/count requests can return 403.
 const ENDPOINT = "https://data.sf.gov/resource/pep9-66vw.json";
 const LEGACY_ENDPOINT = "https://data.sfgov.org/resource/pep9-66vw.json";
 const METADATA = "https://data.sf.gov/api/views/pep9-66vw.json";
 const PAGE_SIZE = 1000;
-const TOOL = "curb-capture-v1";
+const TOOL = "curb-capture-v2";
 interface Artifact { path: string; url: string; bytes: number; sha256: string; retrieved_at: string; status: number; headers: Record<string, string>; }
 export type CaptureState = "CONSISTENT" | "POSSIBLY_CHANGED_DURING_CAPTURE" | "INVALID";
 export function captureState(input: { valid: boolean; beforeCount: number; afterCount: number; rows: number; metadataEqual: boolean; schemaEqual: boolean; ordered: boolean }): CaptureState {
@@ -37,7 +39,8 @@ function count(value: unknown): number {
   if (typeof raw !== "string" || !/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))) throw new Error("Invalid source count");
   return Number(raw);
 }
-export function summarizeCapture(rows: unknown[], before: unknown, after: unknown, beforeCount: number, afterCount: number) {
+export function summarizeCapture(rows: unknown[], before: unknown, after: unknown, beforeCount: number, afterCount: number, version: string = CONTRACT) {
+  const { canonicalDataset, jsonObject, schemaDigest, digest, supportedLineString } = codec(version);
   const dataset = canonicalDataset(rows);
   const ids = rows.map(r => jsonObject(r).globalid as string);
   const ordered = ids.every((id, i) => i === 0 || ids[i - 1] < id);
@@ -59,7 +62,7 @@ async function capture(directory: string) {
     assert.equal(target.origin, "https://data.sf.gov");
     assert([new URL(ENDPOINT).pathname, new URL(METADATA).pathname].includes(target.pathname));
     assert(!target.username && !target.password && !target.hash);
-    let body: Uint8Array | undefined, selectedHeaders: Record<string, string> = {}, status = 0;
+    let selectedHeaders: Record<string, string> = {}, status = 0;
     const value = await fetchDataSfJson(url, message => { retries.push(message); console.log(message); }, {
       fetch: async (input, init) => {
         const headerNames: string[] = [];
@@ -67,7 +70,6 @@ async function capture(directory: string) {
         assert.deepEqual(headerNames, ["accept"]);
         const response = await fetch(input, { ...init, redirect: "error", signal: AbortSignal.timeout(45_000) });
         if (response.ok) {
-          body = new Uint8Array(await response.clone().arrayBuffer());
           status = response.status;
           selectedHeaders = Object.fromEntries(["content-type", "content-encoding", "etag", "last-modified", "date"].flatMap(k => {
             const v = response.headers.get(k); return v === null ? [] : [[k, v]];
@@ -75,12 +77,13 @@ async function capture(directory: string) {
         }
         return response;
       },
+      readBody: async response => new Uint8Array(await response.arrayBuffer()),
     });
-    if (!body) throw new Error("Successful response body not retained");
+    if (!(value instanceof Uint8Array)) throw new Error("Successful response body not retained");
+    const body = value;
     await writeFile(join(directory, path), body, { flag: "wx" });
     artifacts.push({ path, url, bytes: body.length, sha256: sha256(body), retrieved_at: new Date().toISOString(), status, headers: selectedHeaders });
     const strict = parseSourceJson(body);
-    assert.equal(canonicalJson(strict), canonicalJson(value));
     await new Promise(resolve => setTimeout(resolve, 300));
     return strict;
   }
@@ -102,7 +105,7 @@ async function capture(directory: string) {
     const after = await get(METADATA, "metadata-after.json");
     const summary = summarizeCapture(rows, before, after, beforeCount, afterCount);
     const pages = artifacts.filter(a => a.path.startsWith("pages/"));
-    const manifest = { format_version: "curb-snapshot-v1", canonicalization_version: CONTRACT, ...SOURCE,
+    const manifest = { format_version: "curb-snapshot-v2", canonicalization_version: CONTRACT, ...SOURCE,
       source_key: "datasf_citywide_curbs", api_endpoint: ENDPOINT, captured_at_start: started, captured_at_end: new Date().toISOString(),
       query: { select: "*", order: "globalid ASC", page_size: PAGE_SIZE, offset_step: PAGE_SIZE, filter: null },
       fetch_tool_version: TOOL, tool_sources_sha256: await toolDigest(), node_version: process.version,
@@ -124,14 +127,29 @@ async function toolDigest() {
   // Resolve relative to this script, not the caller's working directory.
   const { dirname } = await import("node:path");
   const base = dirname(__filename);
-  return digest("tool-sources", await Promise.all(["capture-curb-snapshot.ts", "canonicalize-curb-snapshot.ts", "fetch-datasf-json.ts"].map(async name => [name, sha256(await readFile(join(base, name)))])));
+  return digest("tool-sources", await Promise.all(["capture-curb-snapshot.ts", "canonicalize-curb-snapshot.ts", "lossless-json-number.ts", "canonicalize-curb-snapshot-v1.ts", "fetch-datasf-json.ts"].map(async name => [name, sha256(await readFile(join(base, name)))])));
+}
+
+function codec(version: string) {
+  if (version === CONTRACT) return current;
+  if (version === legacy.CONTRACT) return legacy;
+  throw new Error("Unsupported canonicalization version");
+}
+// Manifest numbers are bounded counters/status codes, never source geometry or attributes.
+// Parse losslessly first, then permit ONLY exact safe integer control conversion.
+function manifestControls(value: current.Json): any {
+  if (value instanceof current.LosslessJsonNumber) return value.toSafeInteger();
+  if (Array.isArray(value)) return value.map(manifestControls);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, manifestControls(v)]));
+  return value;
 }
 
 export async function verifyArchive(directory: string) {
   const bytes = await readFile(join(directory, "manifest.json"));
   assert.equal(sha256(bytes), (await readFile(join(directory, "manifest.sha256"), "utf8")).trim());
-  const m = jsonObject(parseSourceJson(bytes));
-  assert.equal(m.format_version, "curb-snapshot-v1"); assert.equal(m.canonicalization_version, CONTRACT);
+  const m = manifestControls(parseSourceJson(bytes));
+  const { parseSourceJson: parseBody, canonicalJson, digest, canonicalDataset, jsonObject } = codec(m.canonicalization_version);
+  assert.equal(m.format_version, m.canonicalization_version === CONTRACT ? "curb-snapshot-v2" : "curb-snapshot-v1");
   assert.equal(m.dataset_id, SOURCE.dataset_id); assert.equal(m.provider, SOURCE.provider);
   assert(m.api_endpoint === ENDPOINT || m.api_endpoint === LEGACY_ENDPOINT);
   const endpoint = m.api_endpoint;
@@ -145,7 +163,7 @@ export async function verifyArchive(directory: string) {
     if (typeof a.path !== "string" || !/^(?:metadata-(?:before|after)|count-(?:before|after)|pages\/\d{6})\.json$/.test(a.path) || values.has(a.path)) throw new Error("Invalid/duplicate artifact path");
     const raw = await readFile(join(directory, a.path));
     assert.equal(raw.length, a.bytes); assert.equal(sha256(raw), a.sha256); assert.equal(a.status, 200);
-    const parsed = parseSourceJson(raw); values.set(a.path, parsed);
+    const parsed = parseBody(raw); values.set(a.path, parsed);
     if (a.path.startsWith("pages/")) {
       const offset = pages.length * PAGE_SIZE;
       assert.equal(a.path, `pages/${String(offset).padStart(6, "0")}.json`); assert.equal(a.url, pageUrl(offset, endpoint));
@@ -156,7 +174,7 @@ export async function verifyArchive(directory: string) {
   }
   assert(terminal && rows.length <= 100_000); assert.equal(values.size, pages.length + 4);
   assert.equal(m.raw_pages_sha256, digest("raw-pages", pages.map(a => [a.path, a.bytes, a.sha256])));
-  const summary = summarizeCapture(rows, values.get("metadata-before.json"), values.get("metadata-after.json"), count(values.get("count-before.json")), count(values.get("count-after.json")));
+  const summary = summarizeCapture(rows, values.get("metadata-before.json"), values.get("metadata-after.json"), count(values.get("count-before.json")), count(values.get("count-after.json")), m.canonicalization_version);
   assert.equal(canonicalJson(summary), canonicalJson(m.summary));
   console.log(`Offline archive reconstruction passed: ${directory}`);
   return { summary, features: canonicalDataset(rows).features };

@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { canonicalDataset, canonicalFeature, sha256 } from "./canonicalize-curb-snapshot";
+import { canonicalDataset, canonicalFeature, sha256 } from "./canonicalize-curb-snapshot-v1";
 
 const forbidden = "pffznlpmgtrpsejayicj";
 const container = "supabase_db_smart-parking";

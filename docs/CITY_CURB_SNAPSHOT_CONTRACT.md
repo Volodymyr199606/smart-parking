@@ -1,4 +1,6 @@
-# City Curb Snapshot + Canonicalization Contract V1
+# City Curb Snapshot + Canonicalization Contract V2
+
+**CURRENT: LIVE ORDERED QUERY VERIFIED; LOSSLESS V2 SINGLE CAPTURE VERIFIED; LOSSLESS V2 DOUBLE CAPTURE VERIFIED; PRODUCTION PUBLICATION BLOCKED.** The [V2 contract](#11-lossless-numeric-v2-current-contract) and [independent double-capture evidence](#12-live-double-capture-validation-v2) supersede earlier numeric/capture blocker statements, which remain historical evidence. Two fresh captures on 2026-09-22 each completed with 18,355 unique rows, 19 pages, zero retries and CONSISTENT status. All IDs, per-feature hashes, logical digests and raw page bytes matched; offline reconstruction passed for both. No database was contacted. Canonicalization remains `curb-decimal-v2`; V1 remains separately reproducible.
 
 **Publication follow-up:** [Curb Publication + Immutability Guards V1](./CITY_CURB_PUBLICATION_CONTRACT.md) specifies DB staging/validation/publication, independent artifact attestation and a frozen membership seal. Migration 00012 passed 132 local database behavior checks in the preceding milestone; production was not applied. Database lifecycle states are separate from capture consistency. The live attempt below found a source precision incompatibility and a changed public hostname. The unchanged database manifest/source guards still pin the legacy hostname, so a future compatibility review is also required before publication.
 
@@ -219,3 +221,141 @@ Strict reconstruction of each page reproduced `Source number loses decimal preci
 Local review evidence is retained under `%TEMP%/curb-live-double-98011c373090428db5ef2a2cb6ce7dc2/`: A in `capture-1/`, B in `independent-b/capture-1/`, and `failure-comparison.json` with the detailed partial observations. `%TEMP%/curb-live-diagnostics-cn242d/` contains bounded endpoint, redirect and precision diagnostics. Raw response bodies total about 0.8 MB across both attempts. Nothing was uploaded or added to Git. No third capture ran.
 
 Resolved: live ordered-query acceptance and metadata/count access on the current public hostname. **Double-capture validation remains unresolved.** The precision incompatibility requires an explicit lossless numeric/canonicalization decision and version/compatibility review; silently rounding coordinates or weakening `curb-jcs-v1` is not a fix. Future database compatibility must also address migration 00012's existing pins to `https://data.sfgov.org/resource` and the old manifest endpoint; this milestone did not edit or apply migration SQL. Durable immutable artifact retention, independent verifier authentication and real source registration remain production blockers. No transaction isolation, association approval, physical-curb continuity, coverage readiness or runtime switch follows from these partial captures.
+
+## 11. Lossless numeric V2: current contract
+
+### Precision path and parser
+
+The original shared GET helper invoked `response.json()`, converting source numeric lexemes to binary64. Capture separately retained bytes and reparsed them; V1's `parseSourceJson` then called `Number(token)` and compared the decimal value with `JSON.stringify(number)`, correctly rejecting losses such as `-122.37952207229336` becoming `-122.37952207229335`. The capture also compared that strict parse with the already-rounded helper result. Merely removing the guard would silently corrupt source identity.
+
+V2 uses the existing structural JSON parser with a different number representation. `fetchDataSfJson` has an optional `readBody` hook; capture requests original decoded UTF-8 bytes instead of `response.json()`. Existing callers retain the default JSON behavior and retry policy. Bytes are retained/checksummed before strict parsing. Only JSON string literals use `JSON.parse`; source numbers never do. Path:
+
+```text
+HTTP decoded body bytes -> retained artifact + SHA-256
+  -> structural JSON parser -> LosslessJsonNumber for EVERY numeric token
+  -> exact geometry and attribute envelopes -> canonical decimal JSON
+  -> geometry/attribute hashes -> versioned content hash -> sorted dataset hash
+```
+
+Duplicate decoded keys, invalid grammar/UTF-8/BOM, unpaired surrogates, excessive depth and non-JSON values still reject. Arrays preserve order; absent fields and null remain distinct; unknown fields remain authoritative. A numeric token becomes an immutable class instance with private normalized sign, coefficient digits and BigInt decimal exponent. This is not a tagged source object or a quoted numeric string. Ordinary source objects cannot forge the private numeric state. `Symbol.toPrimitive` and `toJSON` throw, so coercion/arithmetic and ordinary `JSON.stringify` cannot silently approximate or serialize the wrapper incorrectly.
+
+A narrow normalizer was selected over a new package: token normalization and comparison require only strings and bounded BigInt exponent arithmetic. No package/dependency change was needed. This is a custom exact-decimal contract using the established UTF-16 key sorting and string escaping, **not RFC 8785 binary64 numeric serialization**.
+
+### Exact numeric normalization
+
+Parse the JSON sign, integer digits, optional fractional digits and optional exponent without numeric conversion. Combine coefficient digits, remove leading zeros, subtract fraction length from the exponent, then remove trailing coefficient zeros while incrementing the exponent. All zero spellings become unsigned `0`.
+
+For a nonzero coefficient of length `L` and exponent `scale`, let `order = L - 1 + scale`. For `-6 <= order <= 20`, emit ordinary decimal notation with no redundant zeros. Otherwise emit one leading digit, an optional fractional suffix, lowercase `e`, and the signed exponent with no leading zeros or `+`. All output tokens remain JSON **numbers**, not strings. Large exponent values are never expanded into huge strings. Conversion of a bounded string-placement index to Number is not conversion of a source decimal value.
+
+| Input spellings | Canonical numeric output |
+|---|---|
+| `1`, `1.0`, `1.00`, `1e0`, `1E+0` | `1` |
+| `0.10`, `0.100` | `0.1` |
+| `0`, `-0`, `-0.0` | `0` |
+| `123`, `1.23e2`, `1.2300e+2` | `123` |
+| `9007199254740993` | `9007199254740993` |
+| `-122.37952207229336` | `-122.37952207229336` |
+| `1e-400`, `1e400` | unchanged exact numeric values |
+| `1e21` | `1e21` (no plus sign) |
+
+Bounds: 32 MiB per parsed body, depth 100, 8,192 characters per numeric token, 4,096 normalized significant digits, and both written and normalized scientific exponent magnitudes at most 1,000,000. Exceeding a bound rejects; there is no truncation or rounding. Canonical output fits these parsing limits, including the maximum-significance regression case. This accepts arbitrary decimal precision within explicit resource bounds, not unlimited input.
+
+All geometry coordinates and numeric attributes use this path. `canonicalFeature` rejects every native JS number, including safe-looking integers that might already have been rounded from a precise fraction. The generic serializer permits native safe integers only for tooling-generated counters, lengths and statuses. Manifest reconstruction first parses losslessly, then explicitly checks that control-number conversions are exact safe integers. Count API strings are similarly validated before conversion. Source geometry/attributes never use these control conversions.
+
+### Geometry and diagnostic math
+
+Geometry hashes preserve exact numeric values, vertex order, direction and every geometry member. Reversal, a final decimal-digit edit, added/removed vertices and unknown-member changes remain visible. Numeric/string distinctions also apply to all attributes, including large integers, fractions and exponents.
+
+The supported-LineString gate uses exact decimal comparisons for longitude/latitude limits and canonical equality for nonzero segments. It does not round near-boundary coordinates into range. `toDiagnosticNumber` is the separately named, explicitly approximate boundary for optional spatial math; overflow/underflow reject and the immutable source wrapper is unchanged. Its output must never feed snapshot/hash/storage payloads. Existing V1 interval math and the local V1 database fixture harness now explicitly import the preserved V1 codec; their behavior/contracts were not switched to V2.
+
+### Version and digest compatibility
+
+New captures declare `canonicalization_version=curb-decimal-v2`, `format_version=curb-snapshot-v2` and `fetch_tool_version=curb-capture-v2`. This avoids falsely labeling exact-decimal behavior as JCS V1. Every logical hash domain changes from `city-curb/<domain>/v1\n` to `city-curb/<domain>/v2\n`, including geometry, attributes, content, dataset, identity-geometry, external IDs, metadata, schema, raw-page envelope and tool-source envelope. Envelope structures remain as documented above, with the new canonicalization version where present. Bare SHA-256 checksums of raw bytes remain ordinary SHA-256 and are not versioned. Manifest checksum hashes its exact V2 bytes.
+
+V1 and V2 digests are not interchangeable, even for inputs with unchanged numeric spelling. `canonicalize-curb-snapshot-v1.ts` is byte-identical to the pre-change implementation; its original precision guard remains. The 34-check legacy suite and archive replay remain available. Archive verification selects the codec by explicit supported version and rejects unknown versions or mismatched format/version pairs. V1 archives retain both previously supported public hostnames. Production has no published curb snapshot per the supplied baseline; no database verification was performed here. Synthetic V1 database history remains V1 and is not relabeled or migrated.
+
+### Future database and client precision boundary (review only)
+
+PostgreSQL JSONB maps JSON numbers to exact `numeric` values within its limits, but does not retain original byte spelling or object order. Out-of-range numeric values and `\u0000` are additional JSONB restrictions. Raw artifacts remain necessary. [PostgreSQL JSON documentation](https://www.postgresql.org/docs/current/datatype-json.html)
+
+Unconstrained PostgreSQL numeric supports up to 131,072 digits before and 16,383 after the decimal point. V2's capture exponent bound is deliberately broader, so capture acceptance alone cannot guarantee JSONB eligibility; future ingestion must reject unsupported ranges instead of coercing to a scaled or floating type. [PostgreSQL 17 numeric limits](https://www.postgresql.org/docs/17/datatype-numeric.html)
+
+Inspected local `@supabase/postgrest-js` 2.105.4: `src/PostgrestBuilder.ts` serializes request bodies with `JSON.stringify` (BigInt values become strings) and parses ordinary JSON responses with `JSON.parse`. Converting our wrapper to Number would lose precision; converting it or a BigInt to a quoted string changes the JSON numeric type. Our wrapper intentionally throws under that ordinary object-serialization path. Fetching JSONB through ordinary parsed JSON would also reintroduce Number on the return path.
+
+Recommended future boundary: submit the complete V2 canonical JSON **text** as a string parameter to a narrowly authorized text-accepting RPC; parse that text as JSONB/numeric inside PostgreSQL after contract/type/range validation. Outer client serialization escapes the string but preserves its inner numeric tokens. Return authoritative payloads as text and reparse losslessly for hash verification. Do not deserialize/re-serialize source payloads through normal JS objects or `Number`; do not store numeric coordinates as JSON strings. This is a design recommendation only, with no RPC/ingestion implementation or database execution here.
+
+Migration 00012 already stores geometry/raw source as JSONB and its geometry gate uses SQL numeric. However, its version, manifest-format/query and old-host source/endpoint guards still target V1. Those need separately reviewed compatibility work and execution tests before V2 storage/publication. The migration was not modified or applied; no existing local guard was weakened to accommodate V2.
+
+### Offline and single live verification
+
+`pnpm.cmd exec tsx scripts/verify-curb-canonicalization.ts`: **100 V2 checks plus 34 preserved V1 checks passed**. Coverage includes the real failing DataSF decimals, neighboring binary64 values, equivalent spellings, negative zero, large/tiny values, exponent/token limits, exact geometry bounds, source-type rejection, duplicate keys/Unicode, row/key order, numeric attributes, byte-fetch bypass, corruption detection and feature/geometry/dataset reconstruction. Typecheck passed; retry regression passed 40 cases; interval regression passed 38 checks; migration static verification passed 41 checks. No database verifier ran in this milestone.
+
+Only after those offline tests, exactly one `--capture` invocation fetched public `data.sf.gov` dataset `pep9-66vw`. No double capture or second live attempt ran.
+
+| Single live observation | Result |
+|---|---|
+| Started / finished UTC | 2026-09-22T21:33:55.856Z / 2026-09-22T21:34:11.658Z |
+| Process exit / capture state | 0 / CONSISTENT |
+| Source count before / after | 18,355 / 18,355 |
+| Total / distinct IDs | 18,355 / 18,355 |
+| Duplicate / missing / blank IDs | 0 / 0 / 0 |
+| Pages | 19: eighteen 1,000-row pages, terminal 355-row page |
+| Offsets / order | Exact 0..18,000 increments; strict global ID order across all boundaries |
+| Geometry gate | All 18,355 usable; exact decimal comparisons |
+| Retry events | 0 |
+| Schema before / after | Equal |
+| Metadata before / after | Equal |
+| Retained artifacts | 23 bodies; 7,710,712 bytes; all length/checksum checks passed |
+| Offline reconstruction | Passed: strict lossless pages, feature hashes, geometry/identity digest, dataset digest and manifest summary |
+
+Exact successful V2 digests:
+
+```text
+dataset:           f536717d946b36d19bfcb9ae2d7ca0e753fe09e4e08e3bde1356ad0c6c5216a2
+identity-geometry: 3051d88c0c71122a0945903c268a4db07431dc258d93aa575366fcc9e13202c6
+external-ids:      c890e205fce1f986aba1a5e9c2a1b91180ebdac1b54bc8b0b6dbd95edbd8c5d9
+schema:            3e0e6bc8f51f14a352bd58e898015149d3260d28fe8aea5584aad5ff533d9604
+metadata:          fa9bce370f0123ffdcaeaf913cae36c8eb8cd7a738e44d40aa94a13c43b16210
+raw-pages:         9148b1abf0ead2bd9aafebc128f430f766616a70355586539b9f6c218d73068c
+manifest bytes:    ce2639f44d9dd014901f01fd80e998be89e81e13e68b00a51514d1dd9b76948f
+```
+
+Single-capture evidence: `%TEMP%/curb-decimal-v2-live-941a82c8b3544472bc1fa0d4d53dd259/capture-1/`; the parent contains `verification-report.json`. This milestone resolved numeric capture/hash compatibility; the subsequent double-capture milestone below verifies observed reproducibility. Artifacts remain outside Git and were not uploaded. CONSISTENT does not establish transactional isolation or CITY completeness. Production remains blocked by V2 database/client-boundary work, independent verifier authentication, source registration and durable immutable retention. No Supabase connection, database write, migration, ingestion, PostGIS or runtime/legality/coverage/UI/AI/agent/MCP change occurred.
+
+## 12. Live double-capture validation V2
+
+**LIVE ORDERED QUERY VERIFIED; LOSSLESS V2 SINGLE CAPTURE VERIFIED; LOSSLESS V2 DOUBLE CAPTURE VERIFIED; PRODUCTION PUBLICATION BLOCKED.** Exactly two new `--capture` processes independently fetched public `https://data.sf.gov/resource/pep9-66vw.json` with `$select=*`, `$order=globalid ASC`, `$limit=1000` and offsets increasing by 1000. Each confirmed its public hostname/dataset before fetching; only the Accept header was supplied, redirects were refused, and no credentials/environment files were loaded. Capture B used a new process and new files, with no application reuse of A's bytes or parsed features. A 15-second sleep followed A's successful process/reconstruction; process startup and reconstruction explain the additional gap between manifest capture timestamps.
+
+| Observation | A | B |
+|---|---|---|
+| Start UTC | 2026-09-22T21:46:22.851Z | 2026-09-22T21:47:02.154Z |
+| End UTC | 2026-09-22T21:46:40.025Z | 2026-09-22T21:47:21.243Z |
+| Exit / consistency | 0 / CONSISTENT | 0 / CONSISTENT |
+| Before / after source count | 18,355 / 18,355 | 18,355 / 18,355 |
+| Rows / distinct IDs | 18,355 / 18,355 | 18,355 / 18,355 |
+| Duplicate / missing / blank IDs | 0 / 0 / 0 | 0 / 0 / 0 |
+| Pages / retries | 19 / 0 | 19 / 0 |
+| Page sizes | 18 x 1,000; terminal 355 | 18 x 1,000; terminal 355 |
+| Order / offsets / boundary repeats | Strict ascending / exact / none | Strict ascending / exact / none |
+| Retained bodies / bytes | 23 / 7,710,712 | 23 / 7,710,712 |
+| Offline reconstruction | PASS | PASS |
+
+The same finalized tool-source digest was recorded by both runs. Canonicalization stayed `curb-decimal-v2` and format stayed `curb-snapshot-v2`; no code or contract change was necessary. A separate offline comparison explicitly disabled fetch, reconstructed both archives, checked every body checksum, rebuilt per-feature geometry/attribute/content maps and compared the whole row sets. Result: IDs only in A/B **0/0**; same-ID changed content **0**; changed geometry **0**; unchanged content **18,355**. All before/after metadata, schema and count observations agreed within and across captures. All nineteen corresponding raw page files were byte-identical, including pagination boundaries. No skipped IDs were detectable from counts, ordering or set comparison; this remains an observation rather than a transactional snapshot guarantee.
+
+Both A and B have:
+
+```text
+dataset:           f536717d946b36d19bfcb9ae2d7ca0e753fe09e4e08e3bde1356ad0c6c5216a2
+identity-geometry: 3051d88c0c71122a0945903c268a4db07431dc258d93aa575366fcc9e13202c6
+external-ids:      c890e205fce1f986aba1a5e9c2a1b91180ebdac1b54bc8b0b6dbd95edbd8c5d9
+schema:            3e0e6bc8f51f14a352bd58e898015149d3260d28fe8aea5584aad5ff533d9604
+metadata:          fa9bce370f0123ffdcaeaf913cae36c8eb8cd7a738e44d40aa94a13c43b16210
+raw-pages:         9148b1abf0ead2bd9aafebc128f430f766616a70355586539b9f6c218d73068c
+feature-map bytes: 396f6fbb99c7cc0b0bbb06d1ce0aa785334bfe15fff1b451287ddbfc30298d3b
+```
+
+Manifest byte hashes differ as expected: A `f60ec7819866fbd4e894500714ebc84c567ea742ea8e6bef2a0f782a6bc3bee2`; B `f5ea80672ce08be07c5d625aee4a53692161d8c10e5a07c88ea553c152644691`. An exact manifest comparison found only capture start/end, per-artifact retrieval timestamps and HTTP Date headers changed. There is no observed source-content, metadata, schema or HTTP page-body serialization change and no unexplained hash divergence.
+
+Local review root: `%TEMP%/curb-v2-double-02753736130e4c279273764268ef070d/`. Capture archives are `a/capture-1/` and `b/capture-1/`; independently reconstructed maps are `a/feature-digests.json` and `b/feature-digests.json`. `comparison.json` records complete metrics and `manifest-differences.json` records the exact differing paths. All evidence stays outside Git; no upload or third capture occurred. Reconstruction needs no future DataSF request.
+
+**Live double-capture validation is RESOLVED for the observed source state.** Required checks passed: typecheck; 100 V2 plus 34 preserved V1 canonicalization checks; 41 publication static checks; 38 interval checks; `git diff --check`. Only the three status/contract documents changed in this continuation; pre-existing uncommitted implementation work was preserved. No database test or connection ran. Remaining production gates are a precision-safe database/client ingestion boundary and V2/endpoint compatibility, durable immutable artifact retention, independent verifier authentication, and source registration/production rollout procedure. Production project `pffznlpmgtrpsejayicj` was never contacted. No database writes, migrations, ingestion, PostGIS, runtime, legality, coverage, AI, agent, MCP or UI changes occurred. CITY remains INCOMPLETE.
