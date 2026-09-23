@@ -1,5 +1,7 @@
 # City Curb Publication + Immutability Guards V1
 
+**Current artifact follow-up:** [Full archive verification and retention V1](./CITY_CURB_ARTIFACT_RETENTION.md) resolves complete offline V2 replay locally. It recomputes all 18,355 retained rows, checks eligibility and exports UUID-free membership inputs. Its archive-content seal is **not** the database membership seal: a separately authenticated process must still compare the entire staged DB TEXT payload/member set and derive actual version UUID bindings before 00014 attestation. Existing artifact/manifest URI and checksum fields suffice for the new versioned logical package contract; no migration changed. True durable retention, verifier provisioning/DB integration and reviewed production rollout remain blocked.
+
 ## Current: V2 validation and publication compatibility V1
 
 **V2 VALIDATION/PUBLICATION COMPATIBILITY IMPLEMENTED AND TESTED LOCALLY; PRODUCTION NOT APPLIED.** Forward migration [00014](../supabase/migrations/00014_city_parking_curb_v2_publication.sql) adds immutable verifier evidence and a snapshot-bound membership seal. It preserves 00012/00013 files and the original V1 validation/publication implementations. Only synthetic local fixtures are used; the real 18,355-row capture is not staged or published. CITY remains INCOMPLETE.
