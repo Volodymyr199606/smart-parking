@@ -26,6 +26,8 @@
     "verify:curb-publication": "tsx scripts/verify-curb-publication-contract.ts",
     "verify:curb-publication-db": "tsx scripts/verify-curb-publication-db.ts",
     "verify:curb-lossless-db": "tsx scripts/verify-curb-lossless-db.ts",
+    "verify:curb-db-eligibility": "tsx scripts/verify-curb-db-eligibility.ts",
+    "verify:curb-staging-rpc": "tsx scripts/verify-curb-staging-rpc.ts",
     "profile:regulation-data": "tsx scripts/profile-regulation-data.ts",
     "profile:regulation-join": "tsx scripts/profile-regulation-join.ts"
   },

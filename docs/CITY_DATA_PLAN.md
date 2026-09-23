@@ -6,6 +6,8 @@
 
 ### Current ingestion prototype (active)
 
+**Current curb V2 eligibility/staging:** [Full contract and evidence](./CITY_CURB_INGESTION_BOUNDARY.md#current-v2-ingest-eligibility-and-staging-rpc-v1). **18,355/18,355** retained curb rows are DB-ingest-eligible (zero rejected); pure eligibility tests **33**, fresh local RPC tests **71**. Forward migration **00013** adds restricted TEXT staging/read RPCs, DB numeric/readback guards and idempotent immutable membership. 00012, the capture codec and runtime are unchanged. Capture validity → DB eligibility → staging → independent verification → publication remain separate gates. V2 verification/publication compatibility, durable artifacts, verifier authentication, source registration and reviewed production rollout remain outstanding. Production was never contacted; CITY remains INCOMPLETE. Earlier boundary statements below are historical.
+
 **Curb ingestion boundary milestone:** **LOSSLESS CAPTURE VERIFIED; LOSSLESS DB TEXT BOUNDARY VERIFIED locally; ORDINARY JS OBJECT PATH UNSAFE; PRODUCTION INGESTION NOT YET ENABLED.** The [boundary design and 44-check local proof](./CITY_CURB_INGESTION_BOUNDARY.md) verifies the installed Supabase JS client through real PostgREST into PostgreSQL JSONB, with exact source decimals and matching feature hashes. The supported domain must exclude PostgreSQL-ineligible values and JSONB expansions beyond the current parser limits. Migration 00012's V1/legacy-host guards, future server RPC/security implementation, full-artifact eligibility, durable retention, independent verifier authentication and source registration still block production rollout. No migration, production operation or runtime change occurred; CITY remains INCOMPLETE.
 
 | Item | Location |

@@ -1,5 +1,111 @@
 # City curb lossless database ingestion boundary V1
 
+## Current: V2 ingest eligibility and staging RPC V1
+
+**DB INGEST ELIGIBILITY RESOLVED for the defined domain and the complete retained source. V2 STAGING RPC LOCALLY VERIFIED. PRODUCTION NOT APPLIED; V2 PUBLICATION BLOCKED.** Migration [00013](../supabase/migrations/00013_city_parking_curb_staging_rpc.sql) is a forward migration; 00012 and the lossless capture codec are unchanged. Only synthetic fixtures were staged in fresh disposable PostgreSQL 17.6 clusters. The existing local Supabase database was untouched.
+
+| State | Meaning in this milestone |
+|---|---|
+| Capture-valid V2 | Original JSON passes lossless parsing and V2 hashing. It can remain useful archived evidence even when storage-ineligible. |
+| DB-ingest-eligible V2 | Capture-valid feature also passes the explicit numeric, string, geometry and size contract below. This is not a publication verdict. |
+| STAGING | A server-only TEXT call has atomically inserted/reused an immutable version and snapshot membership. Supplied hashes are not independently proven. |
+| Verification | An independently authenticated verifier must replay retained artifacts and compare the full DB member set, payloads and hashes. A V2 implementation/attestation review remains outstanding. |
+| Publication | Requires validated, sealed evidence and guarded pointer advancement. The unchanged V1 completeness gate rejects V2 manifests, so this task cannot publish V2. |
+
+The capture manifest's pre-existing `summary.locally_eligible` describes its capture/geometry checks, **not** this new database eligibility contract. It was not reinterpreted or rewritten.
+
+### Deterministic eligibility contract
+
+[`curb-db-eligibility.ts`](../scripts/curb-db-eligibility.ts) exposes `curbDbEligibility(losslessParsedFeature, version)` and the contract tag `curb-db-eligibility-v1`. It returns `ELIGIBLE` or `INELIGIBLE`, explicit reasons and a PostgreSQL-text byte estimate. No score, DB dependency, rounding, repair or numeric Number conversion is involved. String/BigInt arithmetic decides decimal range and expansion; JS numbers are used only for bounded lengths/counts.
+
+- Require capture-valid `curb-decimal-v2`, including valid nonblank/non-placeholder external `globalid`. Native source Numbers fail closed. The capture parser's existing 4,096 significant-digit, 8,192 token-character, depth-100 and broader exponent bounds remain unchanged.
+- Require a nonzero `LineString` with at least two exactly two-dimensional numeric positions and exact longitude/latitude bounds. Unknown geometry members and attributes are retained and recursively checked.
+- Each normalized decimal must fit PostgreSQL's 131,072 integer-digit / 16,383 fractional-digit range **and** its signed, expanded plain decimal token must fit 8,192 characters for lossless readback. Canonical token length must also fit 8,192. Sign and `0.` count toward the expanded limit. Thus positive `1e8191` and `1e-8190` are eligible; their negative equivalents have one fewer available digit. `1e8192`, `-1e8191`, `1e-8191` and `-1e-8190` are ineligible. No arbitrary smaller exponent cap replaces the exact expansion calculation.
+- Reject NUL in any string or object key because JSONB cannot store it. Numeric-looking strings remain strings and are not subjected to numeric rules.
+- Limit both canonical feature UTF-8 input and expanded PostgreSQL JSONB text to **1,048,576 bytes per feature**. The pure estimator includes JSONB separator spaces and numeric expansion without constructing giant numbers. SQL checks actual byte lengths. The current largest feature uses 41,083 bytes. The narrower per-feature storage budget does not alter the 32 MiB capture-body contract.
+
+Reasons are `{path, code}` with RFC 6901 JSON Pointer paths, root `""`. Version/invalid-capture/geometry checks precede a deterministic traversal (UTF-16 sorted object keys, array order). All applicable numeric reasons are emitted; out-of-range precedes too-long at the same path. Unknown fields and nested arrays are traversed. Reason codes:
+
+| Code | Meaning |
+|---|---|
+| `INVALID_CAPTURE_VALUE` | Not a valid V2 source feature; includes native Number or invalid identity. |
+| `UNSUPPORTED_CANONICALIZATION_VERSION` | Anything except `curb-decimal-v2`. |
+| `INVALID_FEATURE_SHAPE` | Missing/null, wrong type, dimensionality, range, or zero-length geometry. |
+| `NUMERIC_OUT_OF_POSTGRES_RANGE` | Exact normalized decimal exceeds PostgreSQL range. |
+| `NUMERIC_TOKEN_TOO_LONG` | Canonical or expanded signed token exceeds 8,192 characters. |
+| `POSTGRES_UNSUPPORTED_STRING` | NUL in a key/string. |
+| `DOCUMENT_TOO_LARGE` | Canonical input or expanded JSONB text exceeds the storage byte budget. |
+
+### Complete retained source profile
+
+Offline archive reconstruction and eligibility profiling used `%TEMP%/curb-v2-double-02753736130e4c279273764268ef070d/a/capture-1`. Raw files/manifest checksums and the full logical dataset were verified first. No refetch or source-data staging occurred.
+
+| Observation | Result |
+|---|---|
+| Total / eligible / ineligible rows | **18,355 / 18,355 / 0** |
+| Rejection reasons | None |
+| Numeric values inspected | 238,162 |
+| Longest source / canonical / expanded numeric token | 19 / 19 / 19 characters |
+| Explicit positive / negative exponent forms | None / none |
+| Normalized scientific exponents | Minimum 1, maximum 2 |
+| Largest absolute numeric value | `122.51112275175241` |
+| Largest integral numeric value | None: all actual JSON numbers in this retained capture are fractional. Numeric strings were not coerced. |
+| Maximum integer-part digits | 3 |
+| Maximum significant / fractional digits | 17 / 15 |
+| Largest expanded JSONB feature | 41,083 UTF-8 bytes |
+| Dataset SHA-256 | `f536717d946b36d19bfcb9ae2d7ca0e753fe09e4e08e3bde1356ad0c6c5216a2` |
+
+These are observations of the retained source state, not guarantees about future captures. Every future capture must be checked independently; ineligible rows must not be silently filtered into an allegedly complete publication.
+
+### Implemented migration and RPCs
+
+00013 broadens the two canonicalization CHECKs to recognize V1 and V2, while requiring V2 snapshots to carry the V2 format/version/provider/dataset/source-key/current-endpoint envelope. `lock_source` explicitly accepts legacy/current DataSF endpoints for historical compatibility; V2 staging additionally requires the current endpoint. No source row or existing evidence is updated. V1 validation/publication functions, immutability guards, RLS and membership seal are unchanged. The V2 format constraint prevents disguising V2 as a V1 manifest to bypass the outstanding V2 attestation work.
+
+Implemented signature:
+
+```sql
+public.stage_city_parking_curb_version(
+  p_source_id uuid, p_snapshot_id uuid, p_external_id text,
+  p_canonical_feature_json text, p_geometry_sha256 text,
+  p_attributes_sha256 text, p_content_sha256 text,
+  p_canonicalization_version text
+) RETURNS uuid
+```
+
+Only `service_role` can execute staging. Both staging and authoritative read use `SECURITY DEFINER`, migration-executor ownership (normal NOSUPERUSER `postgres`) and fixed `pg_catalog, pg_temp` search paths with qualified application objects. This follows 00012's ownership contract rather than introducing an untested owner/membership scheme. DEFINER is necessary because direct service INSERT on versions/membership is revoked; service cannot bypass eligibility by writing those tables. Service snapshot INSERT remains available. PUBLIC/anon/authenticated execution is revoked transactionally; verifier cannot stage. Administrative schema owners remain outside the immutability threat model.
+
+The function rejects unsupported version, invalid identity/hash format, null/oversized input, malformed JSON and unsupported JSONB numerics/Unicode. It parses TEXT server-side and uses PostgreSQL's built-in `IS JSON OBJECT WITH UNIQUE KEYS` to reject duplicate decoded keys, including nested keys. A small recursive JSONB walker enforces depth 100, expanded numeric tokens 8,192 and significant digits 4,096; actual JSONB text must fit 1 MiB. This is not a SQL numeric parser/canonicalizer. `payload::jsonb` alone is insufficient because PostgreSQL accepts larger values than the readback domain. Syntax/range/string errors abort the whole RPC before any durable change; subsequent rejection also rolls back all writes.
+
+After structural checks, source-first locking enforces READ COMMITTED and exact registry identity/current endpoint. The snapshot must exist under that source, be STAGING and match V2. Source `globalid` must equal the supplied external ID. The existing exact SQL-numeric LineString validator determines geometry eligibility. The function splits shape/raw attributes, derives geometry state/presence/reasons, and relies on generated UUID/timestamp defaults.
+
+Version reuse uses the actual `(source_id, external_id, canonicalization_version, content_sha256)` unique key. A reuse must also match complete JSONB geometry/raw attributes and supplied geometry/attribute hashes. Same identity/content returns the existing UUID; changed content creates a new version; different external IDs cannot merge even with the same claimed hash. Same snapshot/external-ID/version is a no-op, including concurrent retries. A different version for existing membership rejects, with no orphan version committed. No immutable row is updated.
+
+`public.read_city_parking_curb_version(p_curb_version_id uuid)` returns `id`, `source_id`, `external_id`, `canonicalization_version`, `geometry_presence`, `geometry_json_text`, `raw_source_json_text`, and the three hash TEXT fields. Only service/verifier roles execute it. Reconstruct the feature using lossless parses of the two TEXT documents; ordinary SDK JSONB-object reads remain unsuitable for authoritative verification.
+
+**Hash trust is unchanged:** hash-format, identity and immutable-reuse consistency checks do not independently prove the supplied V2 hashes. The harness deliberately stages a different external ID with the same claimed content hash to prove non-merging, not hash authenticity. Independent replay must catch dishonest/stale claims before publication. No complete SQL V2 canonicalizer was added. The RPC expects canonical text from the trusted producer but does not independently prove its key order or canonical spelling.
+
+### Local execution evidence and commands
+
+```powershell
+pnpm.cmd exec tsx scripts/verify-curb-db-eligibility.ts
+pnpm.cmd exec tsx scripts/verify-curb-db-eligibility.ts --archive=<retained-capture-directory>
+pnpm.cmd exec tsx scripts/verify-curb-staging-rpc.ts --local-disposable
+```
+
+The pure verifier passed **33** deterministic checks and the complete retained-source scan above. The fresh RPC harness passed **71** checks, including concurrent retries, exact boundary values, complete rollback on rejection, hash/text readback, malformed/duplicate-key JSON, precise geometry bounds, immutable reuse conflicts, role ACLs, direct-INSERT denial and publication barriers.
+
+The harness uses cached `public.ecr.aws/supabase/postgres:17.6.1.167` and PostgREST v16.2, actual installed Supabase JS, Docker Desktop's local pipe and an internal private DB network. PostgreSQL has no published port. PostgREST has only a `127.0.0.1` host binding and a second connection to the private DB network; the SDK transport refuses other origins/redirects and only strips the gateway prefix. The fresh test cluster has minimal Supabase role/bootstrap prerequisites; it is not a full Supabase Auth/Realtime stack. It applies the actual 00001 updated-at helper and complete 00005, 00012 and 00013 files as NOSUPERUSER `postgres`. It does not reset/start the existing local project or apply unrelated migrations/extensions. This is a real dependency-closure compile/behavior test, not a replacement curb schema.
+
+All three migration files compiled on the first SQL application attempt. Initial harness infrastructure attempts exposed Docker internal-network port publishing and private-connection setup issues; these were fixed in the harness, and each retry used a new cluster. There was no PostgreSQL migration defect to patch/retry in place. The harness stops on the first migration error, cleans its containers/volumes/network in `finally`, and every invocation starts fresh. Forced process/host termination can prevent cleanup; generated `curb-staging-*` names identify only disposable test resources. No production credentials or `.env` are loaded. Per-run JWT material is not printed or committed.
+
+Numeric limits were re-tested on actual PostgreSQL 17.6: `1e131071` and `1e-16383` are accepted with text lengths 131,072 and 16,385; `1e131072` and `1e-16384` reject with `22003`. The wider accepted PostgreSQL boundary values are rejected by the RPC's narrower token rule. Exactly 4,096 significant digits stage and hash-reconstruct; 4,097 are explicitly rejected by SQL. Signed positive/negative expansion boundaries were tested on both sides. Inputs remained bounded (largest numeric expansion approximately 131 KiB).
+
+Required regression checks: typecheck; canonicalization 100 V2 + 34 V1; publication contract 41; interval 38; eligibility 33 plus 18,355-row profile; staging RPC 71; `git diff --check`. Production rollout still requires review/application of the forward migration, durable immutable artifact retention, source registration/endpoint rollout decisions, an independently authenticated V2 artifact verifier and V2 validation/publication compatibility tests. No production connection or writes, production ingestion, PostGIS, runtime, legality, coverage, UI, AI, agent or MCP changes. CITY remains INCOMPLETE.
+
+## Original TEXT-boundary milestone (historical)
+
+The remaining sections preserve the preceding 44-check transport proof and its original proposed interface. Statements below describing RPC implementation/eligibility as future work are superseded by the current section above; production remains disabled.
+
 **LOSSLESS CAPTURE VERIFIED. LOSSLESS DB TEXT BOUNDARY VERIFIED for tested source values and the bounded domain below. ORDINARY JS OBJECT PATH UNSAFE. PRODUCTION INGESTION NOT YET ENABLED.**
 
 Local execution: PostgreSQL **17.6**, cached PostgREST **v16.2**, installed Supabase/PostgREST JS **2.105.4**. The repeatable verifier passed **44 checks**. It created only a disposable schema, receipt table, four functions, two roles and one loopback-published PostgREST container; all were removed. It did not modify existing curb rows, apply migrations, fetch DataSF, or contact any hosted database. CITY remains **INCOMPLETE**.
