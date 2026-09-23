@@ -25,6 +25,7 @@
     "verify:datasf-retry": "tsx scripts/verify-datasf-retry.ts",
     "verify:curb-publication": "tsx scripts/verify-curb-publication-contract.ts",
     "verify:curb-publication-db": "tsx scripts/verify-curb-publication-db.ts",
+    "verify:curb-lossless-db": "tsx scripts/verify-curb-lossless-db.ts",
     "profile:regulation-data": "tsx scripts/profile-regulation-data.ts",
     "profile:regulation-join": "tsx scripts/profile-regulation-join.ts"
   },
