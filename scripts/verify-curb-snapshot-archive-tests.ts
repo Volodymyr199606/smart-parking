@@ -9,7 +9,7 @@ import { archiveContentSeal, ArchiveError, verifyFullArchive, writeVerificationO
 const coordinate = "-122.37952207229336";
 const row = (i: number, extra = "") => `{"globalid":"fixture-${String(i).padStart(4, "0")}","shape":{"type":"LineString","coordinates":[[${coordinate},37.732536608656226],[-122.37952207229335,37.743691137180925]]}${extra}}`;
 type Fixture = { files: Map<string, Buffer>; manifest: any };
-function fixture(texts = Array.from({ length: 1001 }, (_, i) => row(i))): Fixture {
+export function fixture(texts = Array.from({ length: 1001 }, (_, i) => row(i))): Fixture {
   const files = new Map<string, Buffer>();
   const metadata = '{"id":"pep9-66vw","columns":[{"fieldName":"globalid","dataTypeName":"text"},{"fieldName":"shape","dataTypeName":"line"}]}';
   files.set("metadata-before.json", Buffer.from(metadata));
@@ -168,4 +168,4 @@ async function main() {
     await rm(root, { recursive: true, force: true });
   }
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });

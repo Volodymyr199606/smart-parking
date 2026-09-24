@@ -31,6 +31,8 @@
     "verify:curb-v2-publication": "tsx scripts/verify-curb-v2-publication.ts",
     "verify:curb-archive": "tsx scripts/verify-curb-snapshot-archive.ts",
     "verify:curb-archive-tests": "tsx scripts/verify-curb-snapshot-archive-tests.ts",
+    "verify:curb-artifact-store": "tsx scripts/verify-curb-artifact-store.ts",
+    "verify:curb-artifact-recovery": "tsx scripts/verify-curb-artifact-recovery.ts",
     "profile:regulation-data": "tsx scripts/profile-regulation-data.ts",
     "profile:regulation-join": "tsx scripts/profile-regulation-join.ts"
   },

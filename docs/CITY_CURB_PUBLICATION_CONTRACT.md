@@ -1,5 +1,7 @@
 # City Curb Publication + Immutability Guards V1
 
+**Current store/recovery follow-up:** [Artifact store selection V1](./CITY_CURB_ARTIFACT_STORE.md) recommends AWS S3 versioned, locked evidence and implements a tested local adapter/recovery workflow. Every object is pinned and checksummed before the full archive is reconstructed; all 18,355 retained rows replay successfully. Local `RECOVERY_VERIFIED` explicitly leaves cloud retention false and does not authorize DB attestation/publication. An uploader receipt is not independent verifier evidence. Separate verifier credentials, complete DB comparison, actual cloud retention/recovery acceptance and reviewed rollout remain required. 00012/00014 are unchanged.
+
 **Current artifact follow-up:** [Full archive verification and retention V1](./CITY_CURB_ARTIFACT_RETENTION.md) resolves complete offline V2 replay locally. It recomputes all 18,355 retained rows, checks eligibility and exports UUID-free membership inputs. Its archive-content seal is **not** the database membership seal: a separately authenticated process must still compare the entire staged DB TEXT payload/member set and derive actual version UUID bindings before 00014 attestation. Existing artifact/manifest URI and checksum fields suffice for the new versioned logical package contract; no migration changed. True durable retention, verifier provisioning/DB integration and reviewed production rollout remain blocked.
 
 ## Current: V2 validation and publication compatibility V1

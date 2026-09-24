@@ -1,5 +1,7 @@
 # City curb durable artifact contract and full archive verifier V1
 
+**Current store-selection follow-up:** [Artifact store selection and recovery proof V1](./CITY_CURB_ARTIFACT_STORE.md) selects AWS S3 with versioning/Object Lock as the primary provider and Backblaze B2 as the conditional fallback. A local immutable-write adapter and provider-independent recovery path are tested; an AWS adapter skeleton uses only an injected recording fake, with no SDK/credentials/cloud transport. The full 18,355-row archive was stored and recovered locally with matching hashes. **LOCAL STORE TESTED; RECOVERY CONTRACT TESTED; CLOUD RETENTION NOT YET VERIFIED.** Earlier “provider not selected” and conceptual-interface statements below describe the preceding milestone. No production/cloud operation occurred.
+
 This milestone implements **local/offline full archive verification** for `curb-decimal-v2` / `curb-snapshot-v2`. It defines retention requirements; **true durable retention is not configured**. No production database, DataSF request, real staging/publication, migration or runtime change is part of this work. CITY remains INCOMPLETE.
 
 ## Existing package and evidence authority
