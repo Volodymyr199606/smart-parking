@@ -8,7 +8,8 @@ import { sha256 } from "./canonicalize-curb-snapshot";
 export const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
 export type ObjectRef = { key: string; version: string };
 export type ObjectHead = ObjectRef & { bytes: number; sha256: string; uri: string;
-  protection: "LOCAL_ONLY" | "COMPLIANCE"; retainUntil?: string };
+  protection: "LOCAL_ONLY" | "COMPLIANCE"; retainUntil?: string;
+  etag?: string; contentType?: string; lastModified?: string; serverSideEncryption?: string };
 export interface ImmutableArtifactStore {
   readonly kind: "LOCAL_ONLY" | "AWS_S3";
   putImmutable(key: string, bytes: Uint8Array, expectedSha256: string): Promise<ObjectHead>;

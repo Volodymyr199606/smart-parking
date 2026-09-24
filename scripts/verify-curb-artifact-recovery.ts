@@ -112,7 +112,7 @@ async function main() {
   if (plan) {
     if (args.filter(a => a === "--plan-s3").length !== 1 || options.size !== 1 || !options.has("archive")) throw new Error("Use --plan-s3 --archive=DIR");
     const p = await preparePackage(options.get("archive")!);
-    console.log(canonicalJson({ provider: "AWS_S3", readiness: "SDK_BINDING_PROVISIONING_AND_APPROVAL_REQUIRED", prefix: p.prefix,
+    console.log(canonicalJson({ provider: "AWS_S3", readiness: "CLOUD_ACCEPTANCE_PENDING_USE_VERIFY_CURB_ARTIFACT_CLOUD", prefix: p.prefix,
       object_count: p.files.length, bytes: p.files.reduce((n, f) => n + f.bytes.length, 0), cloud_requests: 0 })); return;
   }
   if (options.size === 3 && options.has("archive") && options.has("local-store") && options.has("receipt")) {

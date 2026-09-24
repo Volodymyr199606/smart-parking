@@ -1,0 +1,71 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RequireConditionalCreation",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::<BUCKET>/curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1/*",
+      "Condition": {
+        "StringNotEquals": {
+          "s3:if-none-match": "*"
+        }
+      }
+    },
+    {
+      "Sid": "RequireComplianceRetention",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": ["s3:PutObject", "s3:PutObjectRetention"],
+      "Resource": "arn:aws:s3:::<BUCKET>/curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1/*",
+      "Condition": {
+        "StringNotEquals": {
+          "s3:object-lock-mode": "COMPLIANCE"
+        }
+      }
+    },
+    {
+      "Sid": "RequireRetentionMinimum",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": [
+        "s3:PutObject",
+        "s3:PutObjectRetention"
+      ],
+      "Resource": "arn:aws:s3:::<BUCKET>/curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1/*",
+      "Condition": {
+        "NumericLessThan": {
+          "s3:object-lock-remaining-retention-days": "<MIN_RETENTION_DAYS>"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEvidenceDeletionAndBypass",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:BypassGovernanceRetention"
+      ],
+      "Resource": "arn:aws:s3:::<BUCKET>/curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1/*"
+    },
+    {
+      "Sid": "RequireTls",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::<BUCKET>/curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1/*",
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InspectEvidenceBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketObjectLockConfiguration",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketOwnershipControls",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration"
+      ],
+      "Resource": "arn:aws:s3:::<BUCKET>"
+    },
+    {
+      "Sid": "EvidenceObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:GetObjectRetention"
+      ],
+      "Resource": "arn:aws:s3:::<BUCKET>/curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1/*"
+    },
+    {
+      "Sid": "DenyOtherOperationsOnEvidence",
+      "Effect": "Deny",
+      "NotAction": [
+        "s3:GetBucketLocation",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketObjectLockConfiguration",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketOwnershipControls",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:GetObjectRetention"
+      ],
+      "Resource": [
+        "arn:aws:s3:::<BUCKET>",
+        "arn:aws:s3:::<BUCKET>/curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1/*"
+      ]
+    }
+  ]
+}

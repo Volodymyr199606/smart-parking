@@ -33,10 +33,13 @@
     "verify:curb-archive-tests": "tsx scripts/verify-curb-snapshot-archive-tests.ts",
     "verify:curb-artifact-store": "tsx scripts/verify-curb-artifact-store.ts",
     "verify:curb-artifact-recovery": "tsx scripts/verify-curb-artifact-recovery.ts",
+    "verify:curb-artifact-cloud": "tsx scripts/verify-curb-artifact-cloud.ts",
+    "verify:curb-s3-tests": "tsx scripts/verify-curb-s3-tests.ts",
     "profile:regulation-data": "tsx scripts/profile-regulation-data.ts",
     "profile:regulation-join": "tsx scripts/profile-regulation-join.ts"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1139.0",
     "@supabase/supabase-js": "^2.105.4",
     "@types/node": "^22.10.0",
     "supabase": "^2.117.0",

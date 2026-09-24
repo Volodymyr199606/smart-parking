@@ -1,6 +1,6 @@
 # City curb durable artifact contract and full archive verifier V1
 
-**Current store-selection follow-up:** [Artifact store selection and recovery proof V1](./CITY_CURB_ARTIFACT_STORE.md) selects AWS S3 with versioning/Object Lock as the primary provider and Backblaze B2 as the conditional fallback. A local immutable-write adapter and provider-independent recovery path are tested; an AWS adapter skeleton uses only an injected recording fake, with no SDK/credentials/cloud transport. The full 18,355-row archive was stored and recovered locally with matching hashes. **LOCAL STORE TESTED; RECOVERY CONTRACT TESTED; CLOUD RETENTION NOT YET VERIFIED.** Earlier “provider not selected” and conceptual-interface statements below describe the preceding milestone. No production/cloud operation occurred.
+**Current AWS adapter follow-up:** [S3 adapter and cloud acceptance harness V1](./CITY_CURB_ARTIFACT_STORE.md) implements SDK v3 conditional writes, version-pinned reads, checksum/COMPLIANCE checks and gated synthetic acceptance. **S3 ADAPTER IMPLEMENTED; S3 MOCK-TESTED; AWS RESOURCES NOT PROVISIONED; NO CLOUD UPLOAD PERFORMED; CLOUD ACCEPTANCE PENDING.** The earlier 18,355-row local-store recovery remains valid. Uploader readback is not independent acceptance; a separate read-only identity, protected receipts and actual AWS control/recovery proof remain required. This task neither provisioned nor inspected AWS resources or credentials. Earlier provider/interface statements below describe the preceding milestone; no production/cloud operation occurred.
 
 This milestone implements **local/offline full archive verification** for `curb-decimal-v2` / `curb-snapshot-v2`. It defines retention requirements; **true durable retention is not configured**. No production database, DataSF request, real staging/publication, migration or runtime change is part of this work. CITY remains INCOMPLETE.
 
@@ -124,7 +124,7 @@ The archive report is the complete offline half of this evidence, **not itself s
 
 Existing 00012 fields `artifact_uri`, `artifact_sha256`, `manifest_uri`, `manifest_sha256`, and immutable `manifest` plus the 00014 attestation binding are sufficient. No migration is required. URIs must satisfy the existing scheme/authority/no-space/no-query/no-fragment constraint. New package keys include the contract version: `s3://bucket/curb/curb-artifact-package-v1/<package-sha>/`, equivalently `gs://...` or `supabase-storage://...`; `file:///...` is local testing only. Pin that contract in the trusted retention receipt/verifier job as well; do not reinterpret historical artifact hashes. Use provider-native immutable versions or encode version identity in the object key/receipt; never store expiring signed URLs or credentials in DB evidence. The artifact URI resolves the logical package; the manifest URI identifies its exact manifest object. No production provider is selected.
 
-Minimal future interface, **design only**, with no cloud SDK dependency:
+Historical package-level interface, **design only** at the archive-verifier milestone; the implemented object-level interface and SDK binding are now specified in [the store contract](./CITY_CURB_ARTIFACT_STORE.md):
 
 ```typescript
 interface ArtifactStore {

@@ -1,25 +1,36 @@
-/** AWS S3 adapter SKELETON. Deliberately no SDK binding/default credential chain/CLI upload.
- * Transport is injected (only a recording fake is used in this milestone).
- */
+/** Immutable S3 object adapter. SDK transport is separate; local/fake transports remain injectable. */
 import { checkHash, checkKey, checkedBytes, ImmutableArtifactStore, MAX_OBJECT_BYTES, ObjectHead, ObjectRef } from "./curb-artifact-store";
-export type S3Config = { bucket: string; region: string; owner: string; retainUntil: string };
+export const BLOCKED_SUPABASE_PROJECT = "pffznlpmgtrpsejayicj";
+export const S3_PREFIX = "curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1";
+export function blockProductionTarget(...values: string[]) {
+  if (values.some(v => v.toLowerCase().includes(BLOCKED_SUPABASE_PROJECT))) throw new Error("Production Supabase target forbidden");
+}
+export type S3Config = { bucket: string; region: string; owner: string; retainUntil: string; endpoint?: string };
 export function s3Config(env: Readonly<Record<string, string | undefined>>): S3Config {
   const names = ["CURB_ARTIFACT_S3_BUCKET", "CURB_ARTIFACT_S3_REGION", "CURB_ARTIFACT_S3_OWNER", "CURB_ARTIFACT_RETAIN_UNTIL"] as const;
   for (const name of names) if (!env[name]) throw new Error(`Missing ${name}`); // Names only, never values.
   const [bucket, region, owner, retainUntil] = names.map(name => env[name]!);
+  blockProductionTarget(bucket, region, owner, retainUntil, env.CURB_ARTIFACT_S3_ENDPOINT ?? "", env.CURB_ARTIFACT_S3_PREFIX ?? "");
   if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket) || !/^[a-z]{2}-[a-z]+-\d$/.test(region) || !/^\d{12}$/.test(owner)
     || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(retainUntil) || !(Date.parse(retainUntil) > Date.now())) throw new Error("Invalid S3 configuration");
-  return { bucket, region, owner, retainUntil };
+  if (env.CURB_ARTIFACT_S3_PREFIX && env.CURB_ARTIFACT_S3_PREFIX !== S3_PREFIX) throw new Error("Only the reviewed immutable curb prefix is supported");
+  let endpoint: string | undefined;
+  if (env.CURB_ARTIFACT_S3_ENDPOINT) {
+    const u = new URL(env.CURB_ARTIFACT_S3_ENDPOINT);
+    if (!["127.0.0.1", "[::1]"].includes(u.hostname) || !["http:", "https:"].includes(u.protocol) || u.pathname !== "/" || u.search || u.hash || u.username || u.password) {
+      throw new Error("Custom S3 endpoints are loopback-only testing targets");
+    }
+    endpoint = u.origin;
+  }
+  return { bucket, region, owner, retainUntil, ...(endpoint ? { endpoint } : {}) };
 }
 type Request = { Bucket: string; Key: string; ExpectedBucketOwner: string };
-type Head = { ContentLength: number; ChecksumSHA256: string; VersionId: string; ObjectLockMode: string; ObjectLockRetainUntilDate: string };
-/** Future SDK binding must enforce region, bounded streaming, no custom endpoints/redirects,
- * and map 412 ONLY to { code: 'PRECONDITION_FAILED' }. Other errors fail closed.
- */
+export type S3Head = { ContentLength: number; ChecksumSHA256: string; VersionId: string; ObjectLockMode: string; ObjectLockRetainUntilDate: string;
+  ETag?: string; ContentType?: string; LastModified?: string; ServerSideEncryption?: string };
 export interface S3Transport {
   put(input: Request & { Body: Uint8Array; IfNoneMatch: "*"; ChecksumSHA256: string; ServerSideEncryption: "AES256";
     ObjectLockMode: "COMPLIANCE"; ObjectLockRetainUntilDate: string }): Promise<{ VersionId: string }>;
-  head(input: Request & { VersionId?: string; ChecksumMode: "ENABLED" }): Promise<Head>;
+  head(input: Request & { VersionId?: string; ChecksumMode: "ENABLED" }): Promise<S3Head>;
   get(input: Request & { VersionId: string; maxBytes: number }): Promise<Uint8Array>;
 }
 export class S3ArtifactStore implements ImmutableArtifactStore {
@@ -31,14 +42,16 @@ export class S3ArtifactStore implements ImmutableArtifactStore {
     if (!/^curb-snapshots\/datasf_citywide_curbs\/curb-artifact-package-v1\/[0-9a-f]{64}\//.test(key)) throw new Error("Key outside curb evidence prefix");
     return { Bucket: this.config.bucket, Key: key, ExpectedBucketOwner: this.config.owner };
   }
-  private metadata(key: string, h: Head): ObjectHead {
+  private metadata(key: string, h: S3Head): ObjectHead {
     const hash = Buffer.from(h.ChecksumSHA256, "base64").toString("hex"); checkHash(hash);
-    if (Buffer.from(hash, "hex").toString("base64") !== h.ChecksumSHA256 || !h.VersionId || h.VersionId === "null"
+    if (Buffer.from(hash, "hex").toString("base64") !== h.ChecksumSHA256 || !h.VersionId || h.VersionId === "null" || h.VersionId.length > 1024
       || !Number.isSafeInteger(h.ContentLength) || h.ContentLength < 0 || h.ContentLength > MAX_OBJECT_BYTES
       || h.ObjectLockMode !== "COMPLIANCE" || !(Date.parse(h.ObjectLockRetainUntilDate) >= Date.parse(this.config.retainUntil))
       || !(Date.parse(h.ObjectLockRetainUntilDate) > Date.now())) throw new Error("S3 checksum/version/retention evidence missing or insufficient");
     return { key, version: h.VersionId, sha256: hash, bytes: h.ContentLength, uri: `s3://${this.config.bucket}/${key}`,
-      protection: "COMPLIANCE", retainUntil: h.ObjectLockRetainUntilDate };
+      protection: "COMPLIANCE", retainUntil: h.ObjectLockRetainUntilDate,
+      ...(h.ETag ? { etag: h.ETag } : {}), ...(h.ContentType ? { contentType: h.ContentType } : {}),
+      ...(h.LastModified ? { lastModified: h.LastModified } : {}), ...(h.ServerSideEncryption ? { serverSideEncryption: h.ServerSideEncryption } : {}) };
   }
   async head(ref: ObjectRef) {
     if (!ref.version || ref.version === "null") throw new Error("Pinned S3 version required");

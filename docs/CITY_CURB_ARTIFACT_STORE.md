@@ -1,15 +1,18 @@
-# City curb artifact store selection and recovery proof V1
+# City curb AWS S3 adapter and cloud acceptance harness V1
 
-**PROVIDER SELECTED: AWS S3. LOCAL STORE TESTED. RECOVERY CONTRACT TESTED. CLOUD RETENTION NOT YET VERIFIED.** The recommendation is a design decision, not provisioning/upload approval. No cloud credentials were inspected, requested, created or logged. No production Supabase access, migrations, curb ingestion, publication, PostGIS or application changes occurred. CITY remains INCOMPLETE.
+**S3 ADAPTER IMPLEMENTED. S3 MOCK-TESTED. AWS RESOURCES NOT PROVISIONED. NO CLOUD UPLOAD PERFORMED. CLOUD ACCEPTANCE PENDING.** Resource status means this task neither provisioned nor inspected AWS resources. No credential values were inspected, requested or logged. No AWS service calls, production Supabase access, migrations, curb ingestion, publication, PostGIS or application changes occurred. CITY remains INCOMPLETE.
 
 ## Repository readiness
 
-The repository already has `@supabase/supabase-js` (including Storage client capability) and the Supabase CLI. No object-store adapter, bucket configuration, AWS/GCS/Azure SDK or R2 integration was found before this milestone. `.env.example` files document Supabase URL/public-key/service-role names; they contain no artifact bucket settings. Only names from example files were inspected; real `.env` files and ambient credential values/presence were not examined. `.gitignore` excludes `.env`, `.env.local` and `.env.*.local`. Cloud credential files must remain outside Git; no example credentials or cloud SDK dependencies are added here.
+The scripts now use the modular `@aws-sdk/client-s3` v3 SDK (direct dev dependency `^3.1139.0`, exact resolution in `pnpm-lock.yaml`). No other direct AWS package or broad SDK bundle is needed. Existing Supabase dependencies are unrelated; artifact scripts require no Supabase configuration. Real `.env` files and ambient credential values/presence were not examined. Cloud credential files must remain outside Git. The normal SDK credential chain is used only by a later explicitly executed cloud command.
 
 The existing lossless archive verifier stays provider-independent and unchanged. New code is scripts-only:
 
 - `curb-artifact-store.ts`: object interface and local implementation.
-- `curb-s3-artifact-store.ts`: AWS request/validation skeleton with an injected transport; tests supply only a recording fake.
+- `curb-s3-artifact-store.ts`: immutable S3 object operations, configuration and version/checksum/retention validation.
+- `curb-s3-sdk-transport.ts`: actual AWS SDK commands, bounded streaming and read-only bucket inspection.
+- `verify-curb-artifact-cloud.ts`: offline plan, synthetic-only gated upload, bounded receipts and separate read-only replay.
+- `verify-curb-s3-tests.ts`: injected S3 responses and actual SDK serialization into a fake HTTP handler, with networking blocked.
 - `verify-curb-artifact-recovery.ts`: preparation, object transfer, full recovery and local-only CLI.
 - `verify-curb-artifact-store.ts`: synthetic adapter, concurrency, corruption/recovery and S3 contract tests.
 
@@ -36,7 +39,7 @@ Official documentation reviewed 2026-09-23; pricing/configuration must be rechec
 | Delete recovery | Documentation says deleted objects cannot be restored | Retained version IDs survive ordinary delete markers; version deletion governed by lock | Retained locked versions; prove version retrieval in provider acceptance tests |
 | Checksums | Always download/hash; do not assume AWS checksum headers are supported | SHA-256 upload/HEAD and independent GET hashing | Download/hash required; exact checksum/conditional-write API compatibility still needs proof |
 | Private access | Existing Supabase auth/RLS fit | Dedicated IAM roles, private bucket, public-access block | Private bucket and scoped application keys |
-| SDK / development | Existing SDK; local Supabase available | Future AWS SDK v3 transport binding; local adapter and recording fake available now | Similar S3 client shape, but not a drop-in substitute without capability tests |
+| SDK / development | Existing SDK; local Supabase available | Modular SDK adapter and offline acceptance tests implemented; actual cloud acceptance pending | Similar S3 client shape, but not a drop-in substitute without capability tests |
 | Operations / lock-in | Fewest accounts; weaker retention meets neither preferred versioning nor lock requirements | More IAM setup; retention decisions need review; standard S3 object API with AWS policy controls | Separate account/key administration; S3 portability with provider differences |
 | Cost shape | Existing plan/storage/egress quotas | Pay-as-you-go storage, requests, transfer, optional audit costs | Low per-TB storage pricing and included egress allowance; current pricing page linked below |
 | Supabase integration | Native SDK convenience | DB stores external artifact/manifest URIs and hashes; no app runtime coupling | Same provider-neutral DB contract |
@@ -115,24 +118,31 @@ pnpm.cmd verify:curb-artifact-recovery --local-store=<DIR> --receipt=<JSON> --ex
 pnpm.cmd verify:curb-artifact-recovery --plan-s3 --archive=<DIR>
 ```
 
-`--plan-s3` emits keys/object count/bytes and `SDK_BINDING_PROVISIONING_AND_APPROVAL_REQUIRED`; it does not inspect credentials or contact S3. There is deliberately **no cloud upload CLI**. An executable upload command cannot honestly be supplied until the transport and provisioning are reviewed. The future approved runner should call `uploadPreparedPackage` with the reviewed S3 transport, then `recoverPackage` with independently pinned expected hashes. Do not use `aws s3 sync` as a shortcut: it lacks this package's conditional-write/version-receipt/recovery gate.
+`--plan-s3` remains offline and emits keys/object count/bytes with `CLOUD_ACCEPTANCE_PENDING_USE_VERIFY_CURB_ARTIFACT_CLOUD`. The new command below additionally validates non-secret target configuration and retention policy. Neither plan constructs an SDK client or resolves credentials. Do not substitute `aws s3 sync`: it lacks this package's conditional-write/version-receipt/recovery gate.
 
-## AWS skeleton readiness and credential contract
+## AWS adapter and configuration contract
 
-`S3ArtifactStore` is a tested adapter structure, **not a live SDK integration**. It takes an injected `S3Transport` port for PutObject, HeadObject and bounded GetObject. No AWS SDK is installed or default credential provider invoked. Delaying the transport binding until approved account/region/provisioning keeps this milestone incapable of automatic cloud access; the provider choice itself is resolved.
+`S3ArtifactStore` uses the `AwsSdkS3Transport` binding for PutObject, HeadObject and GetObject. Importing modules and running plans does not create a client. The factory is called only after explicit execution gates and local verification. Requests pin the expected owner and configured regional endpoint; ambient S3 endpoint overrides and region redirects cannot retarget them. This V1 targets commercial AWS regions and general-purpose buckets, not directory buckets, access points, GovCloud or China partitions.
 
-Configuration names, all required by the skeleton's explicit configuration parser:
+Non-secret configuration names (no values or credentials belong in source):
 
 | Name | Purpose |
 |---|---|
 | `CURB_ARTIFACT_S3_BUCKET` | Dedicated reviewed evidence bucket; no default |
-| `CURB_ARTIFACT_S3_REGION` | Region used by future transport; no default |
+| `CURB_ARTIFACT_S3_REGION` | Region for the explicit AWS endpoint; no default |
 | `CURB_ARTIFACT_S3_OWNER` | Expected 12-digit owner account, checked on every request |
 | `CURB_ARTIFACT_RETAIN_UNTIL` | Explicit future UTC retention horizon, reviewed before any write |
+| `CURB_ARTIFACT_MIN_RETENTION_DAYS` | Required harness policy minimum, integer 1–36500; no default |
+| `CURB_ARTIFACT_S3_PREFIX` | Optional; if set must equal `curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1` |
+| `CURB_ARTIFACT_S3_ENDPOINT` | Optional test-only endpoint: literal `http(s)://127.0.0.1[:port]` or `[::1]`, no path/query/credentials; all external custom endpoints rejected |
 
-Only missing variable **names** or generic errors are emitted. The parser accepts an explicitly supplied environment mapping; nothing reads real environment credentials now. Future AWS SDK authentication should use short-lived OIDC/assumed-role credentials. Standard names may include `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, or operator `AWS_PROFILE`; temporary `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` belong only in the execution environment. Never add `NEXT_PUBLIC_`/`EXPO_PUBLIC_` credential variants, log credential objects, or commit them. Do not reuse Supabase service-role credentials for object storage.
+The scripts do not load `.env` or inspect credential values. The SDK receives no explicit credentials in the real transport, so its standard Node provider chain resolves credentials lazily at execution. Prefer short-lived assumed roles, SSO or workload identity. Select uploader/verifier profiles in separate sessions; SDK authentication may contact SSO/STS/metadata services only during future explicitly gated execution. No AWS access keys are required in project `.env`. Never log credential objects, use public credential variants or reuse Supabase credentials. Tests use explicit non-secret signing fixtures and a fake HTTP handler, never the real credential chain. [AWS Node credential resolution](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html).
 
-The skeleton sends `IfNoneMatch: '*'`, base64 SHA-256, AES256 server-side encryption, COMPLIANCE mode, explicit retention horizon and expected owner. It omits ACL grants. HEAD must return a non-null version, full SHA-256, valid bounded size and sufficient live compliance retention; GET pins the version and checks exact bytes. A 412 is only an idempotent success after independent retention/byte equality checks. A conflict or other provider error fails closed; no blind retry/overwrite/delete occurs. The future binding must use the configured AWS region, refuse arbitrary endpoints/redirects, enforce streaming limits, normalize only actual 412 errors and never expose raw credential-bearing SDK errors. Actual bucket privacy, policy, IAM and retention configuration are **unverified**.
+PUT sends `IfNoneMatch: '*'`, known ContentLength, base64 SHA-256, STANDARD storage class, AES256 server-side encryption, COMPLIANCE mode, explicit retain-until and expected owner. No ACL grants are sent. Conditional creation provides atomic overwrite protection; HEAD-then-PUT is not used as the race guard. Only HTTP 412 becomes an identical-retry candidate: HEAD obtains the existing version, then pinned GET must prove equal bytes/checksum and sufficient retention. Conflicts and other errors fail closed. The SDK uses one attempt; ambiguous failures leave non-ready partial evidence for an explicit retry, never a blind overwrite or delete.
+
+HEAD normalizes key/version, byte length, SHA-256, content type, ETag, last-modified, encryption and Object Lock mode/date. Missing/null VersionId, composite or absent checksum, invalid size and insufficient COMPLIANCE retention fail. Version IDs are bounded to 1024 characters. After a version is known, all HEAD/GET requests pin it; only the 412 discovery HEAD may read current metadata. GET verifies the returned version and declared length, consumes byte streams with a 32 MiB ceiling and 30-second abort deadline, and checks downloaded SHA-256. Connection timeout is five seconds. ETag is descriptive only; our own SHA-256 is authoritative. SDK errors are sanitized, and receipts never contain signed URLs or credentials.
+
+Before any PUT, and again after uploader recovery, the harness reads location, versioning, Object Lock, public-access block, ownership controls, default encryption and lifecycle configuration. It requires the exact region, versioning Enabled, Object Lock Enabled, fixed default COMPLIANCE retention (Days or Years) meeting the configured minimum, all four public-access block flags, BucketOwnerEnforced and SSE-S3 AES256. Explicit object retain-until must also meet the minimum from the time of acceptance. Years are conservatively counted as 365 days. V1 accepts no enabled lifecycle rule; absent lifecycle configuration is accepted only for the specific NoSuchLifecycleConfiguration response. Unknown/inaccessible controls fail closed. A loopback emulator passing these checks never proves AWS retention. Actual IAM and bucket-policy enforcement still need manual review and real acceptance.
 
 Future permission split, scoped to the reviewed bucket/prefix:
 
@@ -156,11 +166,93 @@ Use the local/manual flow for first approved provider acceptance, then a protect
 
 00012 already stores immutable `artifact_uri`, `artifact_sha256`, `manifest_uri`, `manifest_sha256`; 00014 binds those digests in verifier evidence. `s3://<bucket>/<prefix>/archive/` and its manifest URI satisfy the existing no-query/no-fragment URI checks. Actual object version IDs live in the independently retained receipt; URI naming and bucket policy prevent normal clients rebinding authoritative history. Do not put expiring signed URLs or version query strings into these DB columns. Future verifier jobs must bind the configured store/account and trusted receipt to those DB declarations. **Schema sufficient; no migration required or modified.**
 
-Before first cloud upload: the user must separately select/approve account, bucket, region, retention horizon and costs; provision/audit the controls and separate roles; review/install the AWS SDK transport binding; then explicitly approve a concrete upload plan. First test with a tiny synthetic package, verify overwrite denial, retention, pinned-version recovery and private access, and only subsequently approve the real archive upload. No available credentials bypass this gate.
+Before first cloud upload: separately select/approve account, bucket, region, retention horizon and costs; provision/audit the controls and separate roles; review the implemented SDK adapter and concrete offline plan. Follow the synthetic-only acceptance commands below. No available credentials bypass the execution gates.
 
 Remaining production blockers: actual cloud retention/recovery acceptance and independently protected receipts; verifier credentials/deployment plus complete DB TEXT comparison/attestation integration; reviewed source registration/endpoint and migration rollout; separate authorization for ingestion/publication. This local recovery result grants none of those permissions.
 
-## Execution evidence
+## IAM templates and manual bucket provisioning
+
+Templates contain placeholders only and have not been provisioned or validated against an AWS account:
+
+- [Uploader identity policy](./curb-artifacts/aws-uploader-policy.template.json): prefix-scoped PutObject/PutObjectRetention, GetObject/GetObjectVersion/GetObjectRetention and the bucket reads below. Explicit deny excludes other operations on this bucket/evidence prefix.
+- [Verifier identity policy](./curb-artifacts/aws-verifier-policy.template.json): the same bucket reads and prefix-scoped GetObject/GetObjectVersion/GetObjectRetention only. Explicit deny prevents writes, deletes, retention changes and bucket administration even if another attached identity policy grants them on this scope.
+- [Bucket policy guardrails](./curb-artifacts/aws-bucket-policy.template.json): deny nonconditional creation, non-COMPLIANCE retention, retention below the approved minimum, evidence deletion/bypass and insecure object transfers. Replace `<BUCKET>` and `<MIN_RETENTION_DAYS>` only after policy review. The wildcard principal occurs only in Deny statements; it grants no public access.
+
+Both identities need exactly these bucket inspection actions on `arn:aws:s3:::<BUCKET>`:
+
+```text
+s3:GetBucketLocation
+s3:GetBucketVersioning
+s3:GetBucketObjectLockConfiguration
+s3:GetBucketPublicAccessBlock
+s3:GetBucketOwnershipControls
+s3:GetEncryptionConfiguration
+s3:GetLifecycleConfiguration
+```
+
+Object actions are restricted to `arn:aws:s3:::<BUCKET>/curb-snapshots/datasf_citywide_curbs/curb-artifact-package-v1/*`. No list permission is needed: receipts enumerate exact keys/versions. HeadObject uses GetObject/GetObjectVersion authorization, with GetObjectRetention needed for lock metadata. No KMS, ACL, deletion, bucket configuration, STS or role-assumption permissions are granted by these templates. Authentication trust/SSO setup is separate; neither role should inherit other bucket access or be able to assume the other role. [AWS API-to-IAM action mapping](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-policy-actions.html).
+
+The bucket policy supplements identity permissions; the harness does not read/evaluate the policy document or prove effective IAM isolation. Review those controls with the provisioning administrator and validate the templates in the chosen account before execution. Restrict administration and review receipt retention/auditing separately. The retention guard uses AWS's remaining-retention-days condition; explicit object retention overrides bucket defaults, so both controls matter. [AWS retention policy conditions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock-managing.html), [enforcing conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html).
+
+Manual provisioning checklist, **not executed by this task**:
+
+1. Record the approved account/12-digit owner, commercial region, dedicated general-purpose bucket name, retention minimum/horizon, cost owner and receipt custodian. No project retention duration is invented here.
+2. Create the private bucket using a separate administrator; enable versioning and Object Lock, with fixed default COMPLIANCE retention meeting the approved minimum. Review the retention commitment before writing.
+3. Enable all four public-access blocks and BucketOwnerEnforced ownership. Set default SSE-S3 AES256 encryption. Use S3 Standard; this V1 does not accept SSE-KMS or archival tiers.
+4. Leave lifecycle rules absent/disabled for the first acceptance; review noncurrent-version expiration, delete markers, transitions and replication separately before any later change.
+5. Review/substitute the bucket policy and separate uploader/verifier identity policies. Create distinct roles/trust paths; exclude bucket administration, deletion, bypass and cross-assumption. Verify no other permissions undermine prefix/identity separation.
+6. Retain the policy/configuration review, choose an independent custodian for trusted digests/version receipts, and configure approved access auditing. Neither application role administers those records.
+7. Supply only the documented non-secret configuration in the uploader session. Set retain-until with sufficient margin beyond the minimum to cover upload/replay time. Generate the tiny fixture and review the offline plan; obtain separate authorization for the first cloud execution.
+
+## Cloud receipts, failure behavior and exact future commands
+
+Cloud reports are local exclusive-create files, each bounded to 1 MiB. `preliminary-receipt.json` has state `UPLOADED_UNVERIFIED`; `receipt.json` is created only after fresh-directory pinned recovery passes the unchanged full archive verifier and the second bucket-control check. `bucket-controls.json` records the initial checks. Failures produce a bounded `failure.json` with stage and `retention_ready: false`; partial remote objects are never deleted or called ready.
+
+The receipt binds contract/purpose, configured bucket/region/owner/endpoint, package SHA-256, manifest SHA-256, object count, existing transfer receipt and bucket controls. Every object records provider, bucket, region, key, VersionId, byteLength, expected/confirmed SHA-256, COMPLIANCE mode, retain-until and uploaded_at from S3 LastModified (not the retry's wall clock). Optional ETag is metadata only. Final recovery records PASS, row count, dataset/identity-geometry digests and verified_at. At most 107 archive objects are permitted. No source rows, credentials or signed URLs belong in receipts.
+
+Uploader recovery is explicitly `UPLOADER_SELF_READBACK`, with `independent_verification_required: true` and `cloud_retention_accepted: false`, even after `RECOVERY_VERIFIED`. The verifier command emits `READ_ONLY_SESSION_REPLAY` and `credential_independence: REQUIRES_OPERATOR_CONFIRMATION`; it cannot prove who holds the process credentials. Preserve receipts outside uploader control before treating them as independent historical evidence. No receipt here authorizes DB attestation/publication.
+
+Commands below use new local directories. Replace placeholders locally, quote paths containing spaces, and set the non-secret configuration above. Plain invocation plans only. The first two commands are offline:
+
+```powershell
+pnpm.cmd verify:curb-artifact-cloud --make-synthetic=<NEW_SYNTHETIC_DIR>
+pnpm.cmd verify:curb-artifact-cloud --archive=<SYNTHETIC_DIR>
+```
+
+The plan validates the complete archive and lists target/prefix, exact keys/lengths/SHA-256, retention policy and required operations with `cloud_requests: 0`. It never constructs a client, resolves credentials or inspects the bucket. Existing `verify:curb-artifact-recovery --plan-s3` remains available without AWS target configuration. A read-only receipt plan is also available with `--verify-receipt=<RECEIPT_JSON>` and no execution flag.
+
+**Future first cloud test, NOT executed in this task**, after manual provisioning and authorization, in the uploader session:
+
+```powershell
+pnpm.cmd verify:curb-artifact-cloud --archive=<SYNTHETIC_DIR> --out=<NEW_UPLOADER_DIR> --execute-cloud --ack=UPLOAD_SYNTHETIC_ONLY
+```
+
+Both the execution flag and exact acknowledgement are required. Missing/duplicate/conflicting gates fail. The archive must byte-match the generated two-row, seven-file fixture before any client construction; a renamed real archive or forged synthetic label cannot pass. The flow is local full verification -> bucket inspection -> conditional raw uploads and HEAD/GET checks -> manifest/checksum uploads and checks -> preliminary receipt -> pinned full recovery -> bucket recheck -> final receipt. Identical retries use a new local output directory and preserve remote versions; insufficient existing retention fails rather than modifying old objects.
+
+In a **separate shell/session with the verifier's read-only identity**, using independently preserved package/manifest digests:
+
+```powershell
+pnpm.cmd verify:curb-artifact-cloud --verify-receipt=<UPLOADER_DIR>/receipt.json --out=<NEW_VERIFIER_DIR> --expected-artifact-sha256=<TRUSTED_PACKAGE_HEX> --expected-manifest-sha256=<TRUSTED_MANIFEST_HEX> --execute-cloud-read --ack=READ_ONLY_RECOVERY
+```
+
+The read transport rejects PUT even when called directly. Running verifier code with uploader credentials does not count as independent verification. Confirm the selected role/profile through the separately reviewed authentication setup; do not print keys. The script neither assumes another role nor calls STS to claim identity independence.
+
+Later rollout order is synthetic cloud acceptance -> separate-identity recovery -> receipt/control review -> explicit user approval -> separately reviewed real-archive upload support and upload -> independent real recovery -> separately authorized DB registration/staging rollout. This V1 deliberately provides **no real-archive cloud execution path**. The retained 18,355-row archive can be planned offline and must never be the first cloud write. No Supabase URL/key is needed, and the production project reference is hard-blocked in configuration, arguments and S3 targets.
+
+## Current offline execution evidence
+
+Workspace/scripts typecheck and the existing 60 synthetic archive checks and 52 artifact-store/recovery checks pass. The S3 suite tests bucket controls, exact execution gates, synthetic-only enforcement, immutable creation, equal retries, conflicting writes, missing versions, retention/checksum failures, missing/corrupt/truncated/wrong-version reads, partial uploads and failed recovery without premature final receipts. It also runs the actual AWS SDK serializer/signing path against an in-memory HTTP handler with explicit dummy fixtures. All network entry points are blocked in that suite; no real credential chain or AWS API is used. The policy templates are documentation artifacts, not a cloud IAM validation result.
+
+```powershell
+pnpm.cmd typecheck
+pnpm.cmd verify:curb-archive-tests
+pnpm.cmd verify:curb-artifact-store
+pnpm.cmd verify:curb-s3-tests
+git diff --check
+git status --short
+```
+
+## Previous local-store execution evidence
 
 Executed locally: **52 artifact-store/recovery checks**, **60 existing synthetic archive checks**, and workspace/scripts **typecheck** passed. The prior archive suite's “61” total includes its optional retained-archive double replay; here real evidence was exercised through the new store/recovery path instead. S3 tests used only a recording fake; no cloud readiness is inferred from them.
 
