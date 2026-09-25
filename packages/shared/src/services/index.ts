@@ -40,3 +40,8 @@ export type {
 export { findAndEvaluateParkingCandidates } from "./orchestration";
 
 export { distanceMeters } from "./distance";
+
+export { ParkingSearchService, ParkingSearchValidationError, validateParkingSearchRequest,
+  resolveParkingAvailability, compareParkingSearchResults } from "../parking-search";
+export type { ParkingSearchResult, ParkingSearchServiceDeps, ParkingSearchAvailability,
+  AvailabilityReasonCode, ParkingRankingReason, ParkingRankTuple } from "../parking-search";

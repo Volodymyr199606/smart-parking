@@ -17,6 +17,17 @@ export interface ParkingCandidateSearchRequest {
   readonly radiusMeters: number;
 }
 
+/** Deterministic runtime search. Times are explicit; no implicit wall clock or speculative filters. */
+export interface ParkingSearchRequest extends ParkingCandidateSearchRequest {
+  /** Full ISO instant with Z/offset, using the existing legality interval parser. */
+  readonly arrivalTime: string;
+  /** Finite positive minutes, representable as a whole number of milliseconds. */
+  readonly durationMinutes: number;
+  readonly maxResults?: number;
+  /** Only confirmed LEGAL results survive; UNKNOWN is excluded too. Default false. */
+  readonly requireLegal?: boolean;
+}
+
 /**
  * Parameters for a future deterministic search such as:
  *
