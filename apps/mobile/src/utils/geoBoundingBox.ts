@@ -1,14 +1,10 @@
 /**
  * Pure bounding-box math for Supabase lat/lng "nearby" prefilter queries.
  *
- * Longitude degrees are NOT constant width — the physical distance covered
- * by one degree of longitude shrinks toward the poles
- * (~111.32 km * cos(latitude)). The previous implementation in
- * parkingService.ts and cityParkingService.ts used the SAME
- * `radiusMeters / 111_000` offset for both latitude and longitude, which
- * under-covers the east-west extent by ~20% at San Francisco's latitude
- * (~37.7°N, where cos(37.7°) ≈ 0.79). This helper corrects that by scaling
- * the longitude offset by 1 / cos(latitude).
+ * Uses the same 6,371,000 m sphere as the shared Haversine filter, with
+ * exact spherical-cap extrema and a one-meter numerical margin. The old
+ * 111,320 m/degree approximation could under-cover boundary points even
+ * after correcting longitude by cos(latitude).
  *
  * This box remains a PREFILTER, not an exact-radius query — a bounding box
  * is a square-ish region, not a circle, so it can (and should) return a few
@@ -18,15 +14,8 @@
  * `findParkingCandidates`).
  */
 
-const METERS_PER_DEGREE_LATITUDE = 111_320;
-const METERS_PER_DEGREE_LONGITUDE_AT_EQUATOR = 111_320;
-
-/**
- * Floor for cos(latitude) so the longitude delta doesn't blow up near the
- * poles (division by ~0). Smart Parking only operates in San Francisco
- * today, so this is a defensive clamp rather than a real operating case.
- */
-const MIN_COS_LATITUDE = 0.01;
+const EARTH_RADIUS_METERS = 6_371_000; // Same sphere as shared Haversine.
+const BOUNDARY_MARGIN_METERS = 1;
 
 export interface BoundingBoxDegrees {
   readonly minLat: number;
@@ -44,18 +33,15 @@ export function computeBoundingBoxDegrees(
   longitude: number,
   radiusMeters: number
 ): BoundingBoxDegrees {
-  const latDelta = radiusMeters / METERS_PER_DEGREE_LATITUDE;
-
-  const cosLat = Math.max(
-    Math.cos((latitude * Math.PI) / 180),
-    MIN_COS_LATITUDE
-  );
-  const lngDelta = radiusMeters / (METERS_PER_DEGREE_LONGITUDE_AT_EQUATOR * cosLat);
-
-  return {
-    minLat: latitude - latDelta,
-    maxLat: latitude + latDelta,
-    minLng: longitude - lngDelta,
-    maxLng: longitude + lngDelta,
-  };
+  if (!Number.isFinite(latitude) || Math.abs(latitude) > 90 || !Number.isFinite(longitude) || Math.abs(longitude) > 180
+    || !Number.isFinite(radiusMeters) || radiusMeters < 0) throw new Error("Invalid bounding-box input");
+  const radians = Math.PI / 180, phi = latitude * radians;
+  const angle = Math.min(Math.PI, (radiusMeters + BOUNDARY_MARGIN_METERS) / EARTH_RADIUS_METERS);
+  const minLat = Math.max(-90, (phi - angle) / radians), maxLat = Math.min(90, (phi + angle) / radians);
+  // A pole or antimeridian crossing uses the full longitude range. A single
+  // non-wrapping SQL box must over-fetch rather than exclude valid points.
+  if (minLat === -90 || maxLat === 90) return { minLat, maxLat, minLng: -180, maxLng: 180 };
+  const longitudeDelta = Math.asin(Math.min(1, Math.sin(angle) / Math.cos(phi))) / radians;
+  const minLng = longitude - longitudeDelta, maxLng = longitude + longitudeDelta;
+  return minLng < -180 || maxLng > 180 ? { minLat, maxLat, minLng: -180, maxLng: 180 } : { minLat, maxLat, minLng, maxLng };
 }

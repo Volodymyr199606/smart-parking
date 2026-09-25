@@ -40,6 +40,7 @@ export type {
 export { findAndEvaluateParkingCandidates } from "./orchestration";
 
 export { distanceMeters } from "./distance";
+export { parseInstantMs } from "./isoInstant";
 
 export { ParkingSearchService, ParkingSearchValidationError, validateParkingSearchRequest,
   resolveParkingAvailability, compareParkingSearchResults } from "../parking-search";

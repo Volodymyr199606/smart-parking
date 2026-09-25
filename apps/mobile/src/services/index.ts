@@ -24,3 +24,4 @@ export {
 } from "./candidateService";
 export type { ParkingPreviewCandidate, EvaluatedParkingCandidate } from "./candidateService";
 export { fetchCityParkingBlocksForLocation } from "./regulationService";
+export { searchNearbyParking } from "./parkingSearch";

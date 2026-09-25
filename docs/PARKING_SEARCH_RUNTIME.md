@@ -1,6 +1,6 @@
 # Parking Search Runtime V1
 
-The shared core is implemented and offline-tested. Mobile/UI wiring is deferred. No AWS, Supabase or DataSF connection is needed by this service. CITY coverage remains INCOMPLETE. Artifact storage, curb publication, ingestion, migrations and native maps are unchanged.
+The shared core and Mobile Parking Search Adapter V1 are implemented and offline-tested. UI wiring is deferred. The mobile facade uses the existing authenticated Supabase client when called by the app; automated verification injects mocks and makes no Supabase, AWS or DataSF calls. CITY coverage remains INCOMPLETE. Artifact storage, curb publication, ingestion, migrations and native maps are unchanged.
 
 ## API and contracts
 
@@ -46,7 +46,7 @@ The service reuses `findAndEvaluateParkingCandidates`, which composes existing r
 
 Discovery uses only supplied fetchers. V1 can operate solely on `parking_spots`; the optional existing normalized-location fetcher is also supported. Nothing queries citywide curb storage. Each source is evaluated separately so `CURRENT_SPOTS:<id>` and `CITY:<id>` remain distinct even when source IDs collide. Identical repeated rows collapse before rule lookups; conflicting rows with the same ID or invalid coordinates produce explicit provider errors. Coordinates alone never prove that two records describe one physical space.
 
-The existing exact circular filter runs before rule lookup and includes the radius boundary. Completeness still depends on the provider: the current mobile bounding-box helper uses the same degree offset for latitude and longitude and under-covers east/west in San Francisco. This core does not claim to recover candidates omitted by that query. Rule lookups retain the existing concurrency limit per discovery source; optional availability lookups run sequentially within each source.
+The existing exact circular filter runs before rule lookup and includes the radius boundary. Completeness still depends on the provider. The new mobile search adapter uses a conservative spherical bounding box and exact-count checks described below; legacy list helpers still have their own row limits. Rule lookups retain the existing concurrency limit per discovery source; optional availability lookups run sequentially within each source.
 
 Arrival plus duration produces the existing explicit arrival/departure interval. Known applicable violations remain ILLEGAL regardless of availability or incomplete coverage. Otherwise unresolved rules/coverage yield UNKNOWN. LEGAL still requires the existing complete synthetic/MOCK-only gate; a CITY/COMMUNITY source cannot become READY. `coverageDeclaration: "COMPLETE"` is a dependency option only for fixtures, never a user request flag; live adapters must omit it.
 
@@ -103,9 +103,73 @@ Example projection from the tested synthetic LEGAL/UNKNOWN fixture (the complete
 
 Mobile currently reads spots through `parkingService.getNearbyParkingSpots` / `getParkingSpots`, receives updates via `useRealtimeSpots`, and has a separately gated normalized-city preview through `candidateService.findNearbyParkingCandidates`. `candidateService.findAndEvaluateNearbyParkingCandidates` already wraps the shared legality orchestration but is not the ranked search UI.
 
-Next add a thin mobile search adapter supplying `fetchNearbyParkingSpotRows`, the existing candidate rule lookup and a scoped report-evidence fetcher. Review the report expiry policy and correct/verify bounding-box completeness there. Keep source selection explicit and map normalized IDs through the correct existing rule association path. Do not assume every CITY-category `parking_spots` row is a normalized-location ID.
+The mobile adapter described below now supplies complete bounded spot discovery and scoped report evidence. It deliberately does not call the normalized-location rule lookup with `parking_spots` IDs. There is no verified association between those identities. Future normalized-location support must select that source explicitly and use its own existing association path.
 
-Later MapScreen/list code can delegate candidate distance, interval legality, legal-only filtering and ordering to this service; UI text, favorites, amenity filters, loading/error states and realtime-triggered refresh remain app concerns. No screen, hook, native map or mobile service changes are part of this task.
+Later MapScreen/list code can delegate candidate distance, interval legality, legal-only filtering and ordering to this service; UI text, favorites, amenity filters, loading/error states and realtime-triggered refresh remain app concerns. No screen, hook or native-map changes are part of either core/adapter task.
+
+## Mobile Parking Search Adapter V1
+
+Public app API:
+
+```ts
+import { searchNearbyParking } from "../services/parkingSearch";
+const results = await searchNearbyParking({
+  origin: { latitude: 37.77, longitude: -122.42 },
+  arrivalTime: "2026-09-24T17:00:00.000Z",
+  durationMinutes: 60,
+  radiusMeters: 1000,
+  maxResults: 20,
+  requireLegal: false,
+});
+```
+
+`parkingSearch.ts` binds `createMobileParkingSearch` to `createParkingSearchRepository(supabase)`, using the existing singleton/auth session. No second client is created. The provider factory and query repository import no client/environment module and accept injected dependencies for offline tests. `ParkingSearchService` itself is unchanged. The shared strict instant parser is now exported for consistent adapter timestamp validation.
+
+The data path is bounded box SELECT -> row validation/deduplication -> shared exact-radius discovery -> batched report SELECTs -> shared search/ranking. Report/database work is completed before the core's per-candidate failure isolation, so infrastructure errors reject the facade instead of becoming ordinary UNKNOWN availability. No citywide curb storage or unscoped report collection is fetched.
+
+### Bounding-box completeness and budgets
+
+`computeBoundingBoxDegrees` now uses the same sphere as shared Haversine, radius R=6,371,000 m. For angular radius δ=(requested meters + 1 m)/R and latitude φ, latitude bounds are φ±δ, clipped at the poles. Without a pole crossing, longitude half-width is asin(sin(δ)/cos(φ)). These are the spherical-cap extrema, so every point within the shared Haversine radius lies inside the box. The one-meter margin absorbs numerical boundary error. Exact-radius filtering remains authoritative and rejects box corners.
+
+A pole/antimeridian crossing uses the entire [-180,180] longitude range. This intentionally broadens a single SQL box rather than generating incorrect wrapped inequalities. Broad queries may hit the explicit row budget; they fail rather than report incomplete nearest results. The old 111,320 meters/degree approximation could exclude boundary points and has been replaced in the existing helper, also correcting its legacy callers without changing their UI or query limits.
+
+Constants in `parkingSearchPolicy.ts`:
+
+| Bound | V1 value/behavior |
+|---|---|
+| Search radius | 1–10,000 m; requests outside this range reject before queries |
+| Complete box candidates | At most 500 rows |
+| Reports | At most 2,000 rows total across all batches |
+| Report IDs per query | At most 50, limiting query URL size |
+| Final results | Default/cap 100; caller may request fewer |
+
+Each SELECT requests an exact count, an explicit range, stable ID order and only needed columns. A count above budget, missing count or row/count mismatch fails explicitly. In particular, a lower server response cap cannot silently truncate candidates or reports. This V1 fails incomplete pages rather than implementing pagination. A final-results limit applies only after complete bounded discovery and shared ranking.
+
+### Report identity, expiry and visibility
+
+Migration 00001 defines `parking_reports.parking_spot_id` as a UUID FK directly to `parking_spots.id`. The provider queries only the IDs surviving shared exact-radius discovery and validates every returned FK against its batch. A missing/wrong FK or conflicting duplicate identity is a DATA_ERROR, never a cross-candidate attachment. Identical candidate/report duplicates collapse. Candidate coordinates, statuses, provenance fields and timestamps are validated before existing shared row adapters are used.
+
+No prior report TTL exists. V1 explicitly selects **five minutes for AVAILABLE, OCCUPIED and UNKNOWN reports**, isolated as `COMMUNITY_REPORT_TTL_MS`. Reports are manual status observations: the schema has creation time but no reservation, departure time, sensor confirmation or validity interval. A short, symmetric lifetime limits stale occupancy claims and avoids interpreting OCCUPIED as a durable reservation or extending availability more optimistically. Five minutes is an initial product policy, not an empirically proven parking turnover estimate; review it with field evidence before tuning. No UI code supplies a hidden expiry.
+
+`created_at` is used as the server-recorded observation/capture time; expiry is creation plus TTL. PostgreSQL microseconds are accepted: observation/capture rounds upward to milliseconds and expiry rounds downward, so normalization never extends validity. Explicit UTC/offset timestamps use the shared strict parser. Impossible/malformed timestamps are data errors. Future reports relative to either requested arrival or the once-per-search clock are rejected as signals rather than clamped. Rejected future evidence cannot assert occupancy.
+
+Report queries use `created_at >= arrival - TTL` and `created_at <= min(arrival, search clock)`. If that interval is empty, there can be no current observations and no report query is needed. With one equal TTL for all statuses, a report older than this horizon cannot remain current or need to supersede a newer current report. The shared resolver handles inclusive observation time, exclusive expiry, newest-observation selection, equal-priority conflicts and UNKNOWN. Adapters do not reproduce ranking or conflict resolution. Bare `parking_spots.status` remains insufficient without report evidence.
+
+**Visibility limitation:** the checked-in report SELECT policy allows users to see their own reports (`auth.uid() = user_id`). This task does not change RLS or use a service key. Counts and observations are complete only for rows visible to the current session. An authenticated app cannot claim a complete community-wide feed; an unauthenticated/no-visible-report result remains UNKNOWN. Broader report access would need a separately reviewed product/security change.
+
+### Rules, errors, races and realtime
+
+V1 discovers only CURRENT_SPOTS. `fetchCurrentSpotRules` satisfies the existing `FetchRulesForCandidate` interface and returns `[]`: there is no verified spot-to-normalized-location/curb-regulation association. CITY provenance on a spot does not establish that association. Existing normalized-city rule fetchers remain available for their correct ID domain but are not invoked here. Live legality is therefore UNKNOWN and `requireLegal: true` returns `[]`; CITY remains INCOMPLETE.
+
+Error behavior is explicit: `[]` means a successful query with no matches; `DATABASE_ERROR` means a failed request; `DATA_ERROR` means malformed/mismatched rows or missing exact count; `QUERY_LIMIT` means overflow/incomplete pages; `UNSUPPORTED_REQUEST` means mobile bounds/clock configuration. Existing shared request-validation errors remain intact. The repository does not expose raw server error details. These failures must be shown as errors, not “no parking available.”
+
+The facade has no shared result state or cross-request cache; each call owns its candidate/report maps. No hook is added. **MOBILE PARKING SEARCH UI V1 must implement generation/abort protection**: increment a request generation for each search, and accept success/error/loading completion only if its generation remains current; invalidate it on unmount. A late A must never overwrite completed B, and prior results must not be relabeled as fresh while a new request fails.
+
+Existing `useRealtimeSpots` listens to spot INSERT/UPDATE/DELETE events. A future report INSERT/UPDATE event (and deletion/session changes where supported) should invalidate/debounce a search refresh, not set a competing availability value. Subscription/publication permissions need verification before adding report realtime. Schedule expiry-driven refresh even without events, and use the same facade/resolver for all refreshed results. No realtime or UI integration is made here.
+
+### Adapter verification
+
+`pnpm.cmd verify:mobile-parking-search` injects a fake Supabase query builder, exercises the real repository/provider/shared-service path, blocks network entry points and verifies that the Supabase singleton was never imported. Boundary tests cover 15,120 spherical destination points at SF/equatorial/high/polar latitudes, small through maximum supported radii, cardinal/diagonal/intermediate bearings, negative longitudes and both antimeridian directions. Additional cases cover query scoping, empty results, stale/future/malformed/conflicting reports, microsecond timestamps, FK safety, DB failures, duplicate rows, server caps, global report budgets, coverage, requireLegal and deterministic replay.
 
 A future agent/tool should validate a structured request and call this same `searchParking(request)` boundary through approved providers. It must not query Supabase directly or override legality, availability or rank. No AI/LLM/agent/MCP code is added.
 
