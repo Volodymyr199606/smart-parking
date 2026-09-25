@@ -22,6 +22,7 @@ import { AppButton, ParkingSpotCard, AvailabilityBadge } from "../components";
 import { colors, spacing, radius, font } from "../constants/theme";
 import { isNativeMapSupported } from "../utils/mapSupport";
 import { getErrorMessage } from "../utils/getErrorMessage";
+import { openParkingDirections } from "../utils/parkingDirections";
 import {
   removeSpotById,
   replaceSpotById,
@@ -399,27 +400,10 @@ export function MapScreen({ navigation }: Props) {
   async function openDirections(spot: ParkingSpot) {
     trackEvent("directions_clicked", { parking_spot_id: spot.id });
 
-    const { latitude, longitude } = spot;
-    const label = encodeURIComponent(spot.street_name);
-
-    const appleMapsUrl = `maps:0,0?q=${label}@${latitude},${longitude}`;
-    const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}&destination_place_id=${label}`;
-
-    try {
-      if (Platform.OS === "ios") {
-        const canOpen = await Linking.canOpenURL(appleMapsUrl);
-        if (canOpen) {
-          await Linking.openURL(appleMapsUrl);
-          return;
-        }
-      }
-      await Linking.openURL(googleMapsUrl);
-    } catch {
-      Alert.alert(
-        "Cannot open directions",
-        "Unable to open maps. Please try again later."
-      );
-    }
+    await openParkingDirections({ latitude: spot.latitude, longitude: spot.longitude, label: spot.street_name }, {
+      platform: Platform.OS, canOpenURL: Linking.canOpenURL, openURL: Linking.openURL,
+      onFailure: () => Alert.alert("Cannot open directions", "Unable to open maps. Please try again later."),
+    });
   }
 
   function getLocationLabel(): string {

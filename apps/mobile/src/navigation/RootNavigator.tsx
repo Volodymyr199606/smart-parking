@@ -4,7 +4,7 @@ import {
   WelcomeScreen,
   LoginScreen,
   RegisterScreen,
-  MapScreen,
+  ParkingSearchScreen,
   ProfileScreen,
   SettingsScreen,
 } from "../screens";
@@ -45,7 +45,7 @@ export function RootNavigator() {
     >
       {isAuthenticated ? (
         <>
-          <Stack.Screen name="Map" component={MapScreen} />
+          <Stack.Screen name="Map" component={ParkingSearchScreen} />
           <Stack.Screen name="Profile" component={ProfileScreen} options={headerOptions} />
           <Stack.Screen name="Settings" component={SettingsScreen} options={headerOptions} />
         </>

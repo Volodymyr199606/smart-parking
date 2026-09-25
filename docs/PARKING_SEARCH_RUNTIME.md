@@ -1,6 +1,6 @@
 # Parking Search Runtime V1
 
-The shared core and Mobile Parking Search Adapter V1 are implemented and offline-tested. UI wiring is deferred. The mobile facade uses the existing authenticated Supabase client when called by the app; automated verification injects mocks and makes no Supabase, AWS or DataSF calls. CITY coverage remains INCOMPLETE. Artifact storage, curb publication, ingestion, migrations and native maps are unchanged.
+The shared core, Mobile Parking Search Adapter V1 and Mobile Parking Search UI V1 are implemented and offline-tested. The authenticated mobile landing route now displays ranked runtime results. The mobile facade uses the existing authenticated Supabase client when called by the app; automated verification injects mocks and makes no Supabase, AWS or DataSF calls. CITY coverage remains INCOMPLETE. Artifact storage, curb publication, ingestion, migrations and native maps are unchanged.
 
 ## API and contracts
 
@@ -101,11 +101,11 @@ Example projection from the tested synthetic LEGAL/UNKNOWN fixture (the complete
 
 ## Mobile and future tool boundary
 
-Mobile currently reads spots through `parkingService.getNearbyParkingSpots` / `getParkingSpots`, receives updates via `useRealtimeSpots`, and has a separately gated normalized-city preview through `candidateService.findNearbyParkingCandidates`. `candidateService.findAndEvaluateNearbyParkingCandidates` already wraps the shared legality orchestration but is not the ranked search UI.
+The authenticated `Map` route renders `ParkingSearchScreen`, which calls `searchNearbyParking` through `useParkingSearch`. The legacy `MapScreen` remains in the repository with its older raw-spot helpers and separately gated normalized-city preview, but is no longer this route's screen. `candidateService.findAndEvaluateNearbyParkingCandidates` remains a separate shared-legality wrapper.
 
 The mobile adapter described below now supplies complete bounded spot discovery and scoped report evidence. It deliberately does not call the normalized-location rule lookup with `parking_spots` IDs. There is no verified association between those identities. Future normalized-location support must select that source explicitly and use its own existing association path.
 
-Later MapScreen/list code can delegate candidate distance, interval legality, legal-only filtering and ordering to this service; UI text, favorites, amenity filters, loading/error states and realtime-triggered refresh remain app concerns. No screen, hook or native-map changes are part of either core/adapter task.
+The new list delegates distance, interval legality, legal-only filtering and ordering to the existing runtime. It has no frontend available-only filter, distance sort, favorites filter or amenity filter. Directions, reporting and selection are retained through small UI helpers; native-map integration remains a separate milestone.
 
 ## Mobile Parking Search Adapter V1
 
@@ -163,15 +163,47 @@ V1 discovers only CURRENT_SPOTS. `fetchCurrentSpotRules` satisfies the existing 
 
 Error behavior is explicit: `[]` means a successful query with no matches; `DATABASE_ERROR` means a failed request; `DATA_ERROR` means malformed/mismatched rows or missing exact count; `QUERY_LIMIT` means overflow/incomplete pages; `UNSUPPORTED_REQUEST` means mobile bounds/clock configuration. Existing shared request-validation errors remain intact. The repository does not expose raw server error details. These failures must be shown as errors, not “no parking available.”
 
-The facade has no shared result state or cross-request cache; each call owns its candidate/report maps. No hook is added. **MOBILE PARKING SEARCH UI V1 must implement generation/abort protection**: increment a request generation for each search, and accept success/error/loading completion only if its generation remains current; invalidate it on unmount. A late A must never overwrite completed B, and prior results must not be relabeled as fresh while a new request fails.
+The facade has no shared result state or cross-request cache; each call owns its candidate/report maps. The UI controller described below provides generation protection for successes, failures and scheduled refreshes. A late A cannot overwrite completed B, and prior results are cleared when a new search starts.
 
-Existing `useRealtimeSpots` listens to spot INSERT/UPDATE/DELETE events. A future report INSERT/UPDATE event (and deletion/session changes where supported) should invalidate/debounce a search refresh, not set a competing availability value. Subscription/publication permissions need verification before adding report realtime. Schedule expiry-driven refresh even without events, and use the same facade/resolver for all refreshed results. No realtime or UI integration is made here.
+Existing `useRealtimeSpots` listens to spot INSERT/UPDATE/DELETE events. The new screen retains that subscription and debounces events into facade refreshes. There was no report subscription to preserve; report realtime is deferred pending publication/permission review. A future report event must likewise invalidate the search, never set a competing availability value. Successful local reports and evidence expiry already refresh through the facade.
 
 ### Adapter verification
 
 `pnpm.cmd verify:mobile-parking-search` injects a fake Supabase query builder, exercises the real repository/provider/shared-service path, blocks network entry points and verifies that the Supabase singleton was never imported. Boundary tests cover 15,120 spherical destination points at SF/equatorial/high/polar latitudes, small through maximum supported radii, cardinal/diagonal/intermediate bearings, negative longitudes and both antimeridian directions. Additional cases cover query scoping, empty results, stale/future/malformed/conflicting reports, microsecond timestamps, FK safety, DB failures, duplicate rows, server caps, global report budgets, coverage, requireLegal and deterministic replay.
 
 A future agent/tool should validate a structured request and call this same `searchParking(request)` boundary through approved providers. It must not query Supabase directly or override legality, availability or rank. No AI/LLM/agent/MCP code is added.
+
+## Mobile Parking Search UI V1
+
+### Request and lifecycle flow
+
+`ParkingSearchScreen` is a thin list screen on the existing authenticated `Map` route. `useParkingSearchLocation` reuses Expo Location foreground permission and balanced-accuracy location. Loading, denied permission and location failure are distinct states with retry. There is no fallback coordinate, demo origin or unbounded all-spots query. Profile and Settings remain accessible while location/search is pending.
+
+Once a valid origin is available and the screen is focused in the foreground, `useParkingSearch` runs the existing `searchNearbyParking` facade. Controls use arrival **now**, duration presets **30/60/120/240 minutes** (default 60), radius presets **250/500/1000/2000 meters** (default 500), and optional **Verified legal only** (default off), mapped directly to `requireLegal`. Requests use `maxResults: 100`. Arrival is captured anew for each request. Control changes and spot realtime bursts debounce for 250 ms; pull-to-refresh and explicit retry run immediately.
+
+`parkingSearchController.ts` owns loading/error/results and one scheduled timer. Each input change or refresh advances a generation. Success, failure and timer callbacks must still match it; late requests cannot overwrite newer state. Blur, background, session identity changes and unmount invalidate prior work and clear scheduled timers. Returning to the foreground starts a fresh search. The facade has no abort-signal contract, so in-flight transport may finish but its obsolete result is ignored. Previous cards are cleared during loading and errors rather than presented as current evidence.
+
+### Cards and actions
+
+`ParkingSearchControls`, `ParkingSearchResultCard` and `parkingSearchViewModel` keep presentation outside the screen/controller. The list renders the returned array in runtime order without sorting or filtering. Selection stores only `candidateId` and derives the selected result from that array; refresh or a missing result clears selection. Cards show distance, known applicable time limit and relevant restriction summaries without exposing raw rank numbers. A known limit does not imply that all parking rules were verified.
+
+Legality labels are **Parking allowed**, **Parking not allowed for this stay**, and **Parking rules not fully verified**. Availability labels are **Recently reported available**, **Recently reported occupied**, and **Availability unknown**. Text carries the distinction independently of color. The screen explicitly says current availability reflects the user's own recent reports, not a community-wide feed. Most live legality remains UNKNOWN because the adapter has no verified rule association; CITY remains INCOMPLETE.
+
+Fresh availability uses the runtime's `ageMinutes`, labeled **Report age at search** so it cannot masquerade as a continuously updated clock. UNKNOWN does not display a fresh occupancy claim. Successful empty searches distinguish radius-based no candidates from no verified legal results. Provider failures show sanitized messages and retry, including a smaller-radius suggestion for query-budget overflow. Development logging exposes an error code only, not raw Supabase messages or stack traces.
+
+Directions reuse the existing Apple Maps/Google Maps behavior, extracted into `parkingDirections.ts` and called with the result's coordinates. AVAILABLE/OCCUPIED actions reuse `reportParkingSpot` with the original current-spot ID. Successful reporting refreshes the same search facade; it never optimistically patches independent card availability. Report failures stay visible. Controls/cards expose accessible labels and selected/expanded state; buttons expose disabled/busy state and retain at least 48-pixel control targets (52 for `AppButton`).
+
+### Evidence expiry and future boundaries
+
+The controller schedules one refresh at the earliest future expiry in the runtime's observations. At expiry it clears the old cards and requests a new runtime evaluation. It does not calculate a replacement availability status or introduce a UI TTL. If a known observation expires while its request is still pending, that response is rejected with a retryable error instead of displayed as current. There is no aggressive polling; lifecycle cleanup cancels the timer and foreground return refreshes even without realtime events.
+
+Broader community availability requires a separately reviewed report-visibility/RLS and privacy design, with verified publication/subscription behavior before adding report realtime. UI wording alone cannot provide that data access. Native maps remain deferred: a later map can consume these same result coordinates, identities and runtime ordering without a second discovery or availability path. This milestone changes no native-map implementation, EAS configuration, migration, publication or ingestion infrastructure.
+
+### UI verification scope
+
+`pnpm.cmd verify:parking-search-ui` runs 32 offline controller/view-model/helper checks using injected search, location, directions, report and timer dependencies. Cases include request inputs, loading, permission denial, location failure/retry, both empty states, sanitized errors/retry, late success and late failure races, exact result-order preservation, all legality/availability labels, freshness/time limits, direction coordinates, report refresh, expiry, expired in-flight evidence, lifecycle cleanup, debounce and realtime coalescing. Network entry points are blocked and the test rejects loading a Supabase client/environment module.
+
+Typecheck, the 42 shared runtime checks, 38 mobile adapter checks (including 15,120 bounding-box points), and 7 regulation-association checks pass alongside this suite. These tests exercise state and presentation models, not a React Native renderer or device. Visual layout, screen-reader behavior and external directions-app launch still need a device smoke test using an approved development setup.
 
 ## Offline verification
 

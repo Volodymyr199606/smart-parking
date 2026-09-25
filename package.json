@@ -23,6 +23,7 @@
     "verify:legal-conclusion": "tsx scripts/verify-legal-conclusion.ts",
     "verify:parking-search": "tsx scripts/verify-parking-search.ts",
     "verify:mobile-parking-search": "tsx scripts/verify-mobile-parking-search.ts",
+    "verify:parking-search-ui": "tsx scripts/verify-parking-search-ui.ts",
     "verify:regulation-storage": "tsx scripts/verify-regulation-storage.ts",
     "verify:datasf-retry": "tsx scripts/verify-datasf-retry.ts",
     "verify:curb-publication": "tsx scripts/verify-curb-publication-contract.ts",
