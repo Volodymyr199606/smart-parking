@@ -10,8 +10,8 @@
  */
 
 export const ENV = {
-  SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL ?? "",
-  SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "",
+  SUPABASE_URL: (process.env.EXPO_PUBLIC_SUPABASE_URL ?? "").trim(),
+  SUPABASE_ANON_KEY: (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "").trim(),
   /** City data preview UI — defaults off; does not affect parking_spots MVP. */
   ENABLE_CITY_DATA_PREVIEW:
     process.env.EXPO_PUBLIC_ENABLE_CITY_DATA_PREVIEW === "true",
@@ -19,5 +19,8 @@ export const ENV = {
 
 /** True when both required Supabase env vars are set. */
 export function isSupabaseConfigured(): boolean {
-  return Boolean(ENV.SUPABASE_URL && ENV.SUPABASE_ANON_KEY);
+  try {
+    const url = new URL(ENV.SUPABASE_URL);
+    return (url.protocol === "https:" || url.protocol === "http:") && Boolean(ENV.SUPABASE_ANON_KEY);
+  } catch { return false; }
 }

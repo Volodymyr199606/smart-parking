@@ -81,6 +81,8 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   text: {
+    textAlign: "center",
+    flexShrink: 1,
     fontSize: font.sizeMd,
     fontWeight: font.medium,
     color: colors.textOnDark,

@@ -15,7 +15,7 @@ export function createParkingSearchController(deps: ParkingSearchControllerDeps)
   const listeners = new Set<() => void>();
   const publish = (value: ParkingSearchState) => { state = value; listeners.forEach(listener => listener()); };
   const invalidate = () => { generation++; cancel?.(); cancel = null; };
-  async function execute(version: number) {
+  async function execute(version: number, expiryRetried = false) {
     if (!input || version !== generation) return;
     const request = { ...input, origin: { ...input.origin }, arrivalTime: new Date(deps.now()).toISOString(), maxResults: 100 };
     try {
@@ -24,7 +24,11 @@ export function createParkingSearchController(deps: ParkingSearchControllerDeps)
       const now = deps.now();
       // A long request must not reintroduce a known-status report whose deadline already passed.
       if (results.some(r => r.availability.status !== "UNKNOWN" && r.availability.evidence?.expiresAt
-        && Date.parse(r.availability.evidence.expiresAt) <= now)) throw new Error("Evidence expired during search");
+        && Date.parse(r.availability.evidence.expiresAt) <= now)) {
+        if (expiryRetried) throw new Error("Evidence expired during search");
+        cancel = deps.schedule(() => { cancel = null; void execute(version, true); }, 1000);
+        return; // One delayed retry with a fresh arrival, then a visible error if still expired.
+      }
       publish({ status: "success", results, error: null });
       const expiry = nextParkingEvidenceExpiry(results, now);
       if (expiry !== null) cancel = deps.schedule(() => { if (version === generation) refresh(); }, Math.max(1, expiry - now));

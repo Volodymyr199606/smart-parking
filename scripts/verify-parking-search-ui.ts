@@ -1,11 +1,14 @@
 /** Offline UI controller/view-model tests; no React Native renderer, database client or network. */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
 import type { domain, services } from "../packages/shared/src";
 import { createParkingSearchController } from "../apps/mobile/src/utils/parkingSearchController";
 import { parkingSearchCardModel, parkingSearchEmptyMessage, type ParkingSearchInput } from "../apps/mobile/src/utils/parkingSearchViewModel";
 import { resolveParkingSearchLocation } from "../apps/mobile/src/utils/parkingSearchLocation";
 import { openParkingDirections } from "../apps/mobile/src/utils/parkingDirections";
-import { submitParkingSearchReport } from "../apps/mobile/src/utils/parkingSearchReport";
+import { createParkingReportGuard, submitParkingSearchReport } from "../apps/mobile/src/utils/parkingSearchReport";
 
 const start = Date.parse("2026-09-24T17:00:00Z");
 const input: ParkingSearchInput = { origin: { latitude: 37.77, longitude: -122.42 }, durationMinutes: 60, radiusMeters: 500, requireLegal: false };
@@ -75,7 +78,7 @@ async function main() {
     assert.equal(parkingSearchCardModel(result("card")).maxStay, "Known time limit: 120 min"); pass("known max stay labeled as a restriction");
     const urls: string[] = [], destination = { ...result("card").location.point, label: "Test street" };
     await openParkingDirections(destination, { platform: "ios", canOpenURL: async () => true, openURL: async url => { urls.push(url); }, onFailure: () => assert.fail() });
-    assert.equal(urls[0], "maps:0,0?q=Test%20street@37.77,-122.42"); pass("directions uses runtime destination coordinates and existing Apple Maps path");
+    assert.equal(urls[0], "https://maps.apple.com/?daddr=37.77,-122.42&dirflg=d&ll=37.77,-122.42&q=Test%20street"); pass("directions uses runtime destination coordinates and Apple Maps directions link");
     await openParkingDirections(destination, { platform: "ios", canOpenURL: async () => false, openURL: async url => { urls.push(url); }, onFailure: () => assert.fail() });
     assert(urls[1].includes("destination=37.77,-122.42")); pass("existing Google Maps fallback preserved");
     const reportCalls: unknown[][] = [], reportHarness = new Harness(); reportHarness.controller.configure(input); reportHarness.advance(250);
@@ -89,13 +92,65 @@ async function main() {
     assert.deepEqual(expiry.controller.getSnapshot().results, []); expiry.calls[1].resolve([result("expiring")]); await flush();
     assert.equal(expiry.controller.getSnapshot().results[0].availability.status, "UNKNOWN"); pass("one expiry timer clears stale evidence and refreshes runtime");
     const late = new Harness(); late.controller.configure(input); late.advance(1000); late.calls[0].resolve([result("old", "UNKNOWN", "AVAILABLE", start + 500)]); await flush();
+    assert.equal(late.controller.getSnapshot().status, "loading"); assert.deepEqual(late.controller.getSnapshot().results, []);
+    late.advance(1000); assert.equal(late.calls.length, 2); late.calls[1].resolve([result("old", "UNKNOWN", "AVAILABLE", start + 500)]); await flush();
     assert.equal(late.controller.getSnapshot().status, "error"); assert.deepEqual(late.controller.getSnapshot().results, []); pass("evidence expiring during network wait is never rendered current");
+    late.advance(60000); assert.equal(late.calls.length, 2); assert.equal(late.timers.size, 0); pass("expired responses get only one delayed retry, never a refresh storm");
     expiry.controller.refresh(); expiry.controller.configure(null); expiry.calls[2].resolve([result("old", "LEGAL", "AVAILABLE")]); await flush();
     assert.equal(expiry.controller.getSnapshot().status, "idle"); assert.equal(expiry.timers.size, 0); pass("deactivation/unmount invalidates requests and timers");
     expiry.controller.configure(input); expiry.advance(250); assert.equal(expiry.calls.length, 4); pass("foreground/focus return starts a fresh search");
     const debounce = new Harness(); debounce.controller.configure(input); debounce.controller.configure({ ...input, durationMinutes: 30 }); debounce.controller.configure({ ...input, durationMinutes: 120 });
     debounce.advance(250); assert.equal(debounce.calls.length, 1); assert.equal(debounce.calls[0].request.durationMinutes, 120); pass("rapid control changes debounce into one latest search");
     debounce.controller.invalidate(); debounce.controller.invalidate(); debounce.advance(250); assert.equal(debounce.calls.length, 2); pass("realtime events coalesce into runtime refresh");
+    assert.deepEqual(await resolveParkingSearchLocation({ permission: async () => ({ status: "undetermined" }), position: async () => { throw new Error("must not request position"); } }), { status: "denied", point: null }); pass("dismissed permission request offers retry without an origin");
+    assert.deepEqual(await resolveParkingSearchLocation({ permission: async () => ({ status: "granted" }), servicesEnabled: async () => false, position: async () => { throw new Error("must not request position"); } }), { status: "error", point: null }); pass("disabled location services gives a recoverable error");
+    let timeout: (() => void) | undefined, timerCleared = false;
+    const timeoutLocation = resolveParkingSearchLocation({ permission: async () => ({ status: "granted" }), position: () => new Promise(() => {}), schedule: (callback, delay) => { assert.equal(delay, 20000); timeout = callback; return () => { timerCleared = true; }; } });
+    await flush(); assert(timeout); timeout(); assert.deepEqual(await timeoutLocation, { status: "error", point: null }); assert(timerCleared); pass("pending native position is bounded and timer cleared");
+    const abort = new AbortController(); timerCleared = false;
+    const cancelledLocation = resolveParkingSearchLocation({ permission: async () => ({ status: "granted" }), position: () => new Promise(() => {}), schedule: () => () => { timerCleared = true; } }, abort.signal);
+    await flush(); abort.abort(); assert.deepEqual(await cancelledLocation, { status: "error", point: null }); assert(timerCleared); pass("unmount cancellation releases location timer");
+    const guard = createParkingReportGuard(); let submissions = 0, finishReport!: () => void;
+    const firstReport = guard(() => { submissions++; return new Promise<void>(resolve => { finishReport = resolve; }); });
+    await guard(async () => { submissions++; }); assert.equal(submissions, 1); finishReport(); await firstReport;
+    await assert.rejects(guard(async () => { throw new Error("report failed"); })); await guard(async () => { submissions++; }); assert.equal(submissions, 2); pass("same-tick report taps submit once; success/failure releases lock");
+    const fallbackUrls: string[] = [];
+    await openParkingDirections(destination, { platform: "ios", canOpenURL: async () => true, openURL: async url => { fallbackUrls.push(url); if (url.includes("apple.com")) throw new Error("unavailable"); }, onFailure: () => assert.fail() });
+    assert.equal(fallbackUrls.length, 2); assert(!fallbackUrls[1].includes("destination_place_id")); pass("Apple launch failure falls back using coordinates, never a street as place ID");
+    let directionError = false;
+    await openParkingDirections(destination, { platform: "ios", canOpenURL: async () => false, openURL: async () => { throw new Error("unavailable"); }, onFailure: () => { directionError = true; } });
+    assert(directionError); pass("directions failure is surfaced to the user");
+    // Execute actual startup branching with inert JSX/native shells. This is
+    // not a device renderer; it proves no authenticated module loads on bad config.
+    const evaluate = (path: string, globals: Record<string, unknown>) => {
+      const exports = {};
+      const code = ts.transpileModule(readFileSync(path, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+      runInNewContext(code, { exports, URL, ...globals });
+      return exports as Record<string, any>;
+    };
+    for (const env of [{}, { EXPO_PUBLIC_SUPABASE_URL: "not-a-url", EXPO_PUBLIC_SUPABASE_ANON_KEY: "public-fixture" },
+      { EXPO_PUBLIC_SUPABASE_URL: "https://example.invalid", EXPO_PUBLIC_SUPABASE_ANON_KEY: " " }]) {
+      const config = evaluate("apps/mobile/src/constants/env.ts", { process: { env } });
+      assert.equal(config.isSupabaseConfigured(), false);
+      const loaded: string[] = [];
+      const startup = evaluate("apps/mobile/App.tsx", { require: (name: string) => {
+        loaded.push(name);
+        if (name === "react/jsx-runtime") return { jsx: (type: unknown, props: unknown) => ({ type, props }), jsxs: (type: unknown, props: unknown) => ({ type, props }), Fragment: "Fragment" };
+        if (name === "./src/constants/env") return config;
+        if (name === "./src/components/ConfigErrorScreen") return { ConfigErrorScreen: "ConfigErrorScreen" };
+        if (name === "react-native-safe-area-context") return { SafeAreaProvider: "SafeAreaProvider" };
+        if (name === "expo-status-bar") return { StatusBar: "StatusBar" };
+        if (name === "@react-navigation/native") return { NavigationContainer: "NavigationContainer" };
+        throw new Error(`Unexpected startup dependency: ${name}`);
+      } });
+      const root = startup.default(); assert.equal(root.type, "SafeAreaProvider");
+      const screen = root.props.children.type();
+      assert.equal(screen.props.children[1].type, "ConfigErrorScreen");
+      assert(!loaded.some(name => /AuthContext|RootNavigator|supabase/i.test(name)));
+    }
+    pass("missing/malformed mobile config renders safely before any authenticated module loads");
+    assert.equal(evaluate("apps/mobile/src/constants/env.ts", { process: { env: { EXPO_PUBLIC_SUPABASE_URL: "https://example.invalid", EXPO_PUBLIC_SUPABASE_ANON_KEY: "public-fixture" } } }).isSupabaseConfigured(), true);
+    pass("valid public config can enter the authenticated app path");
     assert(!Object.keys(require.cache).some(p => /supabaseClient\.[tj]s$/.test(p))); pass("tests do not import Supabase singleton; networking blocked");
     console.log(`${checks} parking search UI/controller checks passed; no network calls.`);
   } finally { restore.reverse().forEach(f => f()); }

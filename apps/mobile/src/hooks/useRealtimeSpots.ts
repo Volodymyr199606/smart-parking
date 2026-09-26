@@ -6,12 +6,13 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 export type ConnectionStatus = "live" | "reconnecting" | "offline";
 
 interface UseRealtimeSpotsOptions {
+  enabled?: boolean;
   onInsert: (spot: ParkingSpot) => void;
   onUpdate: (spot: ParkingSpot) => void;
   onDelete: (id: string) => void;
 }
 
-export function useRealtimeSpots({ onInsert, onUpdate, onDelete }: UseRealtimeSpotsOptions) {
+export function useRealtimeSpots({ onInsert, onUpdate, onDelete, enabled = true }: UseRealtimeSpotsOptions) {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("offline");
   const channelRef = useRef<RealtimeChannel | null>(null);
 
@@ -63,6 +64,7 @@ export function useRealtimeSpots({ onInsert, onUpdate, onDelete }: UseRealtimeSp
   }, []);
 
   useEffect(() => {
+    if (!enabled) { setConnectionStatus("offline"); return; }
     subscribe();
     return () => {
       if (channelRef.current) {
@@ -70,7 +72,7 @@ export function useRealtimeSpots({ onInsert, onUpdate, onDelete }: UseRealtimeSp
         channelRef.current = null;
       }
     };
-  }, [subscribe]);
+  }, [subscribe, enabled]);
 
   return { connectionStatus };
 }

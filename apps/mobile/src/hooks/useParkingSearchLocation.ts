@@ -4,13 +4,19 @@ import { resolveParkingSearchLocation, type ParkingSearchLocation } from "../uti
 export function useParkingSearchLocation() {
   const [location, setLocation] = useState<ParkingSearchLocation>({ status: "loading", point: null });
   const generation = useRef(0);
+  const pending = useRef<AbortController | null>(null);
   const retry = useCallback(async () => {
+    if (pending.current) return;
+    const cancellation = new AbortController();
+    pending.current = cancellation;
     const version = ++generation.current;
     setLocation({ status: "loading", point: null });
     const result = await resolveParkingSearchLocation({ permission: Location.requestForegroundPermissionsAsync,
-      position: () => Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }) });
+      servicesEnabled: Location.hasServicesEnabledAsync,
+      position: () => Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }) }, cancellation.signal);
+    if (pending.current === cancellation) pending.current = null;
     if (version === generation.current) setLocation(result);
   }, []);
-  useEffect(() => { void retry(); return () => { generation.current++; }; }, [retry]);
+  useEffect(() => { void retry(); return () => { generation.current++; pending.current?.abort(); pending.current = null; }; }, [retry]);
   return { ...location, retry };
 }

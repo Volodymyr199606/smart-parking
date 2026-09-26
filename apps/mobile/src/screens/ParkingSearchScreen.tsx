@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, FlatList, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useIsFocused } from "@react-navigation/native";
@@ -13,7 +13,7 @@ import { useParkingSearch, useParkingSearchLocation, useRealtimeSpots } from "..
 import { reportParkingSpot } from "../services/parkingService";
 import { parkingSearchEmptyMessage } from "../utils/parkingSearchViewModel";
 import { openParkingDirections } from "../utils/parkingDirections";
-import { submitParkingSearchReport } from "../utils/parkingSearchReport";
+import { createParkingReportGuard, submitParkingSearchReport } from "../utils/parkingSearchReport";
 import { colors, spacing } from "../constants/theme";
 
 export function ParkingSearchScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Map">) {
@@ -21,11 +21,14 @@ export function ParkingSearchScreen({ navigation }: NativeStackScreenProps<RootS
   const [foreground, setForeground] = useState(AppState.currentState === "active");
   const [duration, setDuration] = useState(60), [radius, setRadius] = useState(500), [requireLegal, setRequireLegal] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null), [reporting, setReporting] = useState(false), [notice, setNotice] = useState<string | null>(null);
+  const [guardReport] = useState(createParkingReportGuard);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { const listener = AppState.addEventListener("change", state => setForeground(state === "active")); return () => listener.remove(); }, []);
   const input = location.point ? { origin: location.point, durationMinutes: duration, radiusMeters: radius, requireLegal } : null;
   const search = useParkingSearch(input, focused && foreground, user?.id);
   // Keep the existing spot subscription, but route every event through the same runtime facade.
-  useRealtimeSpots({ onInsert: search.invalidate, onUpdate: search.invalidate, onDelete: search.invalidate });
+  useRealtimeSpots({ enabled: focused && foreground, onInsert: search.invalidate, onUpdate: search.invalidate, onDelete: search.invalidate });
   useEffect(() => { if (search.status !== "success" || !search.results.some(r => r.candidateId === selectedId)) setSelectedId(null); }, [search.status, search.results, selectedId]);
 
   function directions(result: services.ParkingSearchResult) {
@@ -35,13 +38,15 @@ export function ParkingSearchScreen({ navigation }: NativeStackScreenProps<RootS
     });
   }
   async function report(result: services.ParkingSearchResult, status: "AVAILABLE" | "OCCUPIED") {
-    if (!user || reporting) return;
-    setReporting(true); setNotice(null);
-    try {
-      await submitParkingSearchReport(result, user.id, status, { report: reportParkingSpot, refresh: search.refresh });
-      setNotice("Report saved. Results are being refreshed.");
-    } catch { setNotice("Could not save your report. Please try again."); }
-    finally { setReporting(false); }
+    if (!user) return;
+    await guardReport(async () => {
+      setReporting(true); setNotice(null);
+      try {
+        await submitParkingSearchReport(result, user.id, status, { report: reportParkingSpot, refresh: () => { if (mounted.current) search.refresh(); } });
+        if (mounted.current) setNotice("Report saved. Results are being refreshed.");
+      } catch { if (mounted.current) setNotice("Could not save your report. Please try again."); }
+      finally { if (mounted.current) setReporting(false); }
+    });
   }
   const locationMessage = location.status === "denied" ? "Location permission is off. Allow location access in settings, then retry."
     : "Your location could not be found. Please try again.";

@@ -22,8 +22,8 @@ export function ParkingSearchResultCard(props: { result: services.ParkingSearchR
     {props.selected && <View style={styles.actions}>
       <AppButton title="Get directions" onPress={props.onDirections} />
       <Text style={styles.secondary}>Report what you see now. Your report expires after 5 minutes.</Text>
-      <AppButton title="Report available" variant="outline" disabled={props.reporting} onPress={() => props.onReport("AVAILABLE")} />
-      <AppButton title="Report occupied" variant="outline" disabled={props.reporting} onPress={() => props.onReport("OCCUPIED")} />
+      <AppButton title="Report available" variant="outline" disabled={props.reporting} loading={props.reporting} onPress={() => props.onReport("AVAILABLE")} />
+      <AppButton title="Report occupied" variant="outline" disabled={props.reporting} loading={props.reporting} onPress={() => props.onReport("OCCUPIED")} />
       {props.reporting && <Text accessibilityLiveRegion="polite" style={styles.secondary}>Submitting report…</Text>}
       <AppButton title="Close actions" variant="outline" onPress={props.onClose} />
     </View>}

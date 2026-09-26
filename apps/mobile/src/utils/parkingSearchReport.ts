@@ -6,3 +6,13 @@ export async function submitParkingSearchReport(result: services.ParkingSearchRe
   await deps.report(userId, result.location.id, status);
   deps.refresh();
 }
+
+/** Synchronous lock: two taps before React renders still submit only once. */
+export function createParkingReportGuard() {
+  let pending = false;
+  return async (action: () => Promise<void>) => {
+    if (pending) return;
+    pending = true;
+    try { await action(); } finally { pending = false; }
+  };
+}

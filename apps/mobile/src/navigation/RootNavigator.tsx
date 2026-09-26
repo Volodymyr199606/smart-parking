@@ -1,13 +1,12 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ActivityIndicator, View } from "react-native";
-import {
-  WelcomeScreen,
-  LoginScreen,
-  RegisterScreen,
-  ParkingSearchScreen,
-  ProfileScreen,
-  SettingsScreen,
-} from "../screens";
+// Direct imports keep the legacy MapScreen/native-map probe out of this route.
+import { WelcomeScreen } from "../screens/WelcomeScreen";
+import { LoginScreen } from "../screens/LoginScreen";
+import { RegisterScreen } from "../screens/RegisterScreen";
+import { ParkingSearchScreen } from "../screens/ParkingSearchScreen";
+import { ProfileScreen } from "../screens/ProfileScreen";
+import { SettingsScreen } from "../screens/SettingsScreen";
 import { useAuth } from "../contexts/AuthContext";
 import { colors, font } from "../constants/theme";
 import type { RootStackParamList } from "../types";

@@ -12,12 +12,12 @@ export function ConfigErrorScreen() {
       <View style={styles.panel}>
         <Text style={styles.title}>Configuration required</Text>
         <Text style={styles.message}>
-          Supabase is not configured. Copy{" "}
+          Supabase configuration is missing or invalid. Copy{" "}
           <Text style={styles.mono}>apps/mobile/.env.example</Text> to{" "}
-          <Text style={styles.mono}>.env</Text> and set{" "}
+          <Text style={styles.mono}>apps/mobile/.env</Text> and set a valid URL in{" "}
           <Text style={styles.mono}>EXPO_PUBLIC_SUPABASE_URL</Text> and{" "}
-          <Text style={styles.mono}>EXPO_PUBLIC_SUPABASE_ANON_KEY</Text>, then
-          restart Expo.
+          <Text style={styles.mono}>EXPO_PUBLIC_SUPABASE_ANON_KEY</Text> to the anon or publishable key, then
+          restart Expo. Never use a service-role or secret key in the mobile app.
         </Text>
       </View>
     </SafeAreaView>

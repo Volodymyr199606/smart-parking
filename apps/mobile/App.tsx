@@ -1,11 +1,14 @@
 import { NavigationContainer } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import { ConfigErrorScreen } from "./src/components/ConfigErrorScreen";
-import { AuthProvider } from "./src/contexts/AuthContext";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { isSupabaseConfigured } from "./src/constants/env";
-import { RootNavigator } from "./src/navigation/RootNavigator";
 
 export default function App() {
+  return <SafeAreaProvider><ConfiguredApp /></SafeAreaProvider>;
+}
+
+function ConfiguredApp() {
   if (!isSupabaseConfigured()) {
     return (
       <>
@@ -14,6 +17,11 @@ export default function App() {
       </>
     );
   }
+
+  // These modules create the client at import time. Load only after validation,
+  // so missing configuration reaches the actionable screen above.
+  const { AuthProvider } = require("./src/contexts/AuthContext") as typeof import("./src/contexts/AuthContext");
+  const { RootNavigator } = require("./src/navigation/RootNavigator") as typeof import("./src/navigation/RootNavigator");
 
   return (
     <AuthProvider>

@@ -14,7 +14,7 @@ export function ParkingSearchControls(props: { duration: number; radius: number;
     <Text style={styles.text}>Arriving now · using your current location</Text>
     {choices("Stay", [30, 60, 120, 240], props.duration, props.onDuration, n => n < 60 ? `${n} min` : `${n / 60} ${n === 60 ? "hour" : "hours"}`)}
     {choices("Radius", [250, 500, 1000, 2000], props.radius, props.onRadius, n => n < 1000 ? `${n} m` : `${n / 1000} km`)}
-    <View style={styles.toggle}><Text style={styles.label}>Verified legal only</Text><Switch accessibilityLabel="Verified legal only" value={props.requireLegal} onValueChange={props.onRequireLegal} /></View>
+    <View style={styles.toggle}><Text style={[styles.label, styles.toggleLabel]}>Verified legal only</Text><Switch accessibilityLabel="Verified legal only" accessibilityState={{ checked: props.requireLegal }} value={props.requireLegal} onValueChange={props.onRequireLegal} /></View>
     <Text style={styles.note}>Rules are not fully verified for current spots. This filter may return no results.</Text>
   </View>;
 }
@@ -25,4 +25,5 @@ const styles = StyleSheet.create({
     borderColor: colors.border, marginRight: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: colors.surface },
   selected: { backgroundColor: colors.primary, borderColor: colors.primary }, selectedText: { color: colors.textOnDark },
   toggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48 },
+  toggleLabel: { flex: 1, marginRight: spacing.md },
 });
