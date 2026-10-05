@@ -2,6 +2,8 @@
 
 React Native Expo app for iOS and Android. This is the main product.
 
+Current native baseline: Expo **57.0.26**, React Native **0.86.3**, React **19.2.3**. Use an SDK-57-compatible Expo Go or rebuild the development client; iOS requires **16.4+**. See the [incremental upgrade report](../../docs/EXPO_SDK_57_UPGRADE.md) and [device smoke checklist](../../docs/MOBILE_PARKING_SEARCH_SMOKE_TEST.md). The authenticated route is `ParkingSearchScreen`; legacy map screens remain deferred.
+
 ## Purpose
 
 Help drivers in San Francisco find available street parking in real time.

@@ -40,7 +40,7 @@ smart-parking/
 
 | Layer | Technology |
 |-------|-----------|
-| Mobile App | React Native + Expo 54 (TypeScript, React 19) |
+| Mobile App | React Native 0.86 + Expo 57 (TypeScript, React 19.2) |
 | Website | Next.js 15 + Tailwind CSS 4 (TypeScript, React 19) |
 | Backend | Supabase (Postgres, Auth, Realtime) |
 | Database | PostgreSQL via Supabase |
